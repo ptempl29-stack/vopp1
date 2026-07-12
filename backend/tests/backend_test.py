@@ -1384,3 +1384,106 @@ def test_settings_logo_too_large_400():
 def test_settings_missing_clinic_name_422():
     r = requests.put(f"{API}/settings", json={"tagline": "x"}, headers=h("admin"), timeout=30)
     assert r.status_code == 422
+
+
+# ================= NEW iter 13: Daily Progress Note =================
+def test_daily_note_persists_all_fields():
+    p = requests.post(f"{API}/patients",
+                      json={"first_name": "TEST_Daily", "last_name": "Note",
+                            "dob": "1985-04-12", "gender": "Male"},
+                      headers=h("receptionist"), timeout=30).json()
+    payload = {
+        "patient_id": p["id"],
+        "title": "Daily Visit",
+        "note_type": "daily",
+        "content": "Patient presented alert and oriented x3, vitals stable.",
+        "dob": "1985-04-12",
+        "gender": "Male",
+        "ssn": "123-45-6789",
+        "visit_date": "2026-01-15",
+        "reason_for_visit": "Follow-up",
+        "attending_provider": "Dr. Elena Rodriguez",
+        "referring_provider": "Dr. Someone",
+        "icd10": "M54.5",
+    }
+    r = requests.post(f"{API}/notes", json=payload, headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["note_type"] == "daily"
+    for k in ("dob", "gender", "ssn", "visit_date", "reason_for_visit",
+              "attending_provider", "referring_provider", "icd10"):
+        assert d.get(k) == payload[k], f"{k} not persisted: {d.get(k)}"
+    # verify GET returns it
+    lst = requests.get(f"{API}/notes", headers=h("doctor"), timeout=30).json()
+    match = [n for n in lst if n["id"] == d["id"]]
+    assert match and match[0]["note_type"] == "daily"
+    assert match[0]["icd10"] == "M54.5"
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_daily_note_empty_content_rejected():
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_DN2", "last_name": "x"},
+                     headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/notes",
+                     json={"patient_id": p["id"], "title": "x", "note_type": "daily", "content": ""},
+                     headers=h("doctor"), timeout=30)
+    assert r.status_code == 400
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+# ================= NEW iter 13: Invoice next-number + refinements =================
+def test_invoice_next_number_format():
+    r = requests.get(f"{API}/invoices/next-number", headers=h("biller"), timeout=30)
+    assert r.status_code == 200
+    d = r.json()
+    assert "invoice_number" in d
+    num = d["invoice_number"]
+    assert num.startswith("MB-") and len(num) == 7, num
+
+
+def test_invoice_next_number_increments_after_create():
+    n1 = requests.get(f"{API}/invoices/next-number", headers=h("biller"), timeout=30).json()["invoice_number"]
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_Nx", "last_name": "N"},
+                     headers=h("receptionist"), timeout=30).json()
+    inv = requests.post(f"{API}/invoices",
+                       json={"patient_id": p["id"],
+                             "items": [{"cpt_code": "99213", "description": "v", "quantity": 1, "minutes": 15, "amount": 50.0}]},
+                       headers=h("biller"), timeout=30)
+    assert inv.status_code == 200, inv.text
+    invd = inv.json()
+    assert invd["invoice_number"] == n1
+    n2 = requests.get(f"{API}/invoices/next-number", headers=h("biller"), timeout=30).json()["invoice_number"]
+    assert int(n2.split("-")[1]) == int(n1.split("-")[1]) + 1
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_invoice_total_computes_quantity_times_amount():
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_QT", "last_name": "N"},
+                     headers=h("receptionist"), timeout=30).json()
+    items = [
+        {"cpt_code": "97110", "description": "PT", "quantity": 2, "minutes": 30, "amount": 55.0},
+        {"cpt_code": "99213", "description": "visit", "quantity": 1, "minutes": 15, "amount": 90.0},
+    ]
+    r = requests.post(f"{API}/invoices",
+                     json={"patient_id": p["id"], "items": items, "visit_reason": "Physical Therapy"},
+                     headers=h("biller"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["total"] == 200.0, d["total"]  # 2*55 + 1*90
+    assert d["visit_reason"] == "Physical Therapy"
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_invoice_status_invalid_rejected():
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_St2", "last_name": "N"},
+                     headers=h("receptionist"), timeout=30).json()
+    inv = requests.post(f"{API}/invoices",
+                       json={"patient_id": p["id"],
+                             "items": [{"cpt_code": "99213", "description": "v", "quantity": 1, "amount": 10.0}]},
+                       headers=h("biller"), timeout=30).json()
+    r = requests.put(f"{API}/invoices/{inv['id']}/status?status=nonsense", headers=h("biller"), timeout=30)
+    assert r.status_code == 400
+    r2 = requests.put(f"{API}/invoices/{inv['id']}/status?status=paid", headers=h("biller"), timeout=30)
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "paid"
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
