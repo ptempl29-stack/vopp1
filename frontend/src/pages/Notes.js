@@ -5,10 +5,11 @@ import { can } from "../lib/perms";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
-import { Plus, Sparkles, Loader2, FileText } from "lucide-react";
+import { SignaturePad } from "../components/SignaturePad";
+import { Plus, Sparkles, Loader2, FileText, PenLine } from "lucide-react";
 import { toast } from "sonner";
 
-const blank = { patient_id: "", title: "", content: "", summary: "" };
+const blank = { patient_id: "", title: "", content: "", summary: "", signature: "" };
 
 export default function Notes() {
   const { t } = useLang();
@@ -75,6 +76,12 @@ export default function Notes() {
                     <p className="text-sm text-moneygreen-800">{n.summary}</p>
                   </div>
                 )}
+                {n.signature && (
+                  <div className="mt-3 pt-3 border-t border-border flex items-end justify-between">
+                    <img src={n.signature} alt="signature" className="h-12 object-contain" data-testid={`note-sig-${n.id}`} />
+                    <p className="text-xs text-stone-500 text-right">{t("signedBy")}<br /><span className="font-semibold text-moneygreen-700">{n.signed_by}</span></p>
+                  </div>
+                )}
               </Card>
             </motion.div>
           ))}
@@ -109,6 +116,13 @@ export default function Notes() {
             </div>
             <textarea value={form.summary} onChange={set("summary")} rows={3} className={inputCls}
               data-testid="nf-summary" placeholder={t("aiSummary")} />
+          </div>
+
+          <div className="p-4 rounded-md bg-tan-50 border border-tan-200">
+            <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5 mb-2">
+              <PenLine className="w-3.5 h-3.5" /> {t("providerSignature")}
+            </p>
+            <SignaturePad value={form.signature} onChange={(v) => setForm((f) => ({ ...f, signature: v }))} testid="note-signature" />
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

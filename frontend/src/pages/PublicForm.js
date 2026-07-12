@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import { useLang } from "../context/LanguageContext";
+import { SignaturePad } from "../components/SignaturePad";
 import { Stethoscope, Languages, Loader2, CheckCircle2, FileWarning } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -28,6 +29,8 @@ export default function PublicForm() {
 
   const submit = async (e) => {
     e.preventDefault();
+    const missing = (form.template || []).filter((f) => f.required && !values[f.name]);
+    if (missing.length) { setState("ready"); alert(`${t("required")}: ${missing.map((m) => m[lang]).join(", ")}`); return; }
     setSubmitting(true);
     try {
       await axios.post(`${API}/public/forms/${token}/submit`, { responses: values });
@@ -109,6 +112,8 @@ export default function PublicForm() {
                       className="w-4 h-4 accent-moneygreen-600" />
                     <span className="text-sm text-stone-600">{t("iAgree")}</span>
                   </label>
+                ) : f.type === "signature" ? (
+                  <SignaturePad value={values[f.name]} onChange={(v) => set(f.name, v)} testid={`pf-${f.name}`} />
                 ) : (
                   <input type={f.type === "date" ? "date" : "text"} required={f.required} data-testid={`pf-${f.name}`}
                     value={values[f.name] || ""} onChange={(e) => set(f.name, e.target.value)}

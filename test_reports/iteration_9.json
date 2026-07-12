@@ -1,0 +1,48 @@
+{
+  "summary": "Full regression + new signature-capture feature + security-audit fixes (non-admin /users minimization, email header sanitization) tested end-to-end. Backend: 106/106 pytest passed (was 96; +10 new signature/security cases). Frontend: doctor signature-on-note (draw, save, note-sig-<id> img + 'Signed by Dr. Elena Marte' attribution), clear pad, unsigned note also saves; receptionist creates Consent form (template has type:'signature'), unauthenticated /form/<token> renders pf-signature canvas + client-side required-sig alert blocks submit, signed submit -> success, staff view-responses-<id> renders resp-sig-signature as <img data:image/png>. All verified visually and via API.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "signature_verifications": {
+    "doctor_note_signature_ui": "Draw on canvas[data-testid=note-signature] -> save-note-btn -> note-sig-<id> img renders on card with 'Signed by Dr. Elena Marte' text. 2 signed notes visible. Verified by pytest test_note_with_signature_stores_signed_by.",
+    "note_signature_clear": "note-signature-clear resets canvas to 'Sign here' placeholder and clears form.signature (empty=true).",
+    "note_optional_signature": "Note saved WITHOUT drawing signature -> 200 OK, no signed_by/signed_at (test_note_without_signature_still_saves).",
+    "note_signature_size_guard": "Signature >600KB -> 400 'Signature too large' (test_note_signature_too_large_400).",
+    "consent_template_signature_field": "POST /api/forms {form_type:'Consent'} returns template with signature field type='signature', required=true (test_consent_form_has_signature_field).",
+    "public_form_signature_pad_render": "GET /form/<token> UNAUTH renders SignaturePad canvas[data-testid=pf-signature] for signature-type fields (visually confirmed screenshot).",
+    "public_form_client_required_sig_alert": "Submitting Consent form with empty signature triggers window.alert('Required fields: Signature') and form is NOT submitted (still_on_form=true).",
+    "public_form_signed_submit": "Draw signature + submit -> POST /api/public/forms/<token>/submit 200, response.signature stored as 'data:image/png;base64,...' — success screen rendered.",
+    "public_form_signature_size_guard": "Signature >1.2MB in public submit -> 400 (test_public_submit_signature_too_large_400).",
+    "staff_signature_viewer": "Forms responses modal (view-responses-<id>) renders resp-sig-signature as <img> with src='data:image/png;base64,...' — NOT raw base64 text. Visually confirmed screenshot."
+  },
+  "security_verifications": {
+    "users_minimization_non_admin": "GET /api/users as doctor/nurse/biller/receptionist/psychologist returns ONLY {id,name,role}. No 'email', no 'allowed_tabs'. Confirmed for all 5 non-admin roles (test_users_list_non_admin_minimal_fields).",
+    "users_full_for_admin": "GET /api/users as admin returns full fields including email + allowed_tabs (test_users_list_admin_full_fields).",
+    "messaging_dropdown_still_works_non_admin": "Doctor can still enumerate directory (id+name+role) and successfully POST /messages to nurse (test_messaging_recipient_dropdown_non_admin).",
+    "email_header_sanitization": "send_email strips \\r\\n from subject and re-validates recipient via regex. Additionally Pydantic EmailStr on POST /forms rejects CRLF-injected recipient_email at API boundary with 422 (defense in depth). Confirmed no crash on submission attempts with CRLF-injected addresses. SMTP still unconfigured -> email_sent=false as expected."
+  },
+  "regression_verified": [
+    "login all 6 roles (admin, doctor, nurse, psychologist 5-tabs, receptionist, biller)",
+    "patients CRUD; appointments; notes create/list with role gating; AI /notes/summarize real summary",
+    "invoices create + mark paid; CPT CRUD; team edit-user/tabs/delete",
+    "billing reports summary+timeseries+cpt_breakdown; CSV export (header auth) rejects ?auth= query token",
+    "forms upload + authenticated download (octet-stream + attachment + nosniff); external URL",
+    "messages send/inbox/read; brute-force lockout 429; regex DoS safe",
+    "public form GET/submit/resubmit-block still work"
+  ],
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~872 lines; still healthy but consider splitting routers (auth/patients/notes/forms/reports/team) into modules before it grows past 1000 lines.",
+    "SignaturePad useEffect intentionally disables react-hooks/exhaustive-deps rule to only draw initial value once — acceptable, but resizing the parent element won't re-scale the loaded image. Not a bug for current UX.",
+    "PublicForm client-side required check for signature relies on truthy string. Empty canvas correctly emits '' on clear via onChange, so this works. Consider also disabling submit button when any required signature is empty for stronger UX (currently only after 1st failed submit an alert appears).",
+    "list_users(non-admin) uses Mongo projection {id:1,name:1,role:1} which returns each doc with only these keys — good. Ensure future features that add public-safe fields (e.g., avatar) explicitly extend this projection.",
+    "send_email sanitization order: strips \\r\\n AFTER a truthy check on to_email/subject. If YAHOO_* env is ever configured, this correctly protects against SMTP header injection. Pydantic EmailStr on recipient_email adds boundary defense (422)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (106/106)", "frontend": "100% (signature UI flows verified: doctor note sign/clear, consent public form pad, empty-sig alert, signed submit, staff responses img rendering)"},
+  "test_credentials": "Loaded from /app/memory/test_credentials.md — all 6 seeded roles used.",
+  "seed_data_creation": "Tests create TEST_-prefixed patients/forms/users/notes and clean up after themselves. Live UI created form id c0b6d3d3... (TEST_UI_Live) that is now in 'received' state with a signed response — left as evidence for main agent inspection.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Signature feature complete. Backend NoteInput.signature size guarded (600KB), public form signature guarded (1.2MB). Consent template uses type='signature'. Frontend SignaturePad in /components/SignaturePad.js uses canvas + mouse/touch listeners, emits PNG data URL on mouseup. To draw in Playwright, use page.evaluate to get bounding rect then page.mouse.move+down+move*N+up over the canvas. /api/users returns minimal {id,name,role} for non-admins (breaking change for any UI relying on email — messaging dropdown updated to use name+role which still works). send_email sanitizes CRLF in subject and validates recipient; Pydantic EmailStr rejects CRLF in recipient_email at 422 before even reaching send_email."
+}

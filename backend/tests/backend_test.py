@@ -963,3 +963,204 @@ def test_forms_status_requires_auth_401():
     # need a valid form id — but no auth → 401 before hitting id check
     r = requests.put(f"{API}/forms/anyid/status?status=received", timeout=30)
     assert r.status_code == 401
+
+
+# ================= NEW iteration 9: Signatures + Security audit fixes =================
+_sig_state = {}
+
+
+def _fake_sig_data_url():
+    """A minimal valid 1x1 PNG data URL to simulate a signature."""
+    import base64
+    png_1x1 = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+    )
+    return "data:image/png;base64," + base64.b64encode(png_1x1).decode()
+
+
+def test_note_with_signature_stores_signed_by():
+    """Doctor creates a note with signature -> signed_by=Dr name + signed_at set."""
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_Sig", "last_name": "Pt"},
+                      headers=h("receptionist"), timeout=30).json()
+    _sig_state["patient_id"] = p["id"]
+    sig = _fake_sig_data_url()
+    r = requests.post(f"{API}/notes",
+                      json={"patient_id": p["id"], "title": "Signed Visit",
+                            "content": "Patient stable.", "signature": sig},
+                      headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d.get("signature", "").startswith("data:image/png"), "signature not stored"
+    assert d.get("signed_by") and "Elena" in d["signed_by"] or d.get("signed_by") == users["doctor"]["name"], d.get("signed_by")
+    assert d.get("signed_at"), "signed_at missing"
+    _sig_state["note_id"] = d["id"]
+
+
+def test_note_without_signature_still_saves():
+    p_id = _sig_state["patient_id"]
+    r = requests.post(f"{API}/notes",
+                      json={"patient_id": p_id, "title": "Unsigned Visit",
+                            "content": "Follow up next week."},
+                      headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert not d.get("signature"), "expected no signature"
+    assert not d.get("signed_by"), "signed_by should be absent when unsigned"
+
+
+def test_note_signature_too_large_400():
+    p_id = _sig_state["patient_id"]
+    big_sig = "data:image/png;base64," + ("A" * 700000)
+    r = requests.post(f"{API}/notes",
+                      json={"patient_id": p_id, "title": "Big", "content": "x", "signature": big_sig},
+                      headers=h("doctor"), timeout=30)
+    assert r.status_code == 400, r.text
+
+
+# ---- Consent form has signature field type ----
+def test_consent_form_has_signature_field():
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_Consent", "last_name": "Pt"},
+                      headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/forms",
+                      json={"patient_id": p["id"], "title": "TEST_Consent Form", "form_type": "Consent"},
+                      headers=h("receptionist"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    types = [f.get("type") for f in d["template"]]
+    assert "signature" in types, f"consent template missing signature field: {types}"
+    sig_field = next(f for f in d["template"] if f["type"] == "signature")
+    assert sig_field.get("required") is True
+    _sig_state["consent_form_id"] = d["id"]
+    _sig_state["consent_token"] = d["public_token"]
+    _sig_state["consent_patient_id"] = p["id"]
+
+
+def test_public_submit_consent_with_signature():
+    """Patient signs consent form and submits via public endpoint."""
+    tok = _sig_state["consent_token"]
+    sig = _fake_sig_data_url()
+    # gather required fields from template
+    pub = requests.get(f"{API}/public/forms/{tok}", timeout=30).json()
+    responses = {}
+    for f in pub["template"]:
+        if f.get("required"):
+            if f["type"] == "signature":
+                responses[f["name"]] = sig
+            elif f["type"] == "checkbox":
+                responses[f["name"]] = True
+            elif f["type"] == "date":
+                responses[f["name"]] = "1990-05-05"
+            else:
+                responses[f["name"]] = "TEST_Consent Patient"
+    r = requests.post(f"{API}/public/forms/{tok}/submit",
+                      json={"responses": responses}, timeout=30)
+    assert r.status_code == 200, r.text
+    # staff-side: GET form and confirm signature stored as data:image
+    fid = _sig_state["consent_form_id"]
+    lst = requests.get(f"{API}/forms", headers=h("receptionist"), timeout=30).json()
+    match = [f for f in lst if f["id"] == fid][0]
+    assert match["status"] == "received"
+    sig_val = match.get("responses", {}).get("signature", "")
+    assert sig_val.startswith("data:image/"), f"signature not persisted as data URL: {sig_val[:30]}"
+    # cleanup
+    requests.delete(f"{API}/patients/{_sig_state['consent_patient_id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_public_submit_signature_too_large_400():
+    """Create fresh consent form, attempt submit with >1.2MB signature => 400."""
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_BigSig", "last_name": "Pt"},
+                      headers=h("receptionist"), timeout=30).json()
+    f = requests.post(f"{API}/forms",
+                     json={"patient_id": p["id"], "title": "TEST_BigSigForm", "form_type": "Consent"},
+                     headers=h("receptionist"), timeout=30).json()
+    tok = f["public_token"]
+    big_sig = "data:image/png;base64," + ("A" * 1_300_000)
+    pub = requests.get(f"{API}/public/forms/{tok}", timeout=30).json()
+    responses = {}
+    for fl in pub["template"]:
+        if fl.get("required"):
+            if fl["type"] == "signature":
+                responses[fl["name"]] = big_sig
+            elif fl["type"] == "checkbox":
+                responses[fl["name"]] = True
+            elif fl["type"] == "date":
+                responses[fl["name"]] = "1990-01-01"
+            else:
+                responses[fl["name"]] = "x"
+    r = requests.post(f"{API}/public/forms/{tok}/submit", json={"responses": responses}, timeout=30)
+    assert r.status_code == 400, f"expected 400 got {r.status_code}: {r.text[:200]}"
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+# ---- Security: /api/users minimization for non-admins ----
+def test_users_list_non_admin_minimal_fields():
+    """Doctor/biller must NOT see email or allowed_tabs; only id/name/role."""
+    for role in ("doctor", "biller", "nurse", "receptionist", "psychologist"):
+        r = requests.get(f"{API}/users", headers=h(role), timeout=30)
+        assert r.status_code == 200, f"{role} got {r.status_code}"
+        arr = r.json()
+        assert arr, f"empty users for {role}"
+        for u in arr:
+            assert set(u.keys()) <= {"id", "name", "role"}, f"{role} sees leaked fields: {set(u.keys())}"
+            assert "email" not in u
+            assert "allowed_tabs" not in u
+
+
+def test_users_list_admin_full_fields():
+    r = requests.get(f"{API}/users", headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    arr = r.json()
+    # Admin must still see email + allowed_tabs
+    assert all("email" in u for u in arr), "admin should see email"
+    assert all("allowed_tabs" in u for u in arr), "admin should see allowed_tabs"
+
+
+# ---- Security: send_email CR/LF sanitization + invalid email ----
+def test_send_email_header_sanitization_no_crash():
+    """Trigger send_email path via form creation with weird subject-carrying data.
+    Since SMTP is unconfigured, send_email short-circuits BEFORE the sanitization branch,
+    so we validate that malicious CRLF in recipient / subject-adjacent inputs doesn't crash
+    form creation. Also directly probe: recipient with newline still returns email_sent=false,
+    and a subject with CRLF cannot inject headers (email_sent=false)."""
+    p = requests.post(f"{API}/patients",
+                      json={"first_name": "TEST_CRLF", "last_name": "Pt",
+                            "email": "victim@example.com\r\nBcc: attacker@evil.com"},
+                      headers=h("receptionist"), timeout=30)
+    # Patient with CRLF-injected email may be accepted (email is free-form); ensure it doesn't 500.
+    assert p.status_code in (200, 400), p.text
+    if p.status_code == 200:
+        pid = p.json()["id"]
+        # Trigger form creation with recipient_email containing CRLF
+        # CRLF-injected recipient_email must be rejected at API boundary (422) OR
+        # accepted-and-sanitized (200 with email_sent=false). Either is acceptable defense.
+        r = requests.post(f"{API}/forms",
+                          json={"patient_id": pid, "title": "TEST_CRLF Form", "form_type": "Intake",
+                                "recipient_email": "attacker@evil.com\r\nBcc: hacker@evil.com"},
+                          headers=h("receptionist"), timeout=30)
+        assert r.status_code in (200, 422), r.text
+        if r.status_code == 200:
+            d = r.json()
+            assert d.get("email_sent") is False
+            requests.delete(f"{API}/forms/{d['id']}", headers=h("receptionist"), timeout=30)
+        # Also confirm a clean form with CRLF-free recipient still saves fine
+        clean = requests.post(f"{API}/forms",
+                          json={"patient_id": pid, "title": "TEST_Clean", "form_type": "Intake",
+                                "recipient_email": "clean@example.com"},
+                          headers=h("receptionist"), timeout=30)
+        assert clean.status_code == 200
+        requests.delete(f"{API}/forms/{clean.json()['id']}", headers=h("receptionist"), timeout=30)
+        requests.delete(f"{API}/patients/{pid}", headers=h("receptionist"), timeout=30)
+
+
+# ---- Regression: messaging still works for non-admin (has id+name+role) ----
+def test_messaging_recipient_dropdown_non_admin():
+    """Doctor can still see nurse id/name/role and send message."""
+    r = requests.get(f"{API}/users", headers=h("doctor"), timeout=30)
+    assert r.status_code == 200
+    directory = r.json()
+    nurse = next((u for u in directory if u["role"] == "nurse"), None)
+    assert nurse and nurse.get("id") and nurse.get("name")
+    m = requests.post(f"{API}/messages",
+                      json={"to_user_id": nurse["id"], "subject": "sig-test", "body": "hi"},
+                      headers=h("doctor"), timeout=30)
+    assert m.status_code == 200

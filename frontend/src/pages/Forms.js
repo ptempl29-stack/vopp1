@@ -227,7 +227,11 @@ export default function Forms() {
               (viewing.template || []).filter((fld) => viewing.responses[fld.name] !== undefined && viewing.responses[fld.name] !== "").map((fld) => (
                 <div key={fld.name} className="border-b border-border pb-2">
                   <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{fld.en}</p>
-                  <p className="text-sm text-moneygreen-800 mt-0.5">{String(viewing.responses[fld.name])}</p>
+                  {String(viewing.responses[fld.name]).startsWith("data:image") ? (
+                    <img src={viewing.responses[fld.name]} alt={fld.en} className="h-16 object-contain mt-1" data-testid={`resp-sig-${fld.name}`} />
+                  ) : (
+                    <p className="text-sm text-moneygreen-800 mt-0.5">{String(viewing.responses[fld.name])}</p>
+                  )}
                 </div>
               ))
             ) : <p className="text-sm text-stone-500">{t("noResponses")}</p>}

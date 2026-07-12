@@ -97,6 +97,11 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
     if not email_configured():
         logging.getLogger(__name__).info("Email not configured; skipping send")
         return False
+    to_email = (to_email or "").strip().replace("\r", "").replace("\n", "")
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", to_email):
+        logging.getLogger(__name__).error("Invalid recipient email; skipping send")
+        return False
+    subject = (subject or "").replace("\r", " ").replace("\n", " ")
     msg = EmailMessage()
     msg["From"] = os.environ["YAHOO_EMAIL"]
     msg["To"] = to_email
@@ -199,6 +204,7 @@ class NoteInput(BaseModel):
     title: str
     content: str
     summary: Optional[str] = None
+    signature: Optional[str] = None
 
 class SummarizeInput(BaseModel):
     content: str
@@ -295,9 +301,13 @@ async def me(user: dict = Depends(get_current_user)):
 
 @api_router.get("/users")
 async def list_users(user: dict = Depends(get_current_user)):
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(200)
-    for u in users:
-        u["allowed_tabs"] = effective_tabs(u)
+    if user["role"] == "admin":
+        users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(200)
+        for u in users:
+            u["allowed_tabs"] = effective_tabs(u)
+        return users
+    # non-admins only get the minimal directory needed for messaging
+    users = await db.users.find({}, {"_id": 0, "id": 1, "name": 1, "role": 1}).to_list(200)
     return users
 
 @api_router.put("/users/{uid}/tabs")
@@ -431,7 +441,12 @@ async def list_notes(patient_id: Optional[str] = None, user: dict = Depends(requ
 @api_router.post("/notes")
 async def create_note(data: NoteInput, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
     doc = data.model_dump()
+    if doc.get("signature") and len(doc["signature"]) > 600000:
+        raise HTTPException(status_code=400, detail="Signature too large")
     doc.update({"id": str(uuid.uuid4()), "created_at": now_iso(), "author": user["name"]})
+    if doc.get("signature"):
+        doc["signed_by"] = user["name"]
+        doc["signed_at"] = now_iso()
     await db.notes.insert_one(doc)
     doc.pop("_id", None)
     return doc
@@ -550,7 +565,7 @@ FORM_TEMPLATES = {
     "Consent": [
         {"name": "patient_name", "en": "Patient Name", "es": "Nombre del Paciente", "type": "text", "required": True},
         {"name": "consent", "en": "I consent to treatment", "es": "Consiento al tratamiento", "type": "checkbox", "required": True},
-        {"name": "signature", "en": "Signature (type full name)", "es": "Firma (escriba su nombre)", "type": "text", "required": True},
+        {"name": "signature", "en": "Signature", "es": "Firma", "type": "signature", "required": True},
         {"name": "date", "en": "Date", "es": "Fecha", "type": "date", "required": True},
     ],
     "Medical History": [
@@ -677,6 +692,9 @@ async def public_get_form(token: str):
 
 @api_router.post("/public/forms/{token}/submit")
 async def public_submit_form(token: str, data: FormSubmission):
+    import json as _json
+    if len(_json.dumps(data.responses)) > 1_200_000:
+        raise HTTPException(status_code=400, detail="Submission too large")
     f = await db.forms.find_one({"public_token": token})
     if not f:
         raise HTTPException(status_code=404, detail="Form not found")
