@@ -66,6 +66,12 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Verified: 96/96 backend, frontend E2E.
 - STILL ACCEPTED (preview-only / prod-config): SEC-001 demo seeding active (`SEED_DEMO_USERS=true`) for demo usability — set `false` in production; CORS `*`, localStorage token, XFF-based lockout, HIPAA data-at-rest + BAA video remain production hardening items.
 
+## Iteration 9 (2026-06) — Signature capture + audit LOW fixes
+- **Doctor signatures on progress notes**: draw-to-sign canvas (`SignaturePad`) in the note editor; stored as PNG data URL with `signed_by` + `signed_at`; rendered with attribution on the note card. Signature optional; 600KB size guard.
+- **Patient signatures on forms**: Consent template's signature field renders a signature pad on the unauthenticated public form; drawn signature stored in submission (1.2MB guard) and shown as an image in the staff responses viewer. Client + server required-field enforcement.
+- Security LOW fixes: non-admin `GET /users` returns only id/name/role (no email/tabs); `send_email` strips CR/LF from subject + validates recipient (header-injection hardening).
+- Tested: 106/106 backend, frontend E2E.
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.
