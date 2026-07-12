@@ -77,6 +77,11 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Forms list shows a green **"Signed" badge** on any received form whose submission contains a signature image.
 - Tested: 111/111 backend, frontend E2E (signed-badge correct across 84 forms, 0 mismatches).
 
+## Iteration 11 (2026-06) — SOAP progress notes
+- Progress note editor now has a **Note Type** toggle: **Free Text** (original, unchanged) or **SOAP** (Subjective/Objective/Assessment/Plan four-field layout).
+- SOAP notes auto-build a combined `content` server-side so search, AI summarize, and signatures work identically for both types; card shows a SOAP badge + labeled S/O/A/P sections. Empty notes rejected (client + 400).
+- Tested: 118/118 backend, frontend E2E.
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.
