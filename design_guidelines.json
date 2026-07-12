@@ -1,0 +1,150 @@
+{
+  "project_name": "Veterans of Puerto Plata Clinic Dashboard",
+  "theme": "Light mode primary (medical data clarity), Dark mode supported. Calming and professional.",
+  "typography": {
+    "strategy": "Warm approachability meets clinical precision.",
+    "headings": {
+      "family": "Manrope",
+      "weights": ["500", "700", "800"],
+      "rule": "Use tight tracking (tracking-tight) for large headers to maintain a solid, trustworthy appearance. Never use Inter for headings."
+    },
+    "body": {
+      "family": "IBM Plex Sans",
+      "weights": ["400", "500"],
+      "rule": "Crisp and highly legible for dense medical data, CPT codes, and progress notes. Use standard tracking."
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-extrabold tracking-tight text-moneygreen-900",
+      "h2": "text-2xl sm:text-3xl font-bold tracking-tight text-moneygreen-800",
+      "h3": "text-xl sm:text-2xl font-semibold text-moneygreen-800",
+      "h4": "text-lg sm:text-xl font-semibold text-moneygreen-700",
+      "body": "text-base text-stone-600 leading-relaxed",
+      "small_labels": "text-xs font-bold uppercase tracking-[0.2em] text-stone-500"
+    }
+  },
+  "colors": {
+    "strategy": "Archetype 1: Organic & Earthy (Trust, Growth, Calm). No neon. Flat matte colors.",
+    "palette": {
+      "background": "#F7F5F0",
+      "surface": "#FFFFFF",
+      "primary": "#2D5A40",
+      "primary_hover": "#1F422E",
+      "accent": "#4CAF50",
+      "text_main": "#1C2420",
+      "text_muted": "#5C6661",
+      "border": "#E5E1D8",
+      "error": "#D32F2F",
+      "warning": "#F57C00"
+    },
+    "tailwind_config": {
+      "tan": {
+        "50": "#FAF9F7",
+        "100": "#F7F5F0",
+        "200": "#EAE5D9",
+        "300": "#DCD3C0",
+        "900": "#3B3527"
+      },
+      "moneygreen": {
+        "50": "#EBF2EE",
+        "100": "#D0E1D6",
+        "500": "#41805B",
+        "600": "#2D5A40",
+        "700": "#21422F",
+        "900": "#112218"
+      }
+    },
+    "rules": [
+      "No full-screen gradients. Medical UIs require absolute optical clarity.",
+      "Never use pure black #000000. Use deep forest #112218 instead.",
+      "Ensure minimum 4.5:1 contrast for all text, specifically in the billing/CPT tables."
+    ]
+  },
+  "visual_enhancers": {
+    "surfaces": "Medical Protocol: Use Flat Solid surfaces. STRICTLY NO GLASSMORPHISM. Glassmorphism creates refraction and reduces clinical readability. Use bg-white or bg-tan-50.",
+    "borders": "1px crisp borders (border-border or border-black/5). No soft fuzzy dropshadows.",
+    "shadows": "Minimal. Use shadow-sm for active cards, none for static data tables. Flat, cardless design preferred for data grids.",
+    "radius": "Subtle roundness. rounded-md or rounded-lg (max 8px). Do not use pill-shapes except for status badges."
+  },
+  "grids_and_layouts": {
+    "bento_strategy": "High Density Grid for Dashboards. grid-cols-1 md:grid-cols-3 lg:grid-cols-4. Tight gaps (gap-4 or gap-6).",
+    "dashboard_rules": [
+      "Progressive Disclosure: Show primary metrics (e.g., 'Unread Messages', 'Pending Notes') at the top.",
+      "Max 9 widgets per screen to avoid cognitive overload.",
+      "F-Pattern Information Architecture: Place the North Star Metric in the top-left quadrant.",
+      "Global language toggle (EN/ES) must be clearly visible in the top right nav."
+    ],
+    "sidebar": "Collapsible left-sidebar navigation for scaling (Patients, Calendar, Notes, Invoices, Forms, Messages).",
+    "data_tables": "Flat tables with alternating faint row colors (bg-transparent and bg-tan-50/50). Sticky headers for long lists."
+  },
+  "components": {
+    "strategy": "Shadcn UI heavily customized to strip the 'Vercel' look, adopting a 'Flat solid clinical' aesthetic.",
+    "buttons": "Rectangular with slight rounded corners (rounded-md). Solid fill for primary (bg-moneygreen-600). Hover state must be explicit (hover:bg-moneygreen-700 hover:text-white).",
+    "inputs": "Flat backgrounds (bg-white), 1px solid borders (border-stone-200), focus:ring-moneygreen-500. Add search icons inside inputs where appropriate.",
+    "dialogs": "Used for digital forms and quick progress notes. Solid white background, a clear close button, and dim solid backdrop (bg-black/40).",
+    "toasts": "Sonner (sonner.js or sonner.jsx). Position top-right. Used for 'Note saved', 'Invoice generated', 'Message sent'."
+  },
+  "motion": {
+    "strategy": "Minimalist, micro-interactions for feedback. No distracting bouncy animations.",
+    "interactions": [
+      "Hover states for all table rows and buttons (transition-colors duration-200).",
+      "Smooth entrance for lists/cards using staggered fade-ins (framer-motion, opacity 0 to 1, y: 5 to 0).",
+      "Do NOT use universal 'transition: all'."
+    ],
+    "accessibility": "Must respect prefers-reduced-motion."
+  },
+  "media_and_icons": {
+    "icons": "lucide-react (Standard weight, crisp edges) for medical UI.",
+    "image_urls": {
+      "login_background": {
+        "url": "https://images.unsplash.com/photo-1782768189709-77450208199b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwxfHxjYWxtaW5nJTIwYWJzdHJhY3QlMjBuYXR1cmUlMjB0YW4lMjBncmVlbnxlbnwwfHx8fDE3ODM4NjkxMTB8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract tan and green calming nature texture, ideal for auth screen split layout."
+      },
+      "doctor_avatar_1": {
+        "url": "https://images.unsplash.com/photo-1622253692010-333f2da6031d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwzfHxmcmllbmRseSUyMGRvY3RvciUyMHBvcnRyYWl0JTIwY2xpbmljfGVufDB8fHx8MTc4Mzg2OTExMHww&ixlib=rb-4.1.0&q=85",
+        "description": "Friendly male doctor in blue scrubs. Use for user profile placeholder."
+      },
+      "doctor_avatar_2": {
+        "url": "https://images.unsplash.com/photo-1673865641073-4479f93a7776?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwxfHxmcmllbmRseSUyMGRvY3RvciUyMHBvcnRyYWl0JTIwY2xpbmljfGVufDB8fHx8MTc4Mzg2OTExMHww&ixlib=rb-4.1.0&q=85",
+        "description": "Friendly female doctor in white coat. Use for internal messaging avatars."
+      },
+      "clinic_desk": {
+        "url": "https://images.unsplash.com/photo-1758691463333-c79215e8bc3b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njd8MHwxfHNlYXJjaHwxfHxtZWRpY2FsJTIwY2xpbmljJTIwaW50ZXJpb3IlMjBkZXNrfGVufDB8fHx8MTc4Mzg2OTExMHww&ixlib=rb-4.1.0&q=85",
+        "description": "Doctor at clinic desk. Can be used in 'Welcome' or 'About' cards on dashboard."
+      }
+    }
+  },
+  "libraries": {
+    "charts": "recharts (for patient demographics or revenue metrics, utilizing the tan/green palette).",
+    "animations": "framer-motion",
+    "icons": "lucide-react",
+    "toasts": "sonner"
+  },
+  "GENERAL_UI_UX_DESIGN_GUIDELINES": [
+    "All interactive and key informational elements MUST include a `data-testid` attribute (e.g., `data-testid=\"login-submit-button\"`).",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Always explicitly set text color on hover - never rely on inheritance.",
+    "Do NOT use complete `transparent` background in header, overlays, or any surface that has content under it.",
+    "Ensure contrast ratio meets APCA standards. Text over images must have a solid or gradient backdrop.",
+    "Always use modern button styles (rounded-md with solid/outline) with explicit interaction states.",
+    "Do not use default generic centering (.App { text-align: center }). Left-align forms, data, and dense content for readability.",
+    "Mobile-first responsive grids.",
+    "Include a visible global Navigation bar/Sidebar at all times."
+  ],
+  "instructions_to_main_agent": [
+    "1. Setup Shadcn UI components for Tables, Calendars (for appointments), Select, Dropdowns, Dialogs, and Tabs using .js/.jsx extensions instead of .tsx.",
+    "2. Implement a global state or Context for the English/Spanish language toggle affecting the UI.",
+    "3. Build a persistent F-pattern sidebar navigation containing links to: Dashboard, Patients, Appointments, Notes, Invoices, Forms, Messages.",
+    "4. For the 'Progress Notes' section, include a distinct UI area labeled 'AI Summarization' (perhaps highlighted with the money-green accent) to clearly delineate AI-generated content from manual notes.",
+    "5. Do NOT apply global transitions in CSS (e.g., transition: all). Add explicit transition utility classes (e.g., transition-colors) only to interactive components.",
+    "6. Avoid standard default SaaS blue. Inject the custom tan and money-green palette deeply into Tailwind config and Shadcn overrides.",
+    "7. Construct the Medical Dashboard using pure grid utility classes (e.g., grid-cols-4) with max 9 widgets per screen to prevent visual clutter.",
+    "8. Ensure the design supports distinct role-based views for doctors, nurses, receptionists, and billers."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Avoid 'AI slop' by strictly following the typographic hierarchy (Manrope + IBM Plex Sans) and the specific tan/green color palette.",
+    "Do not use dark colors as gradients. Keep colors flat and solid.",
+    "Never use placeholder URLs (via.placeholder.com). Use the provided Unsplash URLs in this JSON.",
+    "Never use AI assistant Emoji characters like robot, brain, thought bubble, bulb, crystal ball, dart for icons. Use `lucide-react` icons.",
+    "Prioritize using pre-existing components from src/components/ui. Create new components matching existing styles when necessary."
+  ]
+}
