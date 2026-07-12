@@ -6,6 +6,9 @@ import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../
 import { Plus, Trash2, CheckCircle2, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 
+let itemSeq = 0;
+const newItem = () => ({ _uid: `it-${itemSeq++}`, cpt_code: "", description: "", amount: 0, quantity: 1 });
+
 export default function Invoices() {
   const { t } = useLang();
   const [invoices, setInvoices] = useState([]);
@@ -13,7 +16,7 @@ export default function Invoices() {
   const [cpt, setCpt] = useState([]);
   const [open, setOpen] = useState(false);
   const [patientId, setPatientId] = useState("");
-  const [items, setItems] = useState([{ cpt_code: "", description: "", amount: 0, quantity: 1 }]);
+  const [items, setItems] = useState([newItem()]);
 
   const load = () => api.get("/invoices").then((r) => setInvoices(r.data)).catch(() => {});
   useEffect(() => {
@@ -22,11 +25,11 @@ export default function Invoices() {
     api.get("/cpt-codes").then((r) => setCpt(r.data)).catch(() => {});
   }, []);
 
-  const addItem = () => setItems([...items, { cpt_code: "", description: "", amount: 0, quantity: 1 }]);
+  const addItem = () => setItems([...items, newItem()]);
   const setItem = (idx, code) => {
     const c = cpt.find((x) => x.code === code);
     const next = [...items];
-    next[idx] = { cpt_code: code, description: c?.description || "", amount: c?.amount || 0, quantity: next[idx].quantity };
+    next[idx] = { ...next[idx], cpt_code: code, description: c?.description || "", amount: c?.amount || 0 };
     setItems(next);
   };
   const setQty = (idx, q) => { const next = [...items]; next[idx].quantity = Math.max(1, +q || 1); setItems(next); };
@@ -40,7 +43,7 @@ export default function Invoices() {
     try {
       await api.post("/invoices", { patient_id: patientId, items: valid, status: "unpaid" });
       toast.success(t("save") + " ✓");
-      setOpen(false); setItems([{ cpt_code: "", description: "", amount: 0, quantity: 1 }]); setPatientId(""); load();
+      setOpen(false); setItems([newItem()]); setPatientId(""); load();
     } catch (err) { toast.error(apiErr(err)); }
   };
 
@@ -73,7 +76,7 @@ export default function Invoices() {
                 </div>
                 <div className="space-y-1 mb-3">
                   {inv.items.map((it, k) => (
-                    <div key={k} className="flex justify-between text-sm">
+                    <div key={`${it.cpt_code}-${k}`} className="flex justify-between text-sm">
                       <span className="text-stone-600"><span className="font-mono text-moneygreen-600">{it.cpt_code}</span> {it.description} ×{it.quantity}</span>
                       <span className="text-stone-700">${(it.amount * it.quantity).toFixed(2)}</span>
                     </div>
@@ -108,7 +111,7 @@ export default function Invoices() {
               <Btn type="button" variant="ghost" onClick={addItem} data-testid="add-item-btn"><Plus className="w-4 h-4" />{t("addItem")}</Btn>
             </div>
             {items.map((it, idx) => (
-              <div key={idx} className="flex gap-2 items-center">
+              <div key={it._uid} className="flex gap-2 items-center">
                 <select value={it.cpt_code} onChange={(e) => setItem(idx, e.target.value)} className={inputCls + " flex-1"} data-testid={`item-cpt-${idx}`}>
                   <option value="">{t("cptCode")}</option>
                   {cpt.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.description} (${c.amount})</option>)}

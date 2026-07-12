@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 2: revalidated backend regression suite (31/31 pytest passed) and frontend flows after AI summarize LLM recharge + Invoices/Telehealth refactors. AI summarization now works end-to-end (real summary populates nf-summary and AI Summary block appears in the saved note card). Invoices flow works: created invoice with 2 different CPT items, total $185.00 correct, saved, marked Paid. Telehealth ad-hoc session mounts the Jitsi iframe successfully (start-adhoc-btn works after useMemo change). Regression of login/patients/appointments/notes/forms/messages/stats/RBAC 403 all green.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Patients page (add-patient-btn)",
+        "issue": "Biller role sees the 'Add Patient' button in the UI even though backend correctly returns 403. Button should be hidden for roles that cannot create patients (biller). Similar RBAC-in-UI check likely missing on other add buttons.",
+        "selector": "[data-testid=\"add-patient-btn\"]",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Invoices modal (console)",
+        "issues": ["Console hydration warning: '<span> cannot be a child of <option>' — appears to be injected instrumentation from ve-dynamic tooling, not application code; benign in preview."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional UI polish: hide add-patient-btn (and other role-restricted create buttons) for roles without permission — e.g., biller. Backend RBAC already enforced (403), so this is UX-only."
+  ],
+  "critical_code_review_comments": [
+    "RBAC is enforced only at API level; several create/edit buttons render for all roles and only fail on submit. Consider a small `can(role, action)` helper in frontend to hide/disable actions the user can't perform.",
+    "Notes.js: AI summarize does not disable the submit button or show a spinner in the summary textarea while streaming — minor UX nit; currently shows a disabled button state which is fine.",
+    "Invoices.js _uid keys fix looks correct — add/remove line items no longer re-mount other rows. Verified by adding 2 items and computing total $185.00 correctly.",
+    "Telehealth.js activeAppts useMemo change works — page renders without errors and start-adhoc-btn correctly mounts Jitsi container."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (replaced test_summarize_note_expected_500 with test_summarize_note_success + added test_summarize_note_forbidden_for_biller)"
+  ],
+  "success_rate": {"backend": "100% (31/31)", "frontend": "100% on the 3 targeted flows + regressions"},
+  "test_credentials": "Used /app/memory/test_credentials.md accounts (doctor@vpp.com/doctor123, biller@vpp.com/biller123, etc.)",
+  "seed_data_creation": "Created TEST_ prefixed patient/appointment/note/invoice/form/message via pytest; delete tests cleaned patient+appointment. A TEST_AI_Visit note and 2 invoices remain in DB from Playwright flow (harmless demo data).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "AI summarize (POST /api/notes/summarize) confirmed working with gpt-5.4 via emergentintegrations — returns real multi-line clinical summary (~350 chars) in ~5-15s. Invoices and Telehealth refactors verified. Only remaining polish item is hiding role-restricted create buttons in the UI (backend RBAC already correct).",
+  "rca of the issue": "N/A — no new bugs. The biller-sees-add-patient-btn observation is a pre-existing UX limitation, not caused by this iteration's changes."
+}

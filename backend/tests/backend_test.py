@@ -143,17 +143,23 @@ def test_receptionist_cannot_create_note():
     assert r.status_code == 403
 
 
-def test_summarize_note_expected_500():
-    """AI summarize expected to fail with 500 (budget) but must return clean JSON."""
+def test_summarize_note_success():
+    """AI summarize should now return real summary (LLM budget recharged)."""
     r = requests.post(f"{API}/notes/summarize",
-                      json={"content": "Patient reports persistent headache for 3 days."},
-                      headers=h("doctor"), timeout=60)
-    # Either succeeds (unlikely given $0 balance) or returns clean 500 with detail
-    assert r.status_code in (200, 500)
-    if r.status_code == 500:
-        data = r.json()
-        assert "detail" in data
-        assert isinstance(data["detail"], str)
+                      json={"content": "Patient reports persistent headache for 3 days, worsening at night. Denies fever or vision changes. Taking OTC ibuprofen with minimal relief."},
+                      headers=h("doctor"), timeout=90)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "summary" in data
+    assert isinstance(data["summary"], str)
+    assert len(data["summary"]) > 10
+
+
+def test_summarize_note_forbidden_for_biller():
+    r = requests.post(f"{API}/notes/summarize",
+                      json={"content": "hi"},
+                      headers=h("biller"), timeout=30)
+    assert r.status_code == 403
 
 
 # ----- Invoices -----

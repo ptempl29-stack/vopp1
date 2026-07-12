@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
@@ -18,6 +18,8 @@ export default function Telehealth() {
   const apiRef = useRef(null);
 
   useEffect(() => { api.get("/appointments").then((r) => setAppts(r.data)).catch(() => {}); }, []);
+
+  const activeAppts = useMemo(() => appts.filter((a) => a.status !== "cancelled"), [appts]);
 
   useEffect(() => {
     if (!active || !room) return;
@@ -83,7 +85,7 @@ export default function Telehealth() {
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {appts.filter((a) => a.status !== "cancelled").map((a) => (
+        {activeAppts.map((a) => (
           <Card key={a.id} className="p-5" data-testid={`tele-appt-${a.id}`}>
             <p className="font-heading font-bold text-moneygreen-800">{a.patient_name}</p>
             <p className="text-sm text-stone-500 flex items-center gap-1.5 mt-1 mb-4">
