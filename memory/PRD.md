@@ -96,6 +96,13 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Forms Print / Save as PDF**: responses viewer modal now has Print + Save-as-PDF buttons using `window.print()`; `#form-print` region in `App.css` @media print isolates the letterhead form document (title, metadata, all field responses, signature image) — modal chrome hidden. Verified via print-media screenshots (empty + signed forms).
 - Verified: frontend print-emulation screenshots + backend curl (invoice create/next-number).
 
+## Iteration 14 (2026-06) — Daily Progress Note type
+- Added a **third note type** "Daily Progress Note" to the Notes page (toggle alongside Free Text & SOAP), mimicking the user's example: clinic **letterhead** header + structured fields (DOB, Gender, SSN, Visit Date, ICD-10-CM, Reason for Visit, Attending Provider, Referring Provider) + Notes body.
+  - DOB/Gender **auto-fill** from selected patient (editable). Reason-for-visit reuses the invoice list (incl. Group Therapy). Attending/Referring provider dropdowns list staff providers (doctor/nurse/psychologist).
+  - Kept AI Summarize + provider Signature capture. Added **Print / Save as PDF** with letterhead (`#note-print` @media print region).
+  - Backend `NoteInput` extended with dob/gender/ssn/visit_date/reason_for_visit/attending_provider/referring_provider/icd10; note card shows a "Daily Progress Note" badge + visit metadata.
+- Verified: frontend modal + print-emulation screenshots; backend curl (daily note create persists all fields).
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.

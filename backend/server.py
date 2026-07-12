@@ -210,6 +210,14 @@ class NoteInput(BaseModel):
     plan: Optional[str] = None
     summary: Optional[str] = None
     signature: Optional[str] = None
+    dob: Optional[str] = None
+    gender: Optional[str] = None
+    ssn: Optional[str] = None
+    visit_date: Optional[str] = None
+    reason_for_visit: Optional[str] = None
+    attending_provider: Optional[str] = None
+    referring_provider: Optional[str] = None
+    icd10: Optional[str] = None
 
 class SummarizeInput(BaseModel):
     content: str
