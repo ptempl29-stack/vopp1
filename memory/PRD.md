@@ -42,7 +42,19 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Still OPEN for production PHI: set `SEED_DEMO_USERS=false`, explicit CORS origins, move token to httpOnly cookie, Mongo data-at-rest encryption, HIPAA-BAA video provider, and trusted-proxy IP for throttling.
 
 ## CPT Codes Module (2026-06)
-- DB-backed `cpt_codes` collection (seeded with 10 common codes), full CRUD at `/api/cpt-codes` (biller/admin only). New sidebar page with search, add/edit/delete; codes feed the Invoices line-item dropdown live.
+- DB-backed `cpt_codes` collection (seeded with 10 common codes), full CRUD at `/api/cpt-codes` (biller/admin only). Sidebar page with search, add/edit/delete; codes feed the Invoices line-item dropdown live.
+
+## Iteration 6 (2026-06) — Reports, Roles, Permissions, Uploads
+- **Billing Reports** (`/api/reports/billing` + `/export`, biller/admin): summary cards (billed/collected/outstanding/#invoices), revenue-over-time area chart, revenue-by-CPT bar chart + table, date-range filter, CSV export.
+- **Psychologist role**: limited default tabs (Dashboard, Appointments, Telehealth, Notes, Messages); can create notes & appointments.
+- **Admin-assignable per-user tab access**: users carry `allowed_tabs`; admin Team page creates users and toggles each employee's tabs (`PUT /api/users/{id}/tabs`, `GET /api/meta/tabs`); sidebar + routes gate on `allowed_tabs`.
+- **Forms upload + external URL**: upload files (PDF/img/Word/txt ≤15MB) to Emergent object storage (`POST /api/forms/upload`, `GET /api/forms/{id}/download`), or attach an external link; both downloadable/openable from Forms.
+- Tested: 74/74 backend, frontend 100%.
+
+## Backlog / tech-debt notes
+- Split `server.py` (~780 lines) into per-resource routers.
+- Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.
+- `?auth=` query-token on download/export could leak via logs; consider short-lived signed URLs.
 
 ## Known Limitations
 - AI summarization returns clean 500 until the Emergent LLM Universal Key balance is topped up ($0 currently).
