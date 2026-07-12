@@ -40,6 +40,14 @@ MAX_LOGIN_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
 INVOICE_STATUSES = {"unpaid", "paid", "void"}
 FORM_STATUSES = {"sent", "pending", "received"}
+FORMS_ROLES = ("doctor", "nurse", "psychologist", "receptionist", "biller")
+EXT_CONTENT_TYPES = {
+    "pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg",
+    "jpeg": "image/jpeg", "webp": "image/webp", "txt": "text/plain",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
 
 ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
             "invoices", "cpt", "reports", "forms", "messages", "team"]
@@ -267,6 +275,8 @@ async def login(data: LoginInput, request: Request):
 async def register(data: RegisterInput, current: dict = Depends(require_roles("admin"))):
     if data.role not in ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
+    if len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     if await db.users.find_one({"email": data.email.lower()}):
         raise HTTPException(status_code=400, detail="Email already registered")
     tabs = data.allowed_tabs if data.allowed_tabs is not None else DEFAULT_TABS.get(data.role, ["dashboard"])
@@ -572,7 +582,7 @@ async def list_forms(user: dict = Depends(get_current_user)):
     return forms
 
 @api_router.post("/forms")
-async def create_form(data: FormInput, user: dict = Depends(get_current_user)):
+async def create_form(data: FormInput, user: dict = Depends(require_roles(*FORMS_ROLES))):
     doc = {"id": str(uuid.uuid4()), "public_token": uuid.uuid4().hex,
            "patient_id": data.patient_id, "title": data.title, "form_type": data.form_type,
            "fields": data.fields, "external_url": data.external_url, "status": data.status,
@@ -586,7 +596,8 @@ async def create_form(data: FormInput, user: dict = Depends(get_current_user)):
         if p and p.get("email"):
             recipient = p["email"]
     if recipient:
-        link = f"{(data.link_base or '').rstrip('/')}/form/{doc['public_token']}"
+        # link base is server-controlled (never client-supplied) to prevent phishing
+        link = f"{PUBLIC_BASE_URL.rstrip('/')}/form/{doc['public_token']}"
         sent = send_email(recipient,
             f"Please complete your form: {data.title}",
             f"Hello,\n\nPlease complete the following form for Veterans of Puerto Plata:\n{data.title}\n\n{link}\n\nThank you.")
@@ -599,50 +610,46 @@ async def create_form(data: FormInput, user: dict = Depends(get_current_user)):
 @api_router.post("/forms/upload")
 async def upload_form(file: UploadFile = File(...), title: str = Form(...),
                       form_type: str = Form("Uploaded"), patient_id: str = Form(""),
-                      user: dict = Depends(get_current_user)):
+                      user: dict = Depends(require_roles(*FORMS_ROLES))):
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "bin"
-    if ext not in {"pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "txt"}:
+    if ext not in EXT_CONTENT_TYPES:
         raise HTTPException(status_code=400, detail="Unsupported file type")
+    # content type is derived server-side from the extension allowlist, NOT trusted from client
+    safe_ct = EXT_CONTENT_TYPES[ext]
     path = f"{APP_NAME}/forms/{user['id']}/{uuid.uuid4()}.{ext}"
     payload = await file.read()
     if len(payload) > 15 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large (max 15MB)")
     try:
-        result = put_object(path, payload, file.content_type or "application/octet-stream")
+        result = put_object(path, payload, safe_ct)
     except Exception as e:
-        logger.exception("upload failed")
+        logger.error(f"upload failed: {e}")
         raise HTTPException(status_code=502, detail="File storage failed")
     doc = {"id": str(uuid.uuid4()), "public_token": uuid.uuid4().hex,
            "title": title, "form_type": form_type, "patient_id": patient_id or None,
            "template": [], "responses": None, "status": "received",
            "attachment": {"storage_path": result["path"], "filename": file.filename,
-                          "content_type": file.content_type, "size": result.get("size")},
+                          "content_type": safe_ct, "size": result.get("size")},
            "created_at": now_iso(), "created_by": user["name"]}
     await db.forms.insert_one(doc)
     doc.pop("_id", None)
     return doc
 
 @api_router.get("/forms/{fid}/download")
-async def download_form(fid: str, auth: str = Query(None), authorization: str = Header(None)):
-    token = None
-    hdr = authorization or (f"Bearer {auth}" if auth else "")
-    if hdr.startswith("Bearer "):
-        token = hdr[7:]
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    try:
-        jwt.decode(token, os.environ["JWT_SECRET"], algorithms=[JWT_ALGORITHM])
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+async def download_form(fid: str, user: dict = Depends(require_roles(*FORMS_ROLES))):
     f = await db.forms.find_one({"id": fid})
     if not f or not f.get("attachment"):
         raise HTTPException(status_code=404, detail="Attachment not found")
     data, ctype = get_object(f["attachment"]["storage_path"])
-    return Response(content=data, media_type=f["attachment"].get("content_type") or ctype,
-        headers={"Content-Disposition": f'inline; filename="{f["attachment"]["filename"]}"'})
+    safe_ct = f["attachment"].get("content_type") or "application/octet-stream"
+    fname = f["attachment"]["filename"].replace('"', "").replace("\n", "").replace("\r", "")
+    # force attachment download + nosniff to prevent stored-XSS from rendering inline
+    return Response(content=data, media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"',
+                 "X-Content-Type-Options": "nosniff"})
 
 @api_router.put("/forms/{fid}/status")
-async def update_form_status(fid: str, status: str, user: dict = Depends(get_current_user)):
+async def update_form_status(fid: str, status: str, user: dict = Depends(require_roles(*FORMS_ROLES))):
     if status not in FORM_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid status")
     res = await db.forms.update_one({"id": fid}, {"$set": {"status": status}})
@@ -752,18 +759,7 @@ async def billing_report(start: Optional[str] = None, end: Optional[str] = None,
 
 @api_router.get("/reports/billing/export")
 async def billing_export(start: Optional[str] = None, end: Optional[str] = None,
-                         auth: str = Query(None), authorization: str = Header(None)):
-    token = None
-    hdr = authorization or (f"Bearer {auth}" if auth else "")
-    if hdr.startswith("Bearer "):
-        token = hdr[7:]
-    try:
-        payload = jwt.decode(token, os.environ["JWT_SECRET"], algorithms=[JWT_ALGORITHM])
-    except Exception:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    if payload.get("role") not in ("biller", "admin"):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-
+                         user: dict = Depends(require_roles("biller", "admin"))):
     invoices = await db.invoices.find({}, {"_id": 0}).to_list(2000)
     if start:
         invoices = [i for i in invoices if _inv_date(i) >= start]

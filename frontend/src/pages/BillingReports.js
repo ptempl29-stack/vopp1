@@ -24,13 +24,21 @@ export default function BillingReports() {
   };
   useEffect(() => { load(); }, []);
 
-  const exportCsv = () => {
-    const token = localStorage.getItem("vpp_token");
-    const qs = new URLSearchParams();
-    if (start) qs.set("start", start);
-    if (end) qs.set("end", end);
-    qs.set("auth", token);
-    window.open(`${process.env.REACT_APP_BACKEND_URL}/api/reports/billing/export?${qs.toString()}`, "_blank");
+  const exportCsv = async () => {
+    const params = {};
+    if (start) params.start = start;
+    if (end) params.end = end;
+    try {
+      const res = await api.get("/reports/billing/export", { params, responseType: "blob" });
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "billing_report.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) { toast.error(apiErr(err)); }
   };
 
   const s = data?.summary;

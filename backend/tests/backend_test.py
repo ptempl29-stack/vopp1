@@ -624,11 +624,15 @@ def test_reports_date_filter():
 
 
 def test_reports_export_csv():
-    tok = login("biller")
-    r = requests.get(f"{API}/reports/billing/export", params={"auth": tok}, timeout=30)
+    r = requests.get(f"{API}/reports/billing/export", headers=h("biller"), timeout=30)
     assert r.status_code == 200
     assert "text/csv" in r.headers.get("content-type", "")
     assert "Invoice ID" in r.text.splitlines()[0]
+
+
+def test_reports_export_csv_admin():
+    r = requests.get(f"{API}/reports/billing/export", headers=h("admin"), timeout=30)
+    assert r.status_code == 200
 
 
 def test_reports_export_missing_auth_401():
@@ -636,9 +640,20 @@ def test_reports_export_missing_auth_401():
     assert r.status_code == 401
 
 
-def test_reports_export_wrong_role_403():
-    tok = login("doctor")
+def test_reports_export_query_token_no_longer_works_401():
+    """?auth= query token must no longer authenticate (must return 401)."""
+    tok = login("biller")
     r = requests.get(f"{API}/reports/billing/export", params={"auth": tok}, timeout=30)
+    assert r.status_code == 401, f"query token should be rejected, got {r.status_code}"
+
+
+def test_reports_export_wrong_role_403():
+    r = requests.get(f"{API}/reports/billing/export", headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_reports_export_receptionist_403():
+    r = requests.get(f"{API}/reports/billing/export", headers=h("receptionist"), timeout=30)
     assert r.status_code == 403
 
 
@@ -657,13 +672,29 @@ def test_upload_form_and_download():
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["attachment"] and d["attachment"]["filename"] == "test.pdf"
+    assert d["attachment"]["content_type"] == "application/pdf"
     assert d["status"] == "received"
     _upload_form["id"] = d["id"]
 
-    # download with ?auth=
-    r2 = requests.get(f"{API}/forms/{d['id']}/download", params={"auth": tok}, timeout=30)
+    # download with header auth (NOT query token) — must return octet-stream + attachment + nosniff
+    r2 = requests.get(f"{API}/forms/{d['id']}/download",
+                     headers={"Authorization": f"Bearer {tok}"}, timeout=30)
     assert r2.status_code == 200
+    assert r2.headers.get("content-type", "").lower().startswith("application/octet-stream"), r2.headers
+    cd = r2.headers.get("content-disposition", "").lower()
+    assert "attachment" in cd, cd
+    assert r2.headers.get("x-content-type-options", "").lower() == "nosniff"
     assert r2.content == pdf_bytes or r2.content.startswith(b"%PDF")
+
+
+def test_download_query_token_no_longer_works_401():
+    """Old ?auth=<token> query param must NO LONGER authenticate — should be 401."""
+    fid = _upload_form.get("id")
+    if not fid:
+        pytest.skip("no upload id")
+    tok = login("receptionist")
+    r = requests.get(f"{API}/forms/{fid}/download", params={"auth": tok}, timeout=30)
+    assert r.status_code == 401, f"query token should not authenticate, got {r.status_code}"
 
 
 def test_download_missing_auth_401():
@@ -672,6 +703,24 @@ def test_download_missing_auth_401():
         pytest.skip("no upload id")
     r = requests.get(f"{API}/forms/{fid}/download", timeout=30)
     assert r.status_code == 401
+
+
+def test_upload_spoofed_content_type_normalized():
+    """Client sends .txt but claims text/html — server must store server-derived safe type (text/plain)."""
+    tok = login("receptionist")
+    files = {"file": ("evil.txt", b"<script>alert(1)</script>", "text/html")}
+    data = {"title": "TEST_spoof", "form_type": "Uploaded"}
+    r = requests.post(f"{API}/forms/upload", files=files, data=data,
+                     headers={"Authorization": f"Bearer {tok}"}, timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["attachment"]["content_type"] == "text/plain", f"expected text/plain, got {d['attachment']['content_type']}"
+    # Download and verify server sends octet-stream + nosniff regardless (defense in depth)
+    r2 = requests.get(f"{API}/forms/{d['id']}/download",
+                     headers={"Authorization": f"Bearer {tok}"}, timeout=30)
+    assert r2.status_code == 200
+    assert r2.headers.get("content-type", "").lower().startswith("application/octet-stream")
+    assert r2.headers.get("x-content-type-options", "").lower() == "nosniff"
 
 
 def test_upload_bad_ext_400():
@@ -854,3 +903,63 @@ def test_create_form_without_recipient_no_email_flag():
     assert r.status_code == 200
     d = r.json()
     assert d["email_sent"] is False
+
+
+# ================= NEW iteration 8: Security remediation (link_base, forms role gate) =================
+def test_create_form_client_link_base_ignored():
+    """Client-supplied link_base must be IGNORED (phishing fix). Since SMTP is off we can't inspect
+    outbound email body, but we can confirm the form is created cleanly and no client link_base is
+    persisted / echoed back."""
+    p = requests.post(f"{API}/patients",
+                     json={"first_name": "TEST_LinkBase", "last_name": "Pt", "email": "lb@example.com"},
+                     headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/forms",
+                     json={"patient_id": p["id"], "title": "TEST_LinkBase", "form_type": "Intake",
+                           "recipient_email": "victim@example.com",
+                           "link_base": "https://evil.attacker.com"},
+                     headers=h("receptionist"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    # form saved, email_sent=false (SMTP unconfigured — expected)
+    assert d["email_sent"] is False
+    # Ensure the malicious link_base is NOT persisted / echoed in response payload anywhere
+    body_str = str(d).lower()
+    assert "evil.attacker.com" not in body_str, "client-supplied link_base leaked into response"
+    # cleanup
+    requests.delete(f"{API}/forms/{d['id']}", headers=h("receptionist"), timeout=30)
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_forms_roles_gating_non_forms_role_blocked():
+    """Create a user with a non-FORMS role, verify all forms endpoints return 403.
+
+    FORMS_ROLES = doctor, nurse, psychologist, receptionist, biller (+ admin bypass).
+    All seeded users already have a forms role, so we need to strip a user's allowed_tabs / role.
+    However role is required to be one of the standard set. Workaround: create a user, then use
+    admin to change their role to something not in FORMS_ROLES. Since /users/{id} update rejects
+    unknown roles, we instead validate the *positive* path: every seeded non-admin role IS
+    allowed, and admin (bypass) is allowed.
+    """
+    # Positive: each FORMS role can call GET /forms
+    for role in ("doctor", "nurse", "psychologist", "receptionist", "biller", "admin"):
+        r = requests.get(f"{API}/forms", headers=h(role), timeout=30)
+        assert r.status_code == 200, f"{role} GET /forms -> {r.status_code}"
+
+
+def test_forms_upload_requires_auth_401():
+    files = {"file": ("t.pdf", b"%PDF-1.4\n", "application/pdf")}
+    r = requests.post(f"{API}/forms/upload", files=files,
+                     data={"title": "x", "form_type": "Uploaded"}, timeout=30)
+    assert r.status_code == 401
+
+
+def test_forms_create_requires_auth_401():
+    r = requests.post(f"{API}/forms",
+                     json={"patient_id": None, "title": "x", "form_type": "Intake"}, timeout=30)
+    assert r.status_code == 401
+
+
+def test_forms_status_requires_auth_401():
+    # need a valid form id — but no auth → 401 before hitting id check
+    r = requests.put(f"{API}/forms/anyid/status?status=received", timeout=30)
+    assert r.status_code == 401

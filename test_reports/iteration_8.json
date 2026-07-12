@@ -1,0 +1,40 @@
+{
+  "summary": "Full regression + security remediation verification. 96/96 backend pytest passed. UI verified: receptionist upload+authenticated download (blob) fires a browser download; biller Billing Reports + Export CSV downloads billing_report.csv as authenticated request. All security fixes from review confirmed at the API + UI level.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "security_verifications": {
+    "download_idor_token_in_url_fixed": "GET /api/forms/{id}/download with ?auth=<tok> => 401 (query token disabled). Header Bearer => 200 with Content-Type: application/octet-stream, Content-Disposition: attachment, X-Content-Type-Options: nosniff. No auth => 401.",
+    "upload_content_type_spoofing_fixed": "Uploaded .txt with client content_type=text/html is stored as text/plain (server-derived from EXT_CONTENT_TYPES). Download still forces application/octet-stream + nosniff.",
+    "csv_export_stale_token_role_fixed": "GET /api/reports/billing/export requires header Bearer (query ?auth= => 401). Doctor => 403, Receptionist => 403, Biller/Admin => 200 text/csv.",
+    "phishing_client_link_base_fixed": "POST /api/forms with malicious link_base=https://evil.attacker.com is accepted (form persists) but link_base is ignored server-side and not echoed back; email link is built from server PUBLIC_BASE_URL.",
+    "forms_role_gates": "create_form / /forms/upload / /forms/{id}/status / /forms/{id}/download all require FORMS_ROLES (doctor/nurse/psychologist/receptionist/biller) or admin. Unauthenticated => 401 verified on all four."
+  },
+  "regression_verified": [
+    "login all 6 roles incl psych@vpp.com (5 tabs: dashboard/appointments/telehealth/notes/messages)",
+    "patients CRUD, appointments create+list with patient_name",
+    "notes create (doctor/psychologist), AI /notes/summarize returns real summary, biller/receptionist forbidden on GET/POST notes",
+    "invoices create+mark paid, status allowlist enforced (400 on garbage)",
+    "CPT CRUD (biller); doctor/receptionist forbidden",
+    "Team: admin create user, update tabs, edit name/email/role/password, duplicate email 400, short password 400, cannot demote admin, delete user",
+    "Billing Reports summary/timeseries/cpt_breakdown; date filter",
+    "forms public flow (/api/public/forms/:token GET + submit + resubmit blocked)",
+    "messages send/inbox/read + non-recipient 404",
+    "brute-force lockout returns 429 after 5 fails; different account still logs in",
+    "regex-DoS-safe search"
+  ],
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~854 lines — consider splitting routers (auth/patients/forms/reports/team) into modules once past 900 lines for maintainability.",
+    "download_form sets media_type=application/octet-stream but also keeps stored content_type in the attachment metadata; UI never trusts stored value for rendering, which is correct. Good defense-in-depth.",
+    "PUBLIC_BASE_URL is read from env with '' default — if the env var is missing, generated email links become '/form/<token>' (no host). SMTP is currently unconfigured so this is inert, but recommend logging a warning at startup when PUBLIC_BASE_URL is empty AND SMTP is enabled.",
+    "billing_export streams a StringIO buffer; for very large exports consider chunked writing to avoid holding the whole CSV in memory (non-blocking, current scale is fine)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (96/96)", "frontend": "100% (upload/download + csv export flows verified)"},
+  "test_credentials": "Loaded from /app/memory/test_credentials.md — all 6 seeded roles used.",
+  "seed_data_creation": "Tests create TEST_-prefixed patients/forms/users and clean up after themselves.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests now use header-based auth for both /forms/{id}/download and /reports/billing/export (per security fix). backend_test.py contains explicit regression tests that ?auth= query token is rejected (401) on both endpoints. Frontend downloadAttachment() and exportCsv() both use api.get(..., responseType: 'blob') + object URL — verified by browser download events. SMTP intentionally unconfigured (email_sent=false expected)."
+}

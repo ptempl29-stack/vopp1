@@ -31,9 +31,18 @@ export default function Forms() {
       .catch(() => toast.error(url));
   };
 
-  const downloadAttachment = (f) => {
-    const token = localStorage.getItem("vpp_token");
-    window.open(`${process.env.REACT_APP_BACKEND_URL}/api/forms/${f.id}/download?auth=${token}`, "_blank");
+  const downloadAttachment = async (f) => {
+    try {
+      const res = await api.get(`/forms/${f.id}/download`, { responseType: "blob" });
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = f.attachment?.filename || "attachment";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) { toast.error(apiErr(err)); }
   };
 
   const save = async (e) => {
