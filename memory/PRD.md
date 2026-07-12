@@ -72,6 +72,11 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Security LOW fixes: non-admin `GET /users` returns only id/name/role (no email/tabs); `send_email` strips CR/LF from subject + validates recipient (header-injection hardening).
 - Tested: 106/106 backend, frontend E2E.
 
+## Iteration 10 (2026-06) — Signatures on all forms + Signed badge
+- Patient **signature field added to every form template** (Intake, Medical History, Insurance, Referral; Consent already had one) — renders a signature pad on the public patient link.
+- Forms list shows a green **"Signed" badge** on any received form whose submission contains a signature image.
+- Tested: 111/111 backend, frontend E2E (signed-badge correct across 84 forms, 0 mismatches).
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.
