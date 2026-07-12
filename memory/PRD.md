@@ -57,6 +57,15 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - ⚠️ EMAIL SENDING IS NOT YET ACTIVE — `YAHOO_EMAIL`/`YAHOO_APP_PASSWORD` are empty in backend/.env. Sending no-ops until credentials are added.
 - Tested: 86/86 backend, frontend E2E 100%.
 
+## Security Re-Audit #3 (2026-06) — NEW-feature findings REMEDIATED
+- SEC-002 (HIGH, attachment IDOR + token-in-URL): download now requires a DB-resolved staff role (FORMS_ROLES) via Authorization header; `?auth=` query token removed (frontend downloads via authenticated blob).
+- SEC-003 (HIGH, stored-XSS via upload content-type): upload stores a server-derived content type from an extension allowlist (ignores client value); download forces `application/octet-stream` + `Content-Disposition: attachment` + `X-Content-Type-Options: nosniff`.
+- SEC-004 (MEDIUM, stale-token role on CSV export): export now uses DB-resolved `require_roles('biller','admin')`; token no longer in URL.
+- SEC-005 (MEDIUM, phishing via client link_base): form email link built from server `PUBLIC_BASE_URL`; client `link_base` ignored.
+- P3: create_form/upload/status/download gated by FORMS_ROLES; register enforces min-6 password.
+- Verified: 96/96 backend, frontend E2E.
+- STILL ACCEPTED (preview-only / prod-config): SEC-001 demo seeding active (`SEED_DEMO_USERS=true`) for demo usability — set `false` in production; CORS `*`, localStorage token, XFF-based lockout, HIPAA data-at-rest + BAA video remain production hardening items.
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.
