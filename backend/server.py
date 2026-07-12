@@ -333,6 +333,41 @@ async def mark_read(mid: str, user: dict = Depends(get_current_user)):
 
 
 # ---------------- Forms ----------------
+FORM_TEMPLATES = {
+    "Intake": [
+        {"name": "full_name", "en": "Full Name", "es": "Nombre Completo", "type": "text", "required": True},
+        {"name": "dob", "en": "Date of Birth", "es": "Fecha de Nacimiento", "type": "date", "required": True},
+        {"name": "phone", "en": "Phone", "es": "Teléfono", "type": "text", "required": False},
+        {"name": "reason", "en": "Reason for Visit", "es": "Motivo de la Visita", "type": "textarea", "required": True},
+        {"name": "medications", "en": "Current Medications", "es": "Medicamentos Actuales", "type": "textarea", "required": False},
+        {"name": "allergies", "en": "Allergies", "es": "Alergias", "type": "text", "required": False},
+    ],
+    "Consent": [
+        {"name": "patient_name", "en": "Patient Name", "es": "Nombre del Paciente", "type": "text", "required": True},
+        {"name": "consent", "en": "I consent to treatment", "es": "Consiento al tratamiento", "type": "checkbox", "required": True},
+        {"name": "signature", "en": "Signature (type full name)", "es": "Firma (escriba su nombre)", "type": "text", "required": True},
+        {"name": "date", "en": "Date", "es": "Fecha", "type": "date", "required": True},
+    ],
+    "Medical History": [
+        {"name": "conditions", "en": "Chronic Conditions", "es": "Condiciones Crónicas", "type": "textarea", "required": False},
+        {"name": "surgeries", "en": "Past Surgeries", "es": "Cirugías Previas", "type": "textarea", "required": False},
+        {"name": "family_history", "en": "Family History", "es": "Historia Familiar", "type": "textarea", "required": False},
+        {"name": "smoking", "en": "Do you smoke?", "es": "¿Fuma?", "type": "select", "required": True,
+         "options": [{"value": "no", "en": "No", "es": "No"}, {"value": "yes", "en": "Yes", "es": "Sí"}, {"value": "former", "en": "Former", "es": "Ex-fumador"}]},
+    ],
+    "Insurance": [
+        {"name": "provider", "en": "Insurance Provider", "es": "Aseguradora", "type": "text", "required": True},
+        {"name": "policy_number", "en": "Policy Number", "es": "Número de Póliza", "type": "text", "required": True},
+        {"name": "group_number", "en": "Group Number", "es": "Número de Grupo", "type": "text", "required": False},
+        {"name": "subscriber", "en": "Subscriber Name", "es": "Nombre del Titular", "type": "text", "required": True},
+    ],
+    "Referral": [
+        {"name": "referring_provider", "en": "Referring Provider", "es": "Médico que Refiere", "type": "text", "required": True},
+        {"name": "specialty", "en": "Specialty", "es": "Especialidad", "type": "text", "required": True},
+        {"name": "reason", "en": "Reason for Referral", "es": "Motivo de la Referencia", "type": "textarea", "required": True},
+    ],
+}
+
 @api_router.get("/forms")
 async def list_forms(user: dict = Depends(get_current_user)):
     forms = await db.forms.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
@@ -344,7 +379,9 @@ async def list_forms(user: dict = Depends(get_current_user)):
 @api_router.post("/forms")
 async def create_form(data: FormInput, user: dict = Depends(get_current_user)):
     doc = data.model_dump()
-    doc.update({"id": str(uuid.uuid4()), "created_at": now_iso(), "created_by": user["name"]})
+    doc.update({"id": str(uuid.uuid4()), "public_token": uuid.uuid4().hex,
+                "template": FORM_TEMPLATES.get(data.form_type, []), "responses": None,
+                "created_at": now_iso(), "created_by": user["name"]})
     await db.forms.insert_one(doc)
     doc.pop("_id", None)
     return doc
@@ -355,6 +392,35 @@ async def update_form_status(fid: str, status: str, user: dict = Depends(get_cur
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Form not found")
     return await db.forms.find_one({"id": fid}, {"_id": 0})
+
+
+# ---------------- Public (unauthenticated) patient form ----------------
+class FormSubmission(BaseModel):
+    responses: dict
+
+@api_router.get("/public/forms/{token}")
+async def public_get_form(token: str):
+    f = await db.forms.find_one({"public_token": token}, {"_id": 0, "created_by": 0})
+    if not f:
+        raise HTTPException(status_code=404, detail="Form not found")
+    patient = None
+    if f.get("patient_id"):
+        p = await db.patients.find_one({"id": f["patient_id"]}, {"_id": 0, "first_name": 1})
+        patient = p["first_name"] if p else None
+    return {"id": f["id"], "title": f["title"], "form_type": f["form_type"],
+            "template": f.get("template", []), "status": f["status"],
+            "patient_first_name": patient, "clinic": "Veterans of Puerto Plata"}
+
+@api_router.post("/public/forms/{token}/submit")
+async def public_submit_form(token: str, data: FormSubmission):
+    f = await db.forms.find_one({"public_token": token})
+    if not f:
+        raise HTTPException(status_code=404, detail="Form not found")
+    if f.get("status") == "received":
+        raise HTTPException(status_code=400, detail="This form has already been submitted")
+    await db.forms.update_one({"public_token": token},
+        {"$set": {"responses": data.responses, "status": "received", "submitted_at": now_iso()}})
+    return {"ok": True}
 
 
 # ---------------- Dashboard stats ----------------

@@ -13,6 +13,7 @@ import Notes from "./pages/Notes";
 import Invoices from "./pages/Invoices";
 import Forms from "./pages/Forms";
 import Messages from "./pages/Messages";
+import PublicForm from "./pages/PublicForm";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children }) {
@@ -32,6 +33,7 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/form/:token" element={<PublicForm />} />
               <Route path="/" element={<Protected><Dashboard /></Protected>} />
               <Route path="/patients" element={<Protected><Patients /></Protected>} />
               <Route path="/appointments" element={<Protected><Appointments /></Protected>} />

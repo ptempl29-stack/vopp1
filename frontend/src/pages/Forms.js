@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
-import { Plus, ClipboardList, CheckCircle2 } from "lucide-react";
+import { Plus, ClipboardList, CheckCircle2, Link2, Eye } from "lucide-react";
 import { toast } from "sonner";
 
 const types = ["Intake", "Consent", "Medical History", "Insurance", "Referral"];
@@ -14,12 +14,19 @@ export default function Forms() {
   const [forms, setForms] = useState([]);
   const [patients, setPatients] = useState([]);
   const [open, setOpen] = useState(false);
+  const [viewing, setViewing] = useState(null);
   const [form, setForm] = useState({ patient_id: "", title: "", form_type: "Intake", status: "sent" });
 
   const load = () => api.get("/forms").then((r) => setForms(r.data)).catch(() => {});
   useEffect(() => { load(); api.get("/patients").then((r) => setPatients(r.data)).catch(() => {}); }, []);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  const copyLink = (f) => {
+    const url = `${window.location.origin}/form/${f.public_token}`;
+    navigator.clipboard.writeText(url).then(() => toast.success(t("linkCopied")))
+      .catch(() => toast.error(url));
+  };
 
   const save = async (e) => {
     e.preventDefault();
@@ -65,11 +72,21 @@ export default function Forms() {
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{f.patient_name}</td>
                     <td className="px-5 py-3"><Badge tone={toneMap[f.status] || "gray"}>{t(f.status)}</Badge></td>
                     <td className="px-5 py-3 text-right">
-                      {f.status !== "received" && (
-                        <Btn variant="outline" onClick={() => markReceived(f.id)} data-testid={`mark-received-${f.id}`}>
-                          <CheckCircle2 className="w-4 h-4" />{t("markReceived")}
+                      <div className="flex justify-end gap-1">
+                        <Btn variant="ghost" onClick={() => copyLink(f)} data-testid={`copy-link-${f.id}`} className="!px-2" title={t("copyLink")}>
+                          <Link2 className="w-4 h-4" />
                         </Btn>
-                      )}
+                        {f.status === "received" && f.responses && (
+                          <Btn variant="ghost" onClick={() => setViewing(f)} data-testid={`view-responses-${f.id}`} className="!px-2" title={t("viewResponses")}>
+                            <Eye className="w-4 h-4" />
+                          </Btn>
+                        )}
+                        {f.status !== "received" && (
+                          <Btn variant="outline" onClick={() => markReceived(f.id)} data-testid={`mark-received-${f.id}`}>
+                            <CheckCircle2 className="w-4 h-4" />{t("markReceived")}
+                          </Btn>
+                        )}
+                      </div>
                     </td>
                   </motion.tr>
                 ))}
@@ -103,6 +120,22 @@ export default function Forms() {
             <Btn type="submit" data-testid="save-form-btn">{t("sendForm")}</Btn>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={t("responses")}>
+        {viewing && (
+          <div className="space-y-3" data-testid="responses-view">
+            <p className="font-heading font-bold text-moneygreen-800">{viewing.title}</p>
+            {viewing.responses && Object.keys(viewing.responses).length > 0 ? (
+              (viewing.template || []).filter((fld) => viewing.responses[fld.name] !== undefined && viewing.responses[fld.name] !== "").map((fld) => (
+                <div key={fld.name} className="border-b border-border pb-2">
+                  <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{fld.en}</p>
+                  <p className="text-sm text-moneygreen-800 mt-0.5">{String(viewing.responses[fld.name])}</p>
+                </div>
+              ))
+            ) : <p className="text-sm text-stone-500">{t("noResponses")}</p>}
+          </div>
+        )}
       </Modal>
     </div>
   );

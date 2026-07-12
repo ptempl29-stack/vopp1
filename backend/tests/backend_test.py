@@ -200,13 +200,61 @@ def test_mark_invoice_paid():
 created_form_id = None
 
 
+public_token_holder = {}
+
 def test_create_form():
     global created_form_id
     r = requests.post(f"{API}/forms",
-                      json={"patient_id": created_patient_id, "title": "Intake", "form_type": "intake"},
+                      json={"patient_id": created_patient_id, "title": "Intake", "form_type": "Intake"},
                       headers=h("receptionist"), timeout=30)
     assert r.status_code == 200
-    created_form_id = r.json()["id"]
+    data = r.json()
+    created_form_id = data["id"]
+    # New public form fields
+    assert "public_token" in data and isinstance(data["public_token"], str) and len(data["public_token"]) >= 16
+    assert isinstance(data.get("template"), list) and len(data["template"]) == 6
+    assert data.get("responses") is None
+    public_token_holder["token"] = data["public_token"]
+
+
+def test_public_get_form_unauth():
+    tok = public_token_holder["token"]
+    r = requests.get(f"{API}/public/forms/{tok}", timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["form_type"] == "Intake"
+    assert len(d["template"]) == 6
+    assert d["status"] != "received"
+
+
+def test_public_get_form_bad_token():
+    r = requests.get(f"{API}/public/forms/badtoken_xyz", timeout=30)
+    assert r.status_code == 404
+
+
+def test_public_submit_form_unauth():
+    tok = public_token_holder["token"]
+    r = requests.post(f"{API}/public/forms/{tok}/submit",
+                     json={"responses": {"full_name": "TEST_Patient", "dob": "1990-01-01", "reason": "cough"}},
+                     timeout=30)
+    assert r.status_code == 200, r.text
+    assert r.json().get("ok") is True
+
+
+def test_public_submit_resubmit_blocked():
+    tok = public_token_holder["token"]
+    r = requests.post(f"{API}/public/forms/{tok}/submit",
+                     json={"responses": {"full_name": "x"}}, timeout=30)
+    assert r.status_code == 400
+    assert "already" in (r.json().get("detail", "").lower())
+
+
+def test_form_status_received_after_submit():
+    r = requests.get(f"{API}/forms", headers=h("doctor"), timeout=30)
+    assert r.status_code == 200
+    found = [f for f in r.json() if f["id"] == created_form_id]
+    assert found and found[0]["status"] == "received"
+    assert found[0].get("responses", {}).get("full_name") == "TEST_Patient"
 
 
 def test_list_forms_has_patient_name():
