@@ -1,0 +1,37 @@
+{
+  "summary": "Iter 11 tests SOAP note type feature (additive to free-text). Backend: 118/118 pytest passed (7 new SOAP-specific tests). Frontend: verified via Playwright end-to-end on doctor account — note-type toggle defaults to Free Text, switching to SOAP hides nf-content and shows 4 fields (S/O/A/P) inside soap-fields; empty SOAP submit blocked (client validation, modal stays open); saved SOAP note appears with 'SOAP' badge and labeled S/O/A/P sections in soap-view-<id>; free-text notes render unchanged (original behavior preserved); AI Summarize works on SOAP combined content (LLM key funded — got 187-char clinical summary). i18n keys noteType/freeText/soapNote present in EN + ES.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "soap_verifications": {
+    "note_type_toggle_default_free": "nf-content visible, soap-fields absent on modal open",
+    "switch_to_soap_shows_4_fields": "nf-subjective/objective/assessment/plan all visible, nf-content removed from DOM",
+    "empty_soap_client_validation": "save-note-btn with all 4 SOAP fields empty -> toast + modal stays open (no POST); backend also returns 400 for empty content (test_create_soap_note_empty_fields_returns_400)",
+    "soap_saved_renders_correctly": "New SOAP note card shows SOAP badge + soap-view-<id> with 'Subjective/Objective/Assessment/Plan:' labeled sections",
+    "backend_builds_combined_content": "test_create_soap_note_builds_content confirms server.py joins S:/O:/A:/P: lines into content field when note_type=='soap' and content empty",
+    "ai_summarize_on_soap": "ai-summarize-btn on SOAP posts combined text to /api/notes/summarize -> nf-summary populated with 187-char summary (Assessment + Plan format)",
+    "signature_on_soap": "test_soap_note_with_signature_signed_by passes — signed_by populated when signature attached to SOAP note",
+    "free_text_original_preserved": "test_create_free_text_note_original_behavior_preserved passes — default note_type=='free', content stored as-is, subjective/etc are None; existing free-text notes in list still render with plain <p> content (no SOAP badge)",
+    "biller_403_regression": "test_biller_still_cannot_create_soap_note passes",
+    "i18n": "EN {Note Type, Free Text, SOAP Note} and ES {Tipo de Nota, Texto Libre, Nota SOAP} keys present in /app/frontend/src/i18n.js"
+  },
+  "regression_verified": [
+    "All 118 backend tests pass including all previous iterations (login all roles, note signature, forms signature, admin edit user, etc.)",
+    "Existing free-text notes render unchanged (plain content, no SOAP badge)",
+    "Non-clinical roles (biller/receptionist) still get 403 on /api/notes GET+POST",
+    "AI summarize forbidden for biller (403)"
+  ],
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/iteration_11.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py NoteInput.content defaults to empty string; SOAP branch only auto-builds content when 'not doc.get(\"content\")' — good, but if a caller sends note_type='soap' AND a non-empty content, the SOAP fields are stored but content is NOT rebuilt from them. Might be intentional (client-provided override) but worth documenting.",
+    "Notes.js: soapText() combiner strips empty lines; a SOAP note with only 1 filled field will still save (empty check uses trim()). This matches backend behavior. Fine.",
+    "server.py is at 888 lines — approaching the 700-line threshold noted in review guidelines. Consider splitting notes/forms/invoices into routers as it grows."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (118/118)", "frontend": "100% (all data-testids present + interactive; validation + save + AI summarize + SOAP badge + soap-view all functional)"},
+  "test_credentials": "Loaded from CREDS in backend_test.py — doctor/nurse/psych/receptionist/biller/admin all verified via test_login_all_roles.",
+  "seed_data_creation": "Backend tests create TEST_SOAP_* patients + notes (self-cleaned via receptionist DELETE). UI test left 2 SOAP notes ('TEST_UI SOAP validation' and one for AI test) + 1 free-text control note in the DB — safe to leave, prefixed TEST_UI.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "NoteInput now accepts note_type ('free'|'soap') + subjective/objective/assessment/plan. Backend auto-builds content from S/O/A/P when note_type='soap' and content is empty (used for AI summarize and search). Empty content -> 400. UI toggle: note-type-free (default) / note-type-soap. SOAP mode replaces nf-content with soap-fields containing nf-subjective/objective/assessment/plan. Card shows SOAP badge + soap-view-<id>. All previous free-text behavior preserved."
+}

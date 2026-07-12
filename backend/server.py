@@ -202,7 +202,12 @@ class AppointmentInput(BaseModel):
 class NoteInput(BaseModel):
     patient_id: str
     title: str
-    content: str
+    content: str = ""
+    note_type: str = "free"
+    subjective: Optional[str] = None
+    objective: Optional[str] = None
+    assessment: Optional[str] = None
+    plan: Optional[str] = None
     summary: Optional[str] = None
     signature: Optional[str] = None
 
@@ -443,6 +448,13 @@ async def create_note(data: NoteInput, user: dict = Depends(require_roles("docto
     doc = data.model_dump()
     if doc.get("signature") and len(doc["signature"]) > 600000:
         raise HTTPException(status_code=400, detail="Signature too large")
+    # For SOAP notes, build a combined content for search / AI summarize compatibility
+    if doc.get("note_type") == "soap" and not doc.get("content"):
+        parts = [("S", doc.get("subjective")), ("O", doc.get("objective")),
+                 ("A", doc.get("assessment")), ("P", doc.get("plan"))]
+        doc["content"] = "\n".join(f"{k}: {v}" for k, v in parts if v)
+    if not doc.get("content"):
+        raise HTTPException(status_code=400, detail="Note content is required")
     doc.update({"id": str(uuid.uuid4()), "created_at": now_iso(), "author": user["name"]})
     if doc.get("signature"):
         doc["signed_by"] = user["name"]

@@ -1207,3 +1207,101 @@ def test_all_templates_have_required_signature_field(form_type):
     has_data_image = any(isinstance(v, str) and v.startswith("data:image") for v in resp.values())
     assert has_data_image, f"{form_type}: no data:image value in responses (badge won't render)"
     requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+
+# ----- SOAP Note type (additive to original free-text note) -----
+def _make_test_patient():
+    r = requests.post(f"{API}/patients",
+                      json={"first_name": "TEST_SOAP", "last_name": f"P{uuid.uuid4().hex[:6]}"},
+                      headers=h("receptionist"), timeout=30)
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def test_create_soap_note_builds_content():
+    pid = _make_test_patient()
+    payload = {
+        "patient_id": pid, "title": "SOAP Visit", "note_type": "soap",
+        "subjective": "Reports back pain 5 days",
+        "objective": "BP 120/80, tender L4",
+        "assessment": "Muscle strain",
+        "plan": "NSAIDs, rest, PT",
+    }
+    r = requests.post(f"{API}/notes", json=payload, headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["note_type"] == "soap"
+    assert d["subjective"] == payload["subjective"]
+    assert d["plan"] == payload["plan"]
+    # backend auto-builds content from SOAP fields
+    assert "S: Reports back pain 5 days" in d["content"]
+    assert "O: BP 120/80" in d["content"]
+    assert "A: Muscle strain" in d["content"]
+    assert "P: NSAIDs" in d["content"]
+
+    # persistence: GET /notes contains it
+    lst = requests.get(f"{API}/notes", headers=h("doctor"), timeout=30).json()
+    match = [n for n in lst if n["id"] == d["id"]]
+    assert match and match[0]["note_type"] == "soap"
+    assert match[0]["subjective"] == payload["subjective"]
+
+
+def test_create_free_text_note_original_behavior_preserved():
+    pid = _make_test_patient()
+    payload = {"patient_id": pid, "title": "Free Note",
+               "content": "Original free-text progress note content."}
+    r = requests.post(f"{API}/notes", json=payload, headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    # default note_type is 'free'
+    assert d.get("note_type") == "free"
+    assert d["content"] == payload["content"]
+    assert d.get("subjective") is None
+
+
+def test_create_soap_note_empty_fields_returns_400():
+    pid = _make_test_patient()
+    payload = {"patient_id": pid, "title": "Empty SOAP", "note_type": "soap"}
+    r = requests.post(f"{API}/notes", json=payload, headers=h("doctor"), timeout=30)
+    assert r.status_code == 400
+    assert "content" in r.text.lower() or "required" in r.text.lower()
+
+
+def test_create_free_note_empty_content_returns_400():
+    pid = _make_test_patient()
+    r = requests.post(f"{API}/notes",
+                      json={"patient_id": pid, "title": "Empty", "content": ""},
+                      headers=h("doctor"), timeout=30)
+    assert r.status_code == 400
+
+
+def test_soap_note_with_signature_signed_by():
+    pid = _make_test_patient()
+    sig = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+    payload = {"patient_id": pid, "title": "Signed SOAP", "note_type": "soap",
+               "subjective": "s", "objective": "o", "assessment": "a", "plan": "p",
+               "signature": sig}
+    r = requests.post(f"{API}/notes", json=payload, headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d.get("signed_by")
+    assert d["signature"].startswith("data:image")
+
+
+def test_summarize_soap_combined_content():
+    combined = "S: back pain 5d\nO: tender L4\nA: strain\nP: NSAIDs + PT"
+    r = requests.post(f"{API}/notes/summarize",
+                      json={"content": combined}, headers=h("doctor"), timeout=90)
+    assert r.status_code == 200, r.text
+    assert isinstance(r.json().get("summary"), str)
+    assert len(r.json()["summary"]) > 10
+
+
+def test_biller_still_cannot_create_soap_note():
+    pid = _make_test_patient()
+    r = requests.post(f"{API}/notes",
+                      json={"patient_id": pid, "title": "x", "note_type": "soap",
+                            "subjective": "s"},
+                      headers=h("biller"), timeout=30)
+    assert r.status_code == 403
