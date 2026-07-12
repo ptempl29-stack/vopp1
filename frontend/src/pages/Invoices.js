@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
+import { can } from "../lib/perms";
+import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { Plus, Trash2, CheckCircle2, ReceiptText } from "lucide-react";
@@ -11,6 +13,8 @@ const newItem = () => ({ _uid: `it-${itemSeq++}`, cpt_code: "", description: "",
 
 export default function Invoices() {
   const { t } = useLang();
+  const { user } = useAuth();
+  const allowed = can(user?.role, "invoices");
   const [invoices, setInvoices] = useState([]);
   const [patients, setPatients] = useState([]);
   const [cpt, setCpt] = useState([]);
@@ -55,7 +59,7 @@ export default function Invoices() {
   return (
     <div>
       <PageHeader title={t("invoices")} subtitle={`${invoices.length}`}
-        action={<Btn onClick={() => setOpen(true)} data-testid="add-invoice-btn"><Plus className="w-4 h-4" />{t("newInvoice")}</Btn>} />
+        action={allowed && <Btn onClick={() => setOpen(true)} data-testid="add-invoice-btn"><Plus className="w-4 h-4" />{t("newInvoice")}</Btn>} />
 
       {invoices.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -84,7 +88,7 @@ export default function Invoices() {
                 </div>
                 <div className="flex items-center justify-between pt-3 border-t border-border">
                   <span className="font-heading font-bold text-lg text-moneygreen-800">${inv.total.toFixed(2)}</span>
-                  {inv.status !== "paid" && (
+                  {inv.status !== "paid" && allowed && (
                     <Btn variant="outline" onClick={() => markPaid(inv.id)} data-testid={`mark-paid-${inv.id}`}>
                       <CheckCircle2 className="w-4 h-4" />{t("markPaid")}
                     </Btn>

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
+import { can } from "../lib/perms";
+import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
 import { Plus, Sparkles, Loader2, FileText } from "lucide-react";
@@ -10,6 +12,8 @@ const blank = { patient_id: "", title: "", content: "", summary: "" };
 
 export default function Notes() {
   const { t } = useLang();
+  const { user } = useAuth();
+  const allowed = can(user?.role, "notes");
   const [notes, setNotes] = useState([]);
   const [patients, setPatients] = useState([]);
   const [open, setOpen] = useState(false);
@@ -46,7 +50,7 @@ export default function Notes() {
   return (
     <div>
       <PageHeader title={t("notes")} subtitle={`${notes.length}`}
-        action={<Btn onClick={() => { setForm(blank); setOpen(true); }} data-testid="add-note-btn"><Plus className="w-4 h-4" />{t("newNote")}</Btn>} />
+        action={allowed && <Btn onClick={() => { setForm(blank); setOpen(true); }} data-testid="add-note-btn"><Plus className="w-4 h-4" />{t("newNote")}</Btn>} />
 
       {notes.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

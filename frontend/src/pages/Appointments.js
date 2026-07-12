@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import api, { apiErr } from "../lib/api";
+import { can } from "../lib/perms";
+import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { Plus, Video, Trash2, Clock } from "lucide-react";
@@ -12,6 +14,8 @@ const toneMap = { scheduled: "green", completed: "gray", cancelled: "red" };
 
 export default function Appointments() {
   const { t } = useLang();
+  const { user } = useAuth();
+  const allowed = can(user?.role, "appointments");
   const navigate = useNavigate();
   const [appts, setAppts] = useState([]);
   const [patients, setPatients] = useState([]);
@@ -39,7 +43,7 @@ export default function Appointments() {
   return (
     <div>
       <PageHeader title={t("appointments")} subtitle={`${appts.length} ${t("appointments").toLowerCase()}`}
-        action={<Btn onClick={() => { setForm(blank); setOpen(true); }} data-testid="add-appt-btn"><Plus className="w-4 h-4" />{t("newAppointment")}</Btn>} />
+        action={allowed && <Btn onClick={() => { setForm(blank); setOpen(true); }} data-testid="add-appt-btn"><Plus className="w-4 h-4" />{t("newAppointment")}</Btn>} />
 
       {appts.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -62,7 +66,7 @@ export default function Appointments() {
                     data-testid={`join-video-${a.id}`} className="flex-1">
                     <Video className="w-4 h-4" />{t("joinVideo")}
                   </Btn>
-                  <Btn variant="danger" onClick={() => remove(a.id)} data-testid={`delete-appt-${a.id}`} className="!px-3"><Trash2 className="w-4 h-4" /></Btn>
+                  <Btn variant="danger" onClick={() => remove(a.id)} data-testid={`delete-appt-${a.id}`} className={`!px-3 ${allowed ? "" : "hidden"}`}><Trash2 className="w-4 h-4" /></Btn>
                 </div>
               </Card>
             </motion.div>

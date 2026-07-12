@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
+import { can } from "../lib/perms";
+import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { Plus, Search, Pencil, Trash2, Phone } from "lucide-react";
@@ -10,6 +12,8 @@ const blank = { first_name: "", last_name: "", dob: "", gender: "", phone: "", e
 
 export default function Patients() {
   const { t } = useLang();
+  const { user } = useAuth();
+  const allowed = can(user?.role, "patients");
   const [patients, setPatients] = useState([]);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -42,7 +46,7 @@ export default function Patients() {
   return (
     <div>
       <PageHeader title={t("patients")} subtitle={`${patients.length} ${t("patients").toLowerCase()}`}
-        action={<Btn onClick={openNew} data-testid="add-patient-btn"><Plus className="w-4 h-4" />{t("addPatient")}</Btn>} />
+        action={allowed && <Btn onClick={openNew} data-testid="add-patient-btn"><Plus className="w-4 h-4" />{t("addPatient")}</Btn>} />
 
       <div className="relative mb-4 max-w-sm">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
@@ -78,8 +82,10 @@ export default function Patients() {
                     <td className="px-5 py-3"><Badge tone={p.status === "active" ? "green" : "gray"}>{t(p.status === "active" ? "active" : "inactive")}</Badge></td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-1">
-                        <Btn variant="ghost" onClick={() => openEdit(p)} data-testid={`edit-patient-${p.id}`} className="!px-2"><Pencil className="w-4 h-4" /></Btn>
-                        <Btn variant="ghost" onClick={() => remove(p.id)} data-testid={`delete-patient-${p.id}`} className="!px-2 !text-destructive"><Trash2 className="w-4 h-4" /></Btn>
+                        {allowed ? (<>
+                          <Btn variant="ghost" onClick={() => openEdit(p)} data-testid={`edit-patient-${p.id}`} className="!px-2"><Pencil className="w-4 h-4" /></Btn>
+                          <Btn variant="ghost" onClick={() => remove(p.id)} data-testid={`delete-patient-${p.id}`} className="!px-2 !text-destructive"><Trash2 className="w-4 h-4" /></Btn>
+                        </>) : <span className="text-xs text-stone-400">—</span>}
                       </div>
                     </td>
                   </motion.tr>
