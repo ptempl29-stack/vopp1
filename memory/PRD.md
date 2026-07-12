@@ -23,13 +23,22 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Admin: all + user registration.
 
 ## Implemented (2026-06)
-- JWT auth + 5 seeded role accounts; RBAC enforced (403 on disallowed).
-- Patients CRUD + search; Appointments CRUD; Progress Notes + AI summarize endpoint.
+- JWT auth + 5 seeded role accounts; RBAC enforced (403 on disallowed) + UI gating (perms.js).
+- Patients CRUD + search; Appointments CRUD; Progress Notes + AI summarize (working).
 - Invoices with CPT-code library + total calc + mark paid.
 - Digital Forms (send/receive/status); Internal Messaging (inbox, read).
+- **Patient-facing public forms**: tokenized `/form/:token` (no auth), bilingual EN/ES field rendering from server templates (Intake/Consent/Medical History/Insurance/Referral), submission flows back as "received" with staff-side responses viewer; resubmit blocked + server-side required-field validation.
 - Dashboard stats; Telehealth (Jitsi) with per-appointment room launch.
 - Bilingual EN/ES toggle; responsive tan & money-green UI.
-- Tested: 30/30 backend, frontend 100%.
+- Tested: 36/36 backend, frontend 100%.
+
+## Security Audit (2026-06) — OPEN ITEMS (not yet fixed)
+Audit verdict: FAIL/DO-NOT-LAUNCH for production PHI. Key findings to address before real patient data:
+- SEC-001 CRITICAL: hard-coded/self-seeding demo staff + default admin creds → remove seeding, strong unique admin secret.
+- SEC-002 HIGH: all roles can read all patient records/clinical notes → restrict PHI reads by role/need-to-know.
+- SEC-003 MEDIUM: patient search $regex ReDoS → escape/anchor input + timeouts.
+- SEC-004 MEDIUM: public Jitsi rooms, predictable ad-hoc names → BAA-compliant video / lobby + secret.
+- P3 hardening: CORS '*'+credentials, localStorage token (XSS), 7-day JWT no revocation, no login rate limit, arbitrary status query params, mark_read no ownership check, no data-at-rest encryption (HIPAA).
 
 ## Known Limitations
 - AI summarization returns clean 500 until the Emergent LLM Universal Key balance is topped up ($0 currently).

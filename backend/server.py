@@ -418,6 +418,10 @@ async def public_submit_form(token: str, data: FormSubmission):
         raise HTTPException(status_code=404, detail="Form not found")
     if f.get("status") == "received":
         raise HTTPException(status_code=400, detail="This form has already been submitted")
+    missing = [fld["name"] for fld in f.get("template", [])
+               if fld.get("required") and not data.responses.get(fld["name"])]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing required fields: {', '.join(missing)}")
     await db.forms.update_one({"public_token": token},
         {"$set": {"responses": data.responses, "status": "received", "submitted_at": now_iso()}})
     return {"ok": True}
