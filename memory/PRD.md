@@ -103,6 +103,15 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
   - Backend `NoteInput` extended with dob/gender/ssn/visit_date/reason_for_visit/attending_provider/referring_provider/icd10; note card shows a "Daily Progress Note" badge + visit metadata.
 - Verified: frontend modal + print-emulation screenshots; backend curl (daily note create persists all fields).
 
+## Iteration 15 (2026-06) — Backend refactor into routers
+- Split the monolithic `server.py` (~980 lines) into a clean package:
+  - `core/` → `config.py` (constants/tabs/settings), `db.py` (mongo client + now_iso + logger), `security.py` (bcrypt/JWT/get_current_user/require_roles/effective_tabs), `storage.py` (object storage), `email_utils.py` (Yahoo SMTP).
+  - `models/schemas.py` → all Pydantic models. `data/seed.py` → CPT_LIBRARY, DEMO_USERS, FORM_TEMPLATES.
+  - `routers/` → auth, settings, patients, appointments, notes, billing (cpt+invoices+reports), messages, forms (+public), dashboard. `server.py` now only wires app, includes routers under `/api`, runs startup seeding + CORS.
+- All 48 routes import cleanly; behavior/paths unchanged.
+- Tested: 132/132 backend pytest (full regression + 6 new tests) + full frontend Playwright regression — 100% pass. RBAC, brute-force lockout, /users minimization, forms security all intact.
+- Advisory (non-blocking, deferred): `/invoices/next-number` uses count-based numbering (race-prone under concurrent creates → consider a counters collection); add `Field(ge=1)` on invoice quantity; sanitize the raw LLM 500 message.
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.
