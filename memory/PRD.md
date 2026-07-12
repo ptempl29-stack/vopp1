@@ -51,6 +51,12 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Forms upload + external URL**: upload files (PDF/img/Word/txt ≤15MB) to Emergent object storage (`POST /api/forms/upload`, `GET /api/forms/{id}/download`), or attach an external link; both downloadable/openable from Forms.
 - Tested: 74/74 backend, frontend 100%.
 
+## Iteration 7 (2026-06) — Admin employee control + patient form emails
+- **Admin edits any employee**: name, email, role, and password reset via `PUT /api/users/{id}` (email uniqueness enforced; an admin's role is locked). Team page has an Edit action per user.
+- **Email patient the form link**: on form creation, staff can enter/auto-fill a recipient email; backend sends the secure `/form/{token}` link via Yahoo SMTP (`send_email`, env-gated). Best-effort — form always saves even if email fails/unconfigured (`email_sent` flag).
+- ⚠️ EMAIL SENDING IS NOT YET ACTIVE — `YAHOO_EMAIL`/`YAHOO_APP_PASSWORD` are empty in backend/.env. Sending no-ops until credentials are added.
+- Tested: 86/86 backend, frontend E2E 100%.
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.
