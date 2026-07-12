@@ -49,7 +49,13 @@ export default function Telehealth() {
     if (apiRef.current) { apiRef.current.dispose(); apiRef.current = null; }
     setActive(false); setRoom(""); setParams({});
   };
-  const startAdhoc = () => start(`vpp-${Date.now().toString(36)}`, "");
+  const randomRoomId = () => {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    const a = new Uint8Array(16);
+    (window.crypto || {}).getRandomValues?.(a);
+    return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+  };
+  const startAdhoc = () => start(`vpp-${randomRoomId()}`, "");
 
   if (active && room) {
     return (
