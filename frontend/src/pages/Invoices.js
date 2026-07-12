@@ -7,13 +7,13 @@ import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, CheckCircle2 } from "
 import { toast } from "sonner";
 
 let seq = 0;
-const newItem = () => ({ _uid: `it-${seq++}`, cpt_code: "", description: "", quantity: 1, minutes: 0, amount: 0 });
+const newItem = () => ({ _uid: `it-${seq++}`, cpt_code: "", description: "", quantity: 1, minutes: 15, amount: 0 });
 const emptyInvoice = {
   patient_id: "", patient_name: "", dob: "", ssn: "", policy_number: "", gender: "",
   invoice_number: "", service_date: new Date().toISOString().slice(0, 10),
   visit_reason: "", icd10: "", provider: "", status: "unpaid",
 };
-const reasons = ["Initial Evaluation", "Follow-up", "Therapy Session", "Consultation", "Procedure", "Lab / Diagnostic"];
+const reasons = ["General Consultation", "Physical Therapy", "Therapeutic Massage", "Relaxing Massage", "Evaluation", "Follow-up", "Re-evaluation", "Psychotherapy"];
 
 const cellCls = "w-full px-2 py-1.5 rounded-md bg-white border border-border focus:outline-none focus:ring-2 focus:ring-moneygreen-500 text-sm";
 
@@ -160,8 +160,8 @@ export default function Invoices() {
                       </select>
                     </td>
                     <td className="px-3 py-2"><input value={it.description} onChange={(e) => setItem(idx, { description: e.target.value })} className={cellCls} data-testid={`inv-item-desc-${idx}`} /></td>
-                    <td className="px-3 py-2"><input type="number" min="0" value={it.quantity} onChange={(e) => setItem(idx, { quantity: +e.target.value || 0 })} className={cellCls} data-testid={`inv-item-units-${idx}`} /></td>
-                    <td className="px-3 py-2"><input type="number" min="0" value={it.minutes} onChange={(e) => setItem(idx, { minutes: +e.target.value || 0 })} className={cellCls} /></td>
+                    <td className="px-3 py-2"><input type="number" min="0" value={it.quantity} onChange={(e) => { const q = Math.max(0, +e.target.value || 0); setItem(idx, { quantity: q, minutes: q * 15 }); }} className={cellCls} data-testid={`inv-item-units-${idx}`} /></td>
+                    <td className="px-3 py-2"><input type="number" value={it.minutes} readOnly tabIndex={-1} className={`${cellCls} bg-tan-50 text-stone-500 cursor-not-allowed`} data-testid={`inv-item-minutes-${idx}`} /></td>
                     <td className="px-3 py-2"><input type="number" min="0" step="0.01" value={it.amount} onChange={(e) => setItem(idx, { amount: +e.target.value || 0 })} className={cellCls} data-testid={`inv-item-price-${idx}`} /></td>
                     <td className="px-3 py-2 text-right font-semibold text-moneygreen-800" data-testid={`inv-item-fee-${idx}`}>${((Number(it.amount) || 0) * (Number(it.quantity) || 0)).toFixed(2)}</td>
                     <td className="px-3 py-2 no-print">
