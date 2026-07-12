@@ -11,6 +11,7 @@ API = f"{BASE_URL}/api"
 CREDS = {
     "doctor": ("doctor@vpp.com", "doctor123"),
     "nurse": ("nurse@vpp.com", "nurse123"),
+    "psychologist": ("psych@vpp.com", "psych123"),
     "receptionist": ("reception@vpp.com", "reception123"),
     "biller": ("biller@vpp.com", "biller123"),
     "admin": ("admin@vpp.com", "VPP-Adm1n!2026-Str0ng#Key"),
@@ -406,7 +407,8 @@ def test_message_read_non_recipient_404():
 
 # ----- Security: Brute force lockout (uses unique XFF) -----
 def test_brute_force_lockout_returns_429():
-    xff_ip = "10.99.88.77"
+    # use a fresh random XFF each run so previous lockouts don't collide
+    xff_ip = f"10.99.{uuid.uuid4().int % 250}.{uuid.uuid4().int % 250}"
     email = "bruteforce_target@vpp.com"
     headers = {"X-Forwarded-For": xff_ip, "Content-Type": "application/json"}
     for i in range(5):
@@ -489,4 +491,207 @@ def test_cpt_delete():
     r = requests.delete(f"{API}/cpt-codes/{_cpt_created_id['id']}", headers=h("biller"), timeout=30)
     assert r.status_code == 200
     lst = requests.get(f"{API}/cpt-codes", headers=h("biller"), timeout=30).json()
+
+
+# ================= NEW: Psychologist role =================
+def test_psychologist_login_and_tabs():
+    r = requests.post(f"{API}/auth/login", json={"email": "psych@vpp.com", "password": "psych123"}, timeout=30)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["user"]["role"] == "psychologist"
+    tabs = d["user"]["allowed_tabs"]
+    assert set(tabs) == {"dashboard", "appointments", "telehealth", "notes", "messages"}
+    for forbidden in ("patients", "invoices", "cpt", "reports", "forms", "team"):
+        assert forbidden not in tabs
+
+
+def test_psychologist_can_create_note():
+    # need a patient
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_Psy", "last_name": "Pt"},
+                     headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/notes",
+                     json={"patient_id": p["id"], "title": "Session 1", "content": "Session notes."},
+                     headers=h("psychologist"), timeout=30)
+    assert r.status_code == 200, r.text
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_psychologist_can_create_appointment():
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_PsyApp", "last_name": "Pt"},
+                     headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/appointments",
+                     json={"patient_id": p["id"], "date": "2026-02-01", "time": "14:00"},
+                     headers=h("psychologist"), timeout=30)
+    assert r.status_code == 200
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+# ================= NEW: Admin tabs / meta =================
+def test_meta_tabs_admin_only():
+    r = requests.get(f"{API}/meta/tabs", headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    d = r.json()
+    assert len(d["tabs"]) == 11 and len(d["roles"]) == 6
+    r2 = requests.get(f"{API}/meta/tabs", headers=h("doctor"), timeout=30)
+    assert r2.status_code == 403
+
+
+_created_tab_user_id = {}
+
+
+def test_admin_create_user_and_update_tabs():
+    email = f"TEST_teamuser_{uuid.uuid4().hex[:6]}@vpp.com"
+    r = requests.post(f"{API}/auth/register",
+                     json={"email": email, "password": "abcdef", "name": "TEST User", "role": "receptionist"},
+                     headers=h("admin"), timeout=30)
+    assert r.status_code == 200, r.text
+    uid = r.json()["id"]
+    _created_tab_user_id["id"] = uid
+    _created_tab_user_id["email"] = email
+    _created_tab_user_id["password"] = "abcdef"
+    # update tabs -> add reports, drop invoices
+    r2 = requests.put(f"{API}/users/{uid}/tabs",
+                     json={"allowed_tabs": ["dashboard", "reports", "messages"]},
+                     headers=h("admin"), timeout=30)
+    assert r2.status_code == 200
+    # verify persisted
+    users = requests.get(f"{API}/users", headers=h("admin"), timeout=30).json()
+    match = [u for u in users if u["id"] == uid][0]
+    assert set(match["allowed_tabs"]) == {"dashboard", "reports", "messages"}
+
+
+def test_user_login_shows_updated_tabs():
+    r = requests.post(f"{API}/auth/login",
+                     json={"email": _created_tab_user_id["email"], "password": _created_tab_user_id["password"]},
+                     headers={"X-Forwarded-For": f"172.16.{uuid.uuid4().int % 250}.1"},
+                     timeout=30)
+    assert r.status_code == 200
+    assert set(r.json()["user"]["allowed_tabs"]) == {"dashboard", "reports", "messages"}
+
+
+def test_admin_delete_user():
+    uid = _created_tab_user_id["id"]
+    r = requests.delete(f"{API}/users/{uid}", headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    users = requests.get(f"{API}/users", headers=h("admin"), timeout=30).json()
+    assert not any(u["id"] == uid for u in users)
+
+
+def test_non_admin_cannot_update_tabs():
+    login("doctor")
+    r = requests.put(f"{API}/users/{users['doctor']['id']}/tabs",
+                    json={"allowed_tabs": ["dashboard"]},
+                    headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+# ================= NEW: Billing Reports =================
+def test_reports_biller_ok():
+    r = requests.get(f"{API}/reports/billing", headers=h("biller"), timeout=30)
+    assert r.status_code == 200
+    d = r.json()
+    for k in ("summary", "timeseries", "cpt_breakdown"):
+        assert k in d
+    s = d["summary"]
+    for k in ("total_billed", "collected", "outstanding", "invoice_count", "paid_count"):
+        assert k in s
+    assert isinstance(d["timeseries"], list)
+    assert isinstance(d["cpt_breakdown"], list)
+
+
+def test_reports_admin_ok():
+    r = requests.get(f"{API}/reports/billing", headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+
+
+def test_reports_forbidden_doctor():
+    r = requests.get(f"{API}/reports/billing", headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_reports_forbidden_receptionist():
+    r = requests.get(f"{API}/reports/billing", headers=h("receptionist"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_reports_date_filter():
+    r = requests.get(f"{API}/reports/billing", params={"start": "2099-01-01", "end": "2099-12-31"},
+                    headers=h("biller"), timeout=30)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["summary"]["invoice_count"] == 0
+    assert d["summary"]["total_billed"] == 0
+
+
+def test_reports_export_csv():
+    tok = login("biller")
+    r = requests.get(f"{API}/reports/billing/export", params={"auth": tok}, timeout=30)
+    assert r.status_code == 200
+    assert "text/csv" in r.headers.get("content-type", "")
+    assert "Invoice ID" in r.text.splitlines()[0]
+
+
+def test_reports_export_missing_auth_401():
+    r = requests.get(f"{API}/reports/billing/export", timeout=30)
+    assert r.status_code == 401
+
+
+def test_reports_export_wrong_role_403():
+    tok = login("doctor")
+    r = requests.get(f"{API}/reports/billing/export", params={"auth": tok}, timeout=30)
+    assert r.status_code == 403
+
+
+# ================= NEW: Forms upload + external URL + download =================
+_upload_form = {}
+
+
+def test_upload_form_and_download():
+    # create a small PDF
+    pdf_bytes = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+    files = {"file": ("test.pdf", pdf_bytes, "application/pdf")}
+    data = {"title": "TEST_uploaded_form", "form_type": "Uploaded", "patient_id": ""}
+    tok = login("receptionist")
+    r = requests.post(f"{API}/forms/upload", files=files, data=data,
+                     headers={"Authorization": f"Bearer {tok}"}, timeout=60)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["attachment"] and d["attachment"]["filename"] == "test.pdf"
+    assert d["status"] == "received"
+    _upload_form["id"] = d["id"]
+
+    # download with ?auth=
+    r2 = requests.get(f"{API}/forms/{d['id']}/download", params={"auth": tok}, timeout=30)
+    assert r2.status_code == 200
+    assert r2.content == pdf_bytes or r2.content.startswith(b"%PDF")
+
+
+def test_download_missing_auth_401():
+    fid = _upload_form.get("id")
+    if not fid:
+        pytest.skip("no upload id")
+    r = requests.get(f"{API}/forms/{fid}/download", timeout=30)
+    assert r.status_code == 401
+
+
+def test_upload_bad_ext_400():
+    tok = login("receptionist")
+    files = {"file": ("evil.exe", b"MZ..", "application/octet-stream")}
+    data = {"title": "bad", "form_type": "Uploaded"}
+    r = requests.post(f"{API}/forms/upload", files=files, data=data,
+                    headers={"Authorization": f"Bearer {tok}"}, timeout=30)
+    assert r.status_code == 400
+
+
+def test_form_with_external_url():
+    r = requests.post(f"{API}/forms",
+                    json={"patient_id": None, "title": "TEST_ext", "form_type": "Referral",
+                          "external_url": "https://example.com/form"},
+                    headers=h("receptionist"), timeout=30)
+    assert r.status_code == 200
+    fid = r.json()["id"]
+    lst = requests.get(f"{API}/forms", headers=h("receptionist"), timeout=30).json()
+    match = [f for f in lst if f["id"] == fid][0]
+    assert match["external_url"] == "https://example.com/form"
+
     assert not any(c["id"] == _cpt_created_id["id"] for c in lst)

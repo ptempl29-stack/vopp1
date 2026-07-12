@@ -15,13 +15,17 @@ import CptCodes from "./pages/CptCodes";
 import Forms from "./pages/Forms";
 import Messages from "./pages/Messages";
 import PublicForm from "./pages/PublicForm";
+import BillingReports from "./pages/BillingReports";
+import Team from "./pages/Team";
 import { Loader2 } from "lucide-react";
 
-function Protected({ children }) {
+function Protected({ children, tab }) {
   const { user, loading } = useAuth();
   if (loading)
     return <div className="min-h-screen flex items-center justify-center bg-tan-100"><Loader2 className="w-8 h-8 animate-spin text-moneygreen-600" /></div>;
   if (!user) return <Navigate to="/login" replace />;
+  if (tab && user.allowed_tabs && !user.allowed_tabs.includes(tab))
+    return <Layout><div className="py-20 text-center text-stone-500" data-testid="no-access">You don't have access to this section.</div></Layout>;
   return <Layout>{children}</Layout>;
 }
 
@@ -35,15 +39,17 @@ function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/form/:token" element={<PublicForm />} />
-              <Route path="/" element={<Protected><Dashboard /></Protected>} />
-              <Route path="/patients" element={<Protected><Patients /></Protected>} />
-              <Route path="/appointments" element={<Protected><Appointments /></Protected>} />
-              <Route path="/telehealth" element={<Protected><Telehealth /></Protected>} />
-              <Route path="/notes" element={<Protected><Notes /></Protected>} />
-              <Route path="/invoices" element={<Protected><Invoices /></Protected>} />
-              <Route path="/cpt-codes" element={<Protected><CptCodes /></Protected>} />
-              <Route path="/forms" element={<Protected><Forms /></Protected>} />
-              <Route path="/messages" element={<Protected><Messages /></Protected>} />
+              <Route path="/" element={<Protected tab="dashboard"><Dashboard /></Protected>} />
+              <Route path="/patients" element={<Protected tab="patients"><Patients /></Protected>} />
+              <Route path="/appointments" element={<Protected tab="appointments"><Appointments /></Protected>} />
+              <Route path="/telehealth" element={<Protected tab="telehealth"><Telehealth /></Protected>} />
+              <Route path="/notes" element={<Protected tab="notes"><Notes /></Protected>} />
+              <Route path="/invoices" element={<Protected tab="invoices"><Invoices /></Protected>} />
+              <Route path="/cpt-codes" element={<Protected tab="cpt"><CptCodes /></Protected>} />
+              <Route path="/reports" element={<Protected tab="reports"><BillingReports /></Protected>} />
+              <Route path="/forms" element={<Protected tab="forms"><Forms /></Protected>} />
+              <Route path="/messages" element={<Protected tab="messages"><Messages /></Protected>} />
+              <Route path="/team" element={<Protected tab="team"><Team /></Protected>} />
             </Routes>
           </BrowserRouter>
         </AuthProvider>

@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
-import { Plus, ClipboardList, CheckCircle2, Link2, Eye } from "lucide-react";
+import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const types = ["Intake", "Consent", "Medical History", "Insurance", "Referral"];
@@ -14,8 +14,11 @@ export default function Forms() {
   const [forms, setForms] = useState([]);
   const [patients, setPatients] = useState([]);
   const [open, setOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [viewing, setViewing] = useState(null);
-  const [form, setForm] = useState({ patient_id: "", title: "", form_type: "Intake", status: "sent" });
+  const [form, setForm] = useState({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "" });
+  const [upl, setUpl] = useState({ title: "", form_type: "Uploaded", patient_id: "", file: null });
 
   const load = () => api.get("/forms").then((r) => setForms(r.data)).catch(() => {});
   useEffect(() => { load(); api.get("/patients").then((r) => setPatients(r.data)).catch(() => {}); }, []);
@@ -28,10 +31,32 @@ export default function Forms() {
       .catch(() => toast.error(url));
   };
 
+  const downloadAttachment = (f) => {
+    const token = localStorage.getItem("vpp_token");
+    window.open(`${process.env.REACT_APP_BACKEND_URL}/api/forms/${f.id}/download?auth=${token}`, "_blank");
+  };
+
   const save = async (e) => {
     e.preventDefault();
-    try { await api.post("/forms", form); toast.success(t("save") + " ✓"); setOpen(false); setForm({ patient_id: "", title: "", form_type: "Intake", status: "sent" }); load(); }
+    try { await api.post("/forms", form); toast.success(t("save") + " ✓"); setOpen(false); setForm({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "" }); load(); }
     catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const uploadFile = async (e) => {
+    e.preventDefault();
+    if (!upl.file) { toast.error(t("chooseFile")); return; }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", upl.file);
+      fd.append("title", upl.title);
+      fd.append("form_type", upl.form_type);
+      fd.append("patient_id", upl.patient_id);
+      await api.post("/forms/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success(t("uploadForm") + " ✓");
+      setUploadOpen(false); setUpl({ title: "", form_type: "Uploaded", patient_id: "", file: null }); load();
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setUploading(false); }
   };
 
   const markReceived = async (id) => {
@@ -42,7 +67,10 @@ export default function Forms() {
   return (
     <div>
       <PageHeader title={t("forms")} subtitle={`${forms.length}`}
-        action={<Btn onClick={() => setOpen(true)} data-testid="add-form-btn"><Plus className="w-4 h-4" />{t("newForm")}</Btn>} />
+        action={<div className="flex gap-2">
+          <Btn variant="outline" onClick={() => setUploadOpen(true)} data-testid="upload-form-btn"><Upload className="w-4 h-4" />{t("uploadForm")}</Btn>
+          <Btn onClick={() => setOpen(true)} data-testid="add-form-btn"><Plus className="w-4 h-4" />{t("newForm")}</Btn>
+        </div>} />
 
       <Card className="overflow-hidden">
         {forms.length === 0 ? <Empty text={t("noData")} /> : (
@@ -73,9 +101,22 @@ export default function Forms() {
                     <td className="px-5 py-3"><Badge tone={toneMap[f.status] || "gray"}>{t(f.status)}</Badge></td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-1">
-                        <Btn variant="ghost" onClick={() => copyLink(f)} data-testid={`copy-link-${f.id}`} className="!px-2" title={t("copyLink")}>
-                          <Link2 className="w-4 h-4" />
-                        </Btn>
+                        {f.attachment && (
+                          <Btn variant="ghost" onClick={() => downloadAttachment(f)} data-testid={`download-form-${f.id}`} className="!px-2" title={t("download")}>
+                            <Download className="w-4 h-4" />
+                          </Btn>
+                        )}
+                        {f.external_url && (
+                          <a href={f.external_url} target="_blank" rel="noopener noreferrer" data-testid={`open-link-${f.id}`}
+                            className="inline-flex items-center px-2 py-2 rounded-md text-stone-500 hover:text-moneygreen-700 hover:bg-tan-100 transition-colors duration-200" title={t("openLink")}>
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        )}
+                        {!f.attachment && (
+                          <Btn variant="ghost" onClick={() => copyLink(f)} data-testid={`copy-link-${f.id}`} className="!px-2" title={t("copyLink")}>
+                            <Link2 className="w-4 h-4" />
+                          </Btn>
+                        )}
                         {f.status === "received" && f.responses && (
                           <Btn variant="ghost" onClick={() => setViewing(f)} data-testid={`view-responses-${f.id}`} className="!px-2" title={t("viewResponses")}>
                             <Eye className="w-4 h-4" />
@@ -110,6 +151,9 @@ export default function Forms() {
               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
             </select>
           </Field>
+          <Field label={t("externalLink")}>
+            <input value={form.external_url} onChange={set("external_url")} className={inputCls} data-testid="ff-url" placeholder="https://..." />
+          </Field>
           <Field label={t("status")}>
             <select value={form.status} onChange={set("status")} className={inputCls}>
               <option value="sent">{t("sent")}</option><option value="pending">{t("pending")}</option><option value="received">{t("received")}</option>
@@ -118,6 +162,35 @@ export default function Forms() {
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="outline" type="button" onClick={() => setOpen(false)}>{t("cancel")}</Btn>
             <Btn type="submit" data-testid="save-form-btn">{t("sendForm")}</Btn>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={uploadOpen} onClose={() => setUploadOpen(false)} title={t("uploadForm")}>
+        <form onSubmit={uploadFile} className="space-y-4">
+          <Field label={t("title")}><input required value={upl.title} onChange={(e) => setUpl({ ...upl, title: e.target.value })} className={inputCls} data-testid="uplf-title" /></Field>
+          <Field label={t("formType")}>
+            <select value={upl.form_type} onChange={(e) => setUpl({ ...upl, form_type: e.target.value })} className={inputCls}>
+              {["Uploaded", ...types].map((ty) => <option key={ty} value={ty}>{ty}</option>)}
+            </select>
+          </Field>
+          <Field label={t("patient")}>
+            <select value={upl.patient_id} onChange={(e) => setUpl({ ...upl, patient_id: e.target.value })} className={inputCls}>
+              <option value="">—</option>
+              {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+            </select>
+          </Field>
+          <Field label={t("uploadFromComputer")}>
+            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.txt" required
+              onChange={(e) => setUpl({ ...upl, file: e.target.files[0] })} data-testid="uplf-file"
+              className="w-full text-sm text-stone-600 file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-moneygreen-600 file:text-white file:font-semibold file:cursor-pointer hover:file:bg-moneygreen-700" />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="outline" type="button" onClick={() => setUploadOpen(false)}>{t("cancel")}</Btn>
+            <Btn type="submit" disabled={uploading} data-testid="save-upload-btn">
+              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              {uploading ? t("uploading") : t("uploadForm")}
+            </Btn>
           </div>
         </form>
       </Modal>

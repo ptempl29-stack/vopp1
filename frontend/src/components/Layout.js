@@ -5,22 +5,25 @@ import { useLang } from "../context/LanguageContext";
 import {
   LayoutDashboard, Users, CalendarDays, FileText, ReceiptText,
   ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages, Hash,
+  BarChart3, UserCog,
 } from "lucide-react";
 
 const nav = [
-  { to: "/", key: "dashboard", icon: LayoutDashboard, end: true },
-  { to: "/patients", key: "patients", icon: Users },
-  { to: "/appointments", key: "appointments", icon: CalendarDays },
-  { to: "/telehealth", key: "telehealth", icon: Video },
-  { to: "/notes", key: "notes", icon: FileText },
-  { to: "/invoices", key: "invoices", icon: ReceiptText },
-  { to: "/cpt-codes", key: "cptCodes", icon: Hash },
-  { to: "/forms", key: "forms", icon: ClipboardList },
-  { to: "/messages", key: "messages", icon: MessageSquare },
+  { to: "/", tab: "dashboard", key: "dashboard", icon: LayoutDashboard, end: true },
+  { to: "/patients", tab: "patients", key: "patients", icon: Users },
+  { to: "/appointments", tab: "appointments", key: "appointments", icon: CalendarDays },
+  { to: "/telehealth", tab: "telehealth", key: "telehealth", icon: Video },
+  { to: "/notes", tab: "notes", key: "notes", icon: FileText },
+  { to: "/invoices", tab: "invoices", key: "invoices", icon: ReceiptText },
+  { to: "/cpt-codes", tab: "cpt", key: "cptCodes", icon: Hash },
+  { to: "/reports", tab: "reports", key: "reports", icon: BarChart3 },
+  { to: "/forms", tab: "forms", key: "forms", icon: ClipboardList },
+  { to: "/messages", tab: "messages", key: "messages", icon: MessageSquare },
+  { to: "/team", tab: "team", key: "team", icon: UserCog },
 ];
 
 const roleColors = {
-  doctor: "bg-moneygreen-600", nurse: "bg-moneygreen-500",
+  doctor: "bg-moneygreen-600", nurse: "bg-moneygreen-500", psychologist: "bg-moneygreen-400",
   receptionist: "bg-tan-400", biller: "bg-stone-500", admin: "bg-moneygreen-700",
 };
 
@@ -47,7 +50,7 @@ export default function Layout({ children }) {
           </div>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1 custom-scroll overflow-y-auto">
-          {nav.map((item) => (
+          {nav.filter((item) => (user?.allowed_tabs || ["dashboard"]).includes(item.tab)).map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end}
               onClick={() => setOpen(false)}
               data-testid={`nav-${item.key}`}

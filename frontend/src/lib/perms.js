@@ -1,12 +1,14 @@
-// UI permission gating — mirrors backend require_roles(). Admin can do everything.
+// UI action-permission gating. Admin can do everything. Tab visibility is controlled
+// separately by user.allowed_tabs (set by admin), not here.
 const rules = {
   patients: ["doctor", "nurse", "receptionist"],
-  appointments: ["doctor", "nurse", "receptionist"],
-  notes: ["doctor", "nurse"],
+  appointments: ["doctor", "nurse", "receptionist", "psychologist"],
+  notes: ["doctor", "nurse", "psychologist"],
   invoices: ["biller", "receptionist"],
   cpt: ["biller"],
-  forms: ["doctor", "nurse", "receptionist", "biller"],
-  messages: ["doctor", "nurse", "receptionist", "biller"],
+  reports: ["biller"],
+  forms: ["doctor", "nurse", "receptionist", "biller", "psychologist"],
+  messages: ["doctor", "nurse", "receptionist", "biller", "psychologist"],
 };
 
 export function can(role, resource) {
