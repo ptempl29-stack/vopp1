@@ -2,7 +2,9 @@
 
 @media print {
   body * { visibility: hidden; }
-  #invoice-print, #invoice-print * { visibility: visible; }
+  #invoice-print, #invoice-print *,
+  #form-print, #form-print * { visibility: visible; }
   #invoice-print { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; }
+  #form-print { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; max-height: none !important; overflow: visible !important; }
   .no-print { display: none !important; }
 }

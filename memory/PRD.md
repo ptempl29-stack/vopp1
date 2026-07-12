@@ -87,6 +87,15 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Reusable `Letterhead` component renders at the top of every patient-facing public form and on the staff responses view. Editable from Team → "Clinic Letterhead".
 - Tested: 126/126 backend, frontend E2E (public no-auth read, admin-only write 403 for others, logo guard).
 
+## Iteration 13 (2026-06) — Invoice builder refinements + Forms Print/PDF
+- **Invoice builder**: full-page printable builder (`Invoices.js`) with letterhead, patient/invoice info, CPT line items, Save/Print/Save-as-PDF.
+  - Visit Reason dropdown options: General Consultation, Physical Therapy, Therapeutic Massage, Relaxing Massage, Evaluation, Follow-up, Re-evaluation, Psychotherapy, Group Therapy.
+  - Units → Minutes auto-mapping (15 min/unit; minutes read-only). Fee = Unit Price × Units. Unit Price auto-fills from selected CPT code.
+  - Invoice number auto-advances after each save (`GET /api/invoices/next-number`, format MB-000N). Verified MB-0029 → MB-0030 via curl.
+  - Added missing EN/ES i18n labels (saveInvoice, visitReason, addService, etc.).
+- **Forms Print / Save as PDF**: responses viewer modal now has Print + Save-as-PDF buttons using `window.print()`; `#form-print` region in `App.css` @media print isolates the letterhead form document (title, metadata, all field responses, signature image) — modal chrome hidden. Verified via print-media screenshots (empty + signed forms).
+- Verified: frontend print-emulation screenshots + backend curl (invoice create/next-number).
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.

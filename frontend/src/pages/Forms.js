@@ -4,7 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { Letterhead } from "../components/Letterhead";
-import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine } from "lucide-react";
+import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown } from "lucide-react";
 import { toast } from "sonner";
 
 const types = ["Intake", "Consent", "Medical History", "Insurance", "Referral"];
@@ -239,21 +239,33 @@ export default function Forms() {
 
       <Modal open={!!viewing} onClose={() => setViewing(null)} title={t("responses")}>
         {viewing && (
-          <div className="space-y-3" data-testid="responses-view">
-            <Letterhead settings={settings} />
-            <p className="font-heading font-bold text-moneygreen-800">{viewing.title}</p>
-            {viewing.responses && Object.keys(viewing.responses).length > 0 ? (
-              (viewing.template || []).filter((fld) => viewing.responses[fld.name] !== undefined && viewing.responses[fld.name] !== "").map((fld) => (
-                <div key={fld.name} className="border-b border-border pb-2">
-                  <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{fld.en}</p>
-                  {String(viewing.responses[fld.name]).startsWith("data:image") ? (
-                    <img src={viewing.responses[fld.name]} alt={fld.en} className="h-16 object-contain mt-1" data-testid={`resp-sig-${fld.name}`} />
-                  ) : (
-                    <p className="text-sm text-moneygreen-800 mt-0.5">{String(viewing.responses[fld.name])}</p>
-                  )}
+          <div className="space-y-3">
+            <div id="form-print" className="space-y-3" data-testid="responses-view">
+              <Letterhead settings={settings} />
+              <div className="flex items-baseline justify-between border-b border-border pb-2">
+                <p className="font-heading font-bold text-moneygreen-800">{viewing.title}</p>
+                <div className="text-right text-xs text-stone-500">
+                  <p>{viewing.form_type}{viewing.patient_name ? ` · ${viewing.patient_name}` : ""}</p>
+                  {isSigned(viewing) && <p className="text-moneygreen-600 font-semibold">{t("signed")}</p>}
                 </div>
-              ))
-            ) : <p className="text-sm text-stone-500">{t("noResponses")}</p>}
+              </div>
+              {viewing.responses && Object.keys(viewing.responses).length > 0 ? (
+                (viewing.template || []).filter((fld) => viewing.responses[fld.name] !== undefined && viewing.responses[fld.name] !== "").map((fld) => (
+                  <div key={fld.name} className="border-b border-border pb-2">
+                    <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{fld.en}</p>
+                    {String(viewing.responses[fld.name]).startsWith("data:image") ? (
+                      <img src={viewing.responses[fld.name]} alt={fld.en} className="h-16 object-contain mt-1" data-testid={`resp-sig-${fld.name}`} />
+                    ) : (
+                      <p className="text-sm text-moneygreen-800 mt-0.5">{String(viewing.responses[fld.name])}</p>
+                    )}
+                  </div>
+                ))
+              ) : <p className="text-sm text-stone-500">{t("noResponses")}</p>}
+            </div>
+            <div className="flex justify-end gap-2 pt-2 no-print">
+              <Btn variant="outline" onClick={() => window.print()} data-testid="form-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
+              <Btn variant="outline" onClick={() => window.print()} data-testid="form-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
+            </div>
           </div>
         )}
       </Modal>

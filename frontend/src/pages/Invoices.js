@@ -13,7 +13,7 @@ const emptyInvoice = {
   invoice_number: "", service_date: new Date().toISOString().slice(0, 10),
   visit_reason: "", icd10: "", provider: "", status: "unpaid",
 };
-const reasons = ["General Consultation", "Physical Therapy", "Therapeutic Massage", "Relaxing Massage", "Evaluation", "Follow-up", "Re-evaluation", "Psychotherapy"];
+const reasons = ["General Consultation", "Physical Therapy", "Therapeutic Massage", "Relaxing Massage", "Evaluation", "Follow-up", "Re-evaluation", "Psychotherapy", "Group Therapy"];
 
 const cellCls = "w-full px-2 py-1.5 rounded-md bg-white border border-border focus:outline-none focus:ring-2 focus:ring-moneygreen-500 text-sm";
 
