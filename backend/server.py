@@ -9,9 +9,11 @@ import io
 import csv
 import uuid
 import logging
+import smtplib
 import bcrypt
 import jwt
 import requests
+from email.message import EmailMessage
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
@@ -80,6 +82,29 @@ def get_object(path: str):
 def effective_tabs(user: dict) -> List[str]:
     return user.get("allowed_tabs") or DEFAULT_TABS.get(user.get("role"), ["dashboard"])
 
+def email_configured() -> bool:
+    return bool(os.environ.get("YAHOO_EMAIL") and os.environ.get("YAHOO_APP_PASSWORD"))
+
+def send_email(to_email: str, subject: str, body: str) -> bool:
+    if not email_configured():
+        logging.getLogger(__name__).info("Email not configured; skipping send")
+        return False
+    msg = EmailMessage()
+    msg["From"] = os.environ["YAHOO_EMAIL"]
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.set_content(body)
+    host = os.environ.get("SMTP_HOST", "smtp.mail.yahoo.com")
+    port = int(os.environ.get("SMTP_PORT", "465"))
+    try:
+        with smtplib.SMTP_SSL(host, port, timeout=20) as server:
+            server.login(os.environ["YAHOO_EMAIL"], os.environ["YAHOO_APP_PASSWORD"])
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Email send failed: {e}")
+        return False
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -135,6 +160,12 @@ class RegisterInput(BaseModel):
     name: str
     role: str = "receptionist"
     allowed_tabs: Optional[List[str]] = None
+
+class UpdateUserInput(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    role: Optional[str] = None
+    password: Optional[str] = None
 
 class PatientInput(BaseModel):
     first_name: str
@@ -193,6 +224,8 @@ class FormInput(BaseModel):
     fields: Optional[dict] = None
     external_url: Optional[str] = None
     status: str = "sent"
+    recipient_email: Optional[EmailStr] = None
+    link_base: Optional[str] = None
 
 
 def now_iso():
@@ -264,6 +297,36 @@ async def update_user_tabs(uid: str, payload: dict, current: dict = Depends(requ
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     u = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+    return u
+
+@api_router.put("/users/{uid}")
+async def update_user(uid: str, data: UpdateUserInput, current: dict = Depends(require_roles("admin"))):
+    target = await db.users.find_one({"id": uid})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    updates = {}
+    if data.name:
+        updates["name"] = data.name
+    if data.email:
+        new_email = data.email.lower()
+        clash = await db.users.find_one({"email": new_email, "id": {"$ne": uid}})
+        if clash:
+            raise HTTPException(status_code=400, detail="Email already in use")
+        updates["email"] = new_email
+    if data.role:
+        if data.role not in ROLES:
+            raise HTTPException(status_code=400, detail="Invalid role")
+        if target.get("role") == "admin" and data.role != "admin":
+            raise HTTPException(status_code=400, detail="Cannot change an admin's role")
+        updates["role"] = data.role
+    if data.password:
+        if len(data.password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        updates["password_hash"] = hash_password(data.password)
+    if updates:
+        await db.users.update_one({"id": uid}, {"$set": updates})
+    u = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+    u["allowed_tabs"] = effective_tabs(u)
     return u
 
 @api_router.delete("/users/{uid}")
@@ -510,10 +573,25 @@ async def list_forms(user: dict = Depends(get_current_user)):
 
 @api_router.post("/forms")
 async def create_form(data: FormInput, user: dict = Depends(get_current_user)):
-    doc = data.model_dump()
-    doc.update({"id": str(uuid.uuid4()), "public_token": uuid.uuid4().hex,
-                "template": FORM_TEMPLATES.get(data.form_type, []), "responses": None,
-                "attachment": None, "created_at": now_iso(), "created_by": user["name"]})
+    doc = {"id": str(uuid.uuid4()), "public_token": uuid.uuid4().hex,
+           "patient_id": data.patient_id, "title": data.title, "form_type": data.form_type,
+           "fields": data.fields, "external_url": data.external_url, "status": data.status,
+           "template": FORM_TEMPLATES.get(data.form_type, []), "responses": None,
+           "attachment": None, "email_sent": False,
+           "created_at": now_iso(), "created_by": user["name"]}
+    # resolve recipient: explicit email, else the patient's email on file
+    recipient = data.recipient_email
+    if not recipient and data.patient_id:
+        p = await db.patients.find_one({"id": data.patient_id}, {"_id": 0})
+        if p and p.get("email"):
+            recipient = p["email"]
+    if recipient:
+        link = f"{(data.link_base or '').rstrip('/')}/form/{doc['public_token']}"
+        sent = send_email(recipient,
+            f"Please complete your form: {data.title}",
+            f"Hello,\n\nPlease complete the following form for Veterans of Puerto Plata:\n{data.title}\n\n{link}\n\nThank you.")
+        doc["email_sent"] = sent
+        doc["recipient_email"] = recipient
     await db.forms.insert_one(doc)
     doc.pop("_id", None)
     return doc

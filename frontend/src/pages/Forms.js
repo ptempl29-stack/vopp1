@@ -17,7 +17,7 @@ export default function Forms() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [viewing, setViewing] = useState(null);
-  const [form, setForm] = useState({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "" });
+  const [form, setForm] = useState({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "", recipient_email: "" });
   const [upl, setUpl] = useState({ title: "", form_type: "Uploaded", patient_id: "", file: null });
 
   const load = () => api.get("/forms").then((r) => setForms(r.data)).catch(() => {});
@@ -38,8 +38,19 @@ export default function Forms() {
 
   const save = async (e) => {
     e.preventDefault();
-    try { await api.post("/forms", form); toast.success(t("save") + " ✓"); setOpen(false); setForm({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "" }); load(); }
-    catch (err) { toast.error(apiErr(err)); }
+    try {
+      const res = await api.post("/forms", { ...form, link_base: window.location.origin });
+      if (res.data.email_sent) toast.success(t("emailSent"));
+      else if (form.recipient_email) toast.info(t("emailNotSent"));
+      else toast.success(t("save") + " ✓");
+      setOpen(false); setForm({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "", recipient_email: "" }); load();
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const onPatientSelect = (e) => {
+    const pid = e.target.value;
+    const p = patients.find((x) => x.id === pid);
+    setForm((f) => ({ ...f, patient_id: pid, recipient_email: p?.email || f.recipient_email }));
   };
 
   const uploadFile = async (e) => {
@@ -146,10 +157,14 @@ export default function Forms() {
             </select>
           </Field>
           <Field label={t("patient")}>
-            <select value={form.patient_id} onChange={set("patient_id")} className={inputCls}>
+            <select value={form.patient_id} onChange={onPatientSelect} className={inputCls}>
               <option value="">—</option>
               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
             </select>
+          </Field>
+          <Field label={t("emailFormLink")}>
+            <input type="email" value={form.recipient_email || ""} onChange={set("recipient_email")} className={inputCls} data-testid="ff-recipient" placeholder="patient@email.com" />
+            <p className="text-xs text-stone-400 mt-1">{t("emailLinkHint")}</p>
           </Field>
           <Field label={t("externalLink")}>
             <input value={form.external_url} onChange={set("external_url")} className={inputCls} data-testid="ff-url" placeholder="https://..." />

@@ -695,3 +695,162 @@ def test_form_with_external_url():
     assert match["external_url"] == "https://example.com/form"
 
     assert not any(c["id"] == _cpt_created_id["id"] for c in lst)
+
+
+
+# ================= NEW iteration 7: Admin edit user (name/email/role/password) + Form email link =================
+_edit_user_state = {}
+
+
+def test_admin_edit_user_name_and_email():
+    """Admin creates a user, edits their name+email, verifies persistence, verifies login with new email."""
+    orig_email = f"TEST_edit_{uuid.uuid4().hex[:6]}@vpp.com"
+    reg = requests.post(f"{API}/auth/register",
+                        json={"email": orig_email, "password": "origpass", "name": "Orig Name", "role": "receptionist"},
+                        headers=h("admin"), timeout=30)
+    assert reg.status_code == 200, reg.text
+    uid = reg.json()["id"]
+    _edit_user_state["id"] = uid
+
+    new_email = f"test_edited_{uuid.uuid4().hex[:6]}@vpp.com"
+    r = requests.put(f"{API}/users/{uid}",
+                     json={"name": "Edited Name", "email": new_email},
+                     headers=h("admin"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["name"] == "Edited Name"
+    assert d["email"] == new_email
+    _edit_user_state["email"] = new_email
+
+    # Verify persistence via list
+    lst = requests.get(f"{API}/users", headers=h("admin"), timeout=30).json()
+    match = [u for u in lst if u["id"] == uid][0]
+    assert match["email"] == new_email
+    assert match["name"] == "Edited Name"
+
+    # Old email should NOT log in
+    r_old = requests.post(f"{API}/auth/login",
+                         json={"email": orig_email, "password": "origpass"},
+                         headers={"X-Forwarded-For": f"172.20.{uuid.uuid4().int % 250}.1"}, timeout=30)
+    assert r_old.status_code == 401
+
+    # New email + original password logs in
+    r_new = requests.post(f"{API}/auth/login",
+                         json={"email": new_email, "password": "origpass"},
+                         headers={"X-Forwarded-For": f"172.20.{uuid.uuid4().int % 250}.2"}, timeout=30)
+    assert r_new.status_code == 200, r_new.text
+
+
+def test_admin_edit_user_duplicate_email_400():
+    uid = _edit_user_state["id"]
+    # Attempt to set an email already in use by another user (doctor@vpp.com)
+    r = requests.put(f"{API}/users/{uid}",
+                     json={"email": "doctor@vpp.com"},
+                     headers=h("admin"), timeout=30)
+    assert r.status_code == 400, r.text
+    assert "already" in r.json().get("detail", "").lower()
+
+
+def test_admin_edit_user_password_reset_login():
+    uid = _edit_user_state["id"]
+    email = _edit_user_state["email"]
+    new_pw = "brandnew123"
+    r = requests.put(f"{API}/users/{uid}",
+                     json={"password": new_pw},
+                     headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    # Login with new password
+    r2 = requests.post(f"{API}/auth/login",
+                      json={"email": email, "password": new_pw},
+                      headers={"X-Forwarded-For": f"172.20.{uuid.uuid4().int % 250}.3"}, timeout=30)
+    assert r2.status_code == 200
+
+
+def test_admin_edit_user_short_password_400():
+    uid = _edit_user_state["id"]
+    r = requests.put(f"{API}/users/{uid}", json={"password": "abc"}, headers=h("admin"), timeout=30)
+    assert r.status_code == 400
+
+
+def test_admin_edit_user_role_change():
+    uid = _edit_user_state["id"]
+    r = requests.put(f"{API}/users/{uid}", json={"role": "biller"}, headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    assert r.json()["role"] == "biller"
+
+
+def test_admin_edit_user_invalid_role_400():
+    uid = _edit_user_state["id"]
+    r = requests.put(f"{API}/users/{uid}", json={"role": "hacker"}, headers=h("admin"), timeout=30)
+    assert r.status_code == 400
+
+
+def test_admin_cannot_change_admin_role():
+    # Find the admin user id
+    lst = requests.get(f"{API}/users", headers=h("admin"), timeout=30).json()
+    admin_user = [u for u in lst if u["email"] == "admin@vpp.com"][0]
+    r = requests.put(f"{API}/users/{admin_user['id']}",
+                    json={"role": "doctor"}, headers=h("admin"), timeout=30)
+    assert r.status_code == 400
+    assert "admin" in r.json().get("detail", "").lower()
+
+
+def test_non_admin_cannot_edit_user():
+    uid = _edit_user_state["id"]
+    r = requests.put(f"{API}/users/{uid}", json={"name": "hacked"}, headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_zz_delete_edited_user():
+    uid = _edit_user_state.get("id")
+    if uid:
+        r = requests.delete(f"{API}/users/{uid}", headers=h("admin"), timeout=30)
+        assert r.status_code == 200
+
+
+# ----- Form email link (Yahoo unconfigured => email_sent=false, form still created) -----
+def test_create_form_with_recipient_email_unconfigured():
+    """Form creation with recipient_email must succeed with email_sent=false when SMTP not configured."""
+    p = requests.post(f"{API}/patients",
+                     json={"first_name": "TEST_FormEmail", "last_name": "Pt", "email": "patient_onfile@example.com"},
+                     headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/forms",
+                     json={"patient_id": p["id"], "title": "TEST_EmailForm", "form_type": "Intake",
+                           "recipient_email": "explicit@example.com",
+                           "link_base": "https://example.com"},
+                     headers=h("receptionist"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["email_sent"] is False, "email_sent should be false since Yahoo not configured"
+    assert d.get("recipient_email") == "explicit@example.com"
+    assert "public_token" in d and len(d["public_token"]) >= 16
+    # cleanup
+    requests.delete(f"{API}/forms/{d['id']}", headers=h("receptionist"), timeout=30)
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_create_form_auto_recipient_from_patient_email():
+    """When no explicit recipient_email but patient has one, backend still tries (email_sent=false since SMTP off)."""
+    p = requests.post(f"{API}/patients",
+                     json={"first_name": "TEST_Auto", "last_name": "Pt", "email": "auto@example.com"},
+                     headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/forms",
+                     json={"patient_id": p["id"], "title": "TEST_AutoForm", "form_type": "Consent",
+                           "link_base": "https://example.com"},
+                     headers=h("receptionist"), timeout=30)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["email_sent"] is False
+    # Backend resolves recipient from patient record
+    assert d.get("recipient_email") == "auto@example.com"
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_create_form_without_recipient_no_email_flag():
+    """No recipient at all — form created, email_sent=false, no recipient_email field surfaced."""
+    r = requests.post(f"{API}/forms",
+                     json={"patient_id": None, "title": "TEST_NoRec", "form_type": "Intake"},
+                     headers=h("receptionist"), timeout=30)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["email_sent"] is False

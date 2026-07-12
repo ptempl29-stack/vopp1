@@ -4,7 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
-import { UserPlus, Trash2, ShieldCheck } from "lucide-react";
+import { UserPlus, Trash2, ShieldCheck, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
@@ -24,6 +24,8 @@ export default function Team() {
   const [addOpen, setAddOpen] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [editTabs, setEditTabs] = useState([]);
+  const [infoUser, setInfoUser] = useState(null);
+  const [infoForm, setInfoForm] = useState({ name: "", email: "", role: "", password: "" });
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "receptionist" });
 
   const load = () => api.get("/users").then((r) => setUsers(r.data)).catch(() => {});
@@ -55,6 +57,19 @@ export default function Team() {
     try { await api.delete(`/users/${id}`); toast.success(t("deleteUser") + " ✓"); load(); }
     catch (err) { toast.error(apiErr(err)); }
   };
+
+  const openInfo = (u) => { setInfoUser(u); setInfoForm({ name: u.name, email: u.email, role: u.role, password: "" }); };
+  const saveInfo = async (e) => {
+    e.preventDefault();
+    const payload = { name: infoForm.name, email: infoForm.email, role: infoForm.role };
+    if (infoForm.password) payload.password = infoForm.password;
+    try {
+      await api.put(`/users/${infoUser.id}`, payload);
+      toast.success(t("save") + " ✓");
+      setInfoUser(null); load();
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+  const setInfo = (k) => (e) => setInfoForm({ ...infoForm, [k]: e.target.value });
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -90,6 +105,9 @@ export default function Team() {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-1">
+                        <Btn variant="ghost" onClick={() => openInfo(u)} data-testid={`edit-user-${u.id}`} className="!px-2" title={t("edit")}>
+                          <Pencil className="w-4 h-4" />
+                        </Btn>
                         <Btn variant="outline" onClick={() => openTabs(u)} data-testid={`edit-tabs-${u.id}`}>
                           <ShieldCheck className="w-4 h-4" />{t("tabAccess")}
                         </Btn>
@@ -141,6 +159,26 @@ export default function Team() {
               <Btn onClick={saveTabs} data-testid="save-tabs-btn">{t("saveAccess")}</Btn>
             </div>
           </div>
+        )}
+      </Modal>
+      <Modal open={!!infoUser} onClose={() => setInfoUser(null)} title={`${t("edit")} — ${infoUser?.name || ""}`}>
+        {infoUser && (
+          <form onSubmit={saveInfo} className="space-y-4">
+            <Field label={t("fullName")}><input required value={infoForm.name} onChange={setInfo("name")} className={inputCls} data-testid="eu-name" /></Field>
+            <Field label={t("email")}><input type="email" required value={infoForm.email} onChange={setInfo("email")} className={inputCls} data-testid="eu-email" /></Field>
+            <Field label={t("role")}>
+              <select value={infoForm.role} onChange={setInfo("role")} className={inputCls} data-testid="eu-role" disabled={infoUser.role === "admin"}>
+                {(roles.length ? roles : ["doctor", "nurse", "psychologist", "receptionist", "biller", "admin"]).map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </Field>
+            <Field label={t("password") + " (" + t("orLabel") + " leave blank)"}>
+              <input type="password" minLength={6} value={infoForm.password} onChange={setInfo("password")} className={inputCls} data-testid="eu-password" placeholder="••••••" />
+            </Field>
+            <div className="flex justify-end gap-2 pt-2">
+              <Btn variant="outline" type="button" onClick={() => setInfoUser(null)}>{t("cancel")}</Btn>
+              <Btn type="submit" data-testid="save-user-info-btn">{t("save")}</Btn>
+            </div>
+          </form>
         )}
       </Modal>
     </div>
