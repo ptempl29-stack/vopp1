@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { Letterhead } from "../components/Letterhead";
 import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine } from "lucide-react";
 import { toast } from "sonner";
 
@@ -20,11 +21,16 @@ export default function Forms() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [viewing, setViewing] = useState(null);
+  const [settings, setSettings] = useState(null);
   const [form, setForm] = useState({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "", recipient_email: "" });
   const [upl, setUpl] = useState({ title: "", form_type: "Uploaded", patient_id: "", file: null });
 
   const load = () => api.get("/forms").then((r) => setForms(r.data)).catch(() => {});
-  useEffect(() => { load(); api.get("/patients").then((r) => setPatients(r.data)).catch(() => {}); }, []);
+  useEffect(() => {
+    load();
+    api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
+    api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
+  }, []);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -234,6 +240,7 @@ export default function Forms() {
       <Modal open={!!viewing} onClose={() => setViewing(null)} title={t("responses")}>
         {viewing && (
           <div className="space-y-3" data-testid="responses-view">
+            <Letterhead settings={settings} />
             <p className="font-heading font-bold text-moneygreen-800">{viewing.title}</p>
             {viewing.responses && Object.keys(viewing.responses).length > 0 ? (
               (viewing.template || []).filter((fld) => viewing.responses[fld.name] !== undefined && viewing.responses[fld.name] !== "").map((fld) => (

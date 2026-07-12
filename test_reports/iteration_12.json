@@ -1,0 +1,40 @@
+{
+  "summary": "Iter 12 tests the admin-editable clinic LETTERHEAD feature end-to-end. Backend: 126/126 pytest passed (added 8 new letterhead tests: public GET no auth, authed GET all roles, admin PUT persists + verifiable via public endpoint, doctor/receptionist 403, unauth PUT 401, logo>900KB 400, missing clinic_name 422). Frontend: Playwright end-to-end verified admin -> Team -> edit-letterhead-btn modal opens with all fields (lh-name, lh-tagline, lh-address, lh-phone, lh-email, lh-logo-file); PNG upload renders lh-logo-preview; save-letterhead-btn persists via PUT /api/settings; UNAUTH public form at /form/<token> renders form-letterhead with updated clinic_name+tagline+address+phone+email+letterhead-logo (image); after patient submits, receptionist opens view-responses-<id> and the same form-letterhead shows above answers.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "letterhead_verifications": {
+    "public_settings_no_auth": "GET /api/public/settings returns 200 with all 6 keys (clinic_name, tagline, address, phone, email, logo) — no Authorization header",
+    "authed_settings_any_role": "GET /api/settings returns 200 for doctor/receptionist/biller/admin",
+    "admin_put_persists": "PUT /api/settings by admin returns updated body; subsequent public GET reflects change (name+tagline+logo dataURL)",
+    "authz": "doctor & receptionist PUT /api/settings -> 403; unauth PUT -> 401/403",
+    "logo_size_guard": "logo > 900000 chars -> 400 with 'logo too large' message",
+    "input_validation": "PUT missing clinic_name -> 422 (Pydantic)",
+    "ui_modal_fields": "All 7 data-testids (lh-name, lh-tagline, lh-address, lh-phone, lh-email, lh-logo-file, save-letterhead-btn) visible when clicking edit-letterhead-btn on nav-team page",
+    "ui_logo_preview": "Uploading 1x1 PNG via lh-logo-file renders <img data-testid=lh-logo-preview> immediately (FileReader -> base64 dataURL)",
+    "public_form_letterhead": "Unauthenticated /form/<token> shows form-letterhead with updated clinic name, tagline, address, phone, email, and letterhead-logo <img>",
+    "responses_view_letterhead": "Receptionist view-responses-<id> modal shows form-letterhead above submitted answers with same clinic info"
+  },
+  "regression_verified": [
+    "All 118 prior backend tests still pass (login all roles, SOAP notes, forms + signatures + upload/download, invoices, admin edit user, brute-force lockout, patients, appointments, messages, stats)",
+    "Receptionist form creation, patient public submit flow (form -> received status), and responses view all functional"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iteration_12.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py DEFAULT_SETTINGS is returned from get_settings_doc when db has no doc — but each field returned then may be missing 'key' after $set upsert; verified {_id,key} projected out. Fine.",
+    "SettingsInput.clinic_name is required (good); other fields Optional with '' default. Payload always writes full doc (model_dump) — no partial patch semantics; consider PATCH if partial updates needed later.",
+    "Logo size check (900000 chars ~= 650KB base64) is applied only on PUT. Consider also bounding on total settings doc size or storing binary in GridFS if larger logos ever needed.",
+    "Frontend Letterhead.js gracefully hides missing fields; good defensive rendering.",
+    "server.py now at 927 lines — still growing; recommend splitting notes/forms/invoices/settings into routers soon."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (126/126)", "frontend": "100% (all letterhead UI + integration + authz flows verified)"},
+  "test_credentials": "Loaded from CREDS in backend_test.py; admin=admin@vpp.com/VPP-Adm1n!2026-Str0ng#Key",
+  "seed_data_creation": "Playwright created 2 TEST_UI Consent forms + 1 patient submission for responses view. Letterhead was temporarily overwritten and RESTORED to defaults (clinic_name 'Veterans of Puerto Plata', tagline 'Health Clinic', address 'Puerto Plata, Dominican Republic', phone '+1 (809) 555-0100', email 'info@vpp-clinic.com', logo '') at end of test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Letterhead endpoints: GET /api/public/settings (no auth), GET /api/settings (any authed user), PUT /api/settings (admin only, SettingsInput requires clinic_name). Frontend: Letterhead component in components/Letterhead.js renders on PublicForm.js (unauth) and Forms.js responses modal (authed). Team.js editor modal converts uploaded image to base64 dataURL via FileReader. All key data-testids present."
+}

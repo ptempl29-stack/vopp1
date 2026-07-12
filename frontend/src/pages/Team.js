@@ -4,7 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
-import { UserPlus, Trash2, ShieldCheck, Pencil } from "lucide-react";
+import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature } from "lucide-react";
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
@@ -27,6 +27,26 @@ export default function Team() {
   const [infoUser, setInfoUser] = useState(null);
   const [infoForm, setInfoForm] = useState({ name: "", email: "", role: "", password: "" });
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "receptionist" });
+  const [lhOpen, setLhOpen] = useState(false);
+  const [lh, setLh] = useState({ clinic_name: "", tagline: "", address: "", phone: "", email: "", logo: "" });
+
+  const openLetterhead = () => {
+    api.get("/settings").then((r) => { setLh(r.data); setLhOpen(true); }).catch((e) => toast.error(apiErr(e)));
+  };
+  const onLogoFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 600000) { toast.error("Logo too large (max ~600KB)"); return; }
+    const reader = new FileReader();
+    reader.onload = () => setLh((s) => ({ ...s, logo: reader.result }));
+    reader.readAsDataURL(file);
+  };
+  const saveLetterhead = async (e) => {
+    e.preventDefault();
+    try { await api.put("/settings", lh); toast.success(t("save") + " ✓"); setLhOpen(false); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+  const setLhField = (k) => (e) => setLh({ ...lh, [k]: e.target.value });
 
   const load = () => api.get("/users").then((r) => setUsers(r.data)).catch(() => {});
   useEffect(() => {
@@ -76,7 +96,10 @@ export default function Team() {
   return (
     <div>
       <PageHeader title={t("team")} subtitle={t("teamSubtitle")}
-        action={<Btn onClick={() => setAddOpen(true)} data-testid="add-user-btn"><UserPlus className="w-4 h-4" />{t("addUser")}</Btn>} />
+        action={<div className="flex gap-2">
+          <Btn variant="outline" onClick={openLetterhead} data-testid="edit-letterhead-btn"><FileSignature className="w-4 h-4" />{t("letterhead")}</Btn>
+          <Btn onClick={() => setAddOpen(true)} data-testid="add-user-btn"><UserPlus className="w-4 h-4" />{t("addUser")}</Btn>
+        </div>} />
 
       <Card className="overflow-hidden">
         {users.length === 0 ? <Empty text={t("noData")} /> : (
@@ -180,6 +203,30 @@ export default function Team() {
             </div>
           </form>
         )}
+      </Modal>
+      <Modal open={lhOpen} onClose={() => setLhOpen(false)} title={t("letterhead")}>
+        <form onSubmit={saveLetterhead} className="space-y-4">
+          <div className="flex items-center gap-4">
+            {lh.logo ? <img src={lh.logo} alt="logo" className="h-16 w-16 object-contain rounded-md border border-border" data-testid="lh-logo-preview" />
+              : <div className="h-16 w-16 rounded-md bg-moneygreen-100 flex items-center justify-center text-moneygreen-600"><FileSignature className="w-6 h-6" /></div>}
+            <div>
+              <label className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500">{t("logo")}</label>
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={onLogoFile} data-testid="lh-logo-file"
+                className="mt-1 block text-sm text-stone-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-moneygreen-600 file:text-white file:font-semibold file:cursor-pointer" />
+            </div>
+          </div>
+          <Field label={t("clinicName")}><input required value={lh.clinic_name} onChange={setLhField("clinic_name")} className={inputCls} data-testid="lh-name" /></Field>
+          <Field label={t("tagline")}><input value={lh.tagline || ""} onChange={setLhField("tagline")} className={inputCls} data-testid="lh-tagline" /></Field>
+          <Field label={t("address")}><input value={lh.address || ""} onChange={setLhField("address")} className={inputCls} data-testid="lh-address" /></Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t("phone")}><input value={lh.phone || ""} onChange={setLhField("phone")} className={inputCls} data-testid="lh-phone" /></Field>
+            <Field label={t("email")}><input value={lh.email || ""} onChange={setLhField("email")} className={inputCls} data-testid="lh-email" /></Field>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="outline" type="button" onClick={() => setLhOpen(false)}>{t("cancel")}</Btn>
+            <Btn type="submit" data-testid="save-letterhead-btn">{t("save")}</Btn>
+          </div>
+        </form>
       </Modal>
     </div>
   );

@@ -366,6 +366,45 @@ async def meta_tabs(current: dict = Depends(require_roles("admin"))):
     return {"tabs": ALL_TABS, "roles": ROLES, "defaults": DEFAULT_TABS}
 
 
+# ---------------- Clinic settings / letterhead ----------------
+DEFAULT_SETTINGS = {
+    "clinic_name": "Veterans of Puerto Plata",
+    "tagline": "Health Clinic",
+    "address": "Puerto Plata, Dominican Republic",
+    "phone": "+1 (809) 555-0100",
+    "email": "info@vpp-clinic.com",
+    "logo": "",
+}
+
+class SettingsInput(BaseModel):
+    clinic_name: str
+    tagline: Optional[str] = ""
+    address: Optional[str] = ""
+    phone: Optional[str] = ""
+    email: Optional[str] = ""
+    logo: Optional[str] = ""
+
+async def get_settings_doc():
+    s = await db.settings.find_one({"key": "clinic"}, {"_id": 0, "key": 0})
+    return s or DEFAULT_SETTINGS
+
+@api_router.get("/public/settings")
+async def public_settings():
+    return await get_settings_doc()
+
+@api_router.get("/settings")
+async def read_settings(user: dict = Depends(get_current_user)):
+    return await get_settings_doc()
+
+@api_router.put("/settings")
+async def update_settings(data: SettingsInput, current: dict = Depends(require_roles("admin"))):
+    payload = data.model_dump()
+    if payload.get("logo") and len(payload["logo"]) > 900000:
+        raise HTTPException(status_code=400, detail="Logo image too large (max ~650KB)")
+    await db.settings.update_one({"key": "clinic"}, {"$set": {**payload, "key": "clinic"}}, upsert=True)
+    return await get_settings_doc()
+
+
 # ---------------- Patients ----------------
 @api_router.get("/patients")
 async def list_patients(search: Optional[str] = None, user: dict = Depends(get_current_user)):

@@ -1305,3 +1305,82 @@ def test_biller_still_cannot_create_soap_note():
                             "subjective": "s"},
                       headers=h("biller"), timeout=30)
     assert r.status_code == 403
+
+
+# ---------------- Letterhead / Clinic Settings ----------------
+def test_public_settings_no_auth():
+    r = requests.get(f"{API}/public/settings", timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    for k in ("clinic_name", "tagline", "address", "phone", "email", "logo"):
+        assert k in d, f"missing key {k}"
+    assert isinstance(d["clinic_name"], str) and len(d["clinic_name"]) > 0
+
+
+def test_settings_authed_any_role():
+    for role in ("doctor", "receptionist", "biller", "admin"):
+        r = requests.get(f"{API}/settings", headers=h(role), timeout=30)
+        assert r.status_code == 200, f"{role}: {r.status_code} {r.text}"
+        assert "clinic_name" in r.json()
+
+
+def test_settings_put_admin_ok_and_persists():
+    payload = {
+        "clinic_name": "TEST_LH Clinic",
+        "tagline": "TEST tagline",
+        "address": "TEST 123 St",
+        "phone": "+1 000 000 0000",
+        "email": "test_lh@vpp.com",
+        "logo": "",
+    }
+    r = requests.put(f"{API}/settings", json=payload, headers=h("admin"), timeout=30)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    for k, v in payload.items():
+        assert body[k] == v
+    # verify persisted via public endpoint (no auth)
+    r2 = requests.get(f"{API}/public/settings", timeout=30)
+    assert r2.status_code == 200
+    for k, v in payload.items():
+        assert r2.json()[k] == v
+    # restore defaults
+    restore = {
+        "clinic_name": "Veterans of Puerto Plata",
+        "tagline": "Health Clinic",
+        "address": "Puerto Plata, Dominican Republic",
+        "phone": "+1 (809) 555-0100",
+        "email": "info@vpp-clinic.com",
+        "logo": "",
+    }
+    requests.put(f"{API}/settings", json=restore, headers=h("admin"), timeout=30)
+
+
+def test_settings_put_forbidden_for_doctor():
+    r = requests.put(f"{API}/settings",
+                     json={"clinic_name": "hack"}, headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_settings_put_forbidden_for_receptionist():
+    r = requests.put(f"{API}/settings",
+                     json={"clinic_name": "hack"}, headers=h("receptionist"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_settings_put_no_auth_401():
+    r = requests.put(f"{API}/settings", json={"clinic_name": "hack"}, timeout=30)
+    assert r.status_code in (401, 403)
+
+
+def test_settings_logo_too_large_400():
+    big = "data:image/png;base64," + ("A" * 900001)
+    r = requests.put(f"{API}/settings",
+                     json={"clinic_name": "x", "logo": big},
+                     headers=h("admin"), timeout=30)
+    assert r.status_code == 400
+    assert "logo" in r.text.lower() or "large" in r.text.lower()
+
+
+def test_settings_missing_clinic_name_422():
+    r = requests.put(f"{API}/settings", json={"tagline": "x"}, headers=h("admin"), timeout=30)
+    assert r.status_code == 422

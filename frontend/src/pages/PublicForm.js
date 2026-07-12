@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import axios from "axios";
 import { useLang } from "../context/LanguageContext";
 import { SignaturePad } from "../components/SignaturePad";
+import { Letterhead } from "../components/Letterhead";
 import { Stethoscope, Languages, Loader2, CheckCircle2, FileWarning } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -14,6 +15,7 @@ export default function PublicForm() {
   const [state, setState] = useState("loading"); // loading | ready | done | error | already
   const [values, setValues] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [settings, setSettings] = useState(null);
 
   useEffect(() => {
     axios.get(`${API}/public/forms/${token}`)
@@ -23,6 +25,7 @@ export default function PublicForm() {
         else setState("ready");
       })
       .catch(() => setState("error"));
+    axios.get(`${API}/public/settings`).then((r) => setSettings(r.data)).catch(() => {});
   }, [token]);
 
   const set = (name, val) => setValues((v) => ({ ...v, [name]: val }));
@@ -81,6 +84,7 @@ export default function PublicForm() {
   return (
     <Shell>
       <div className="bg-white rounded-lg border border-border p-6 sm:p-8">
+        <Letterhead settings={settings} />
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500">{form.form_type}</p>
         <h1 className="font-heading text-2xl sm:text-3xl font-extrabold text-moneygreen-800 tracking-tight mt-1">{form.title}</h1>
         <p className="text-stone-500 mt-2">
