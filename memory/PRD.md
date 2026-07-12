@@ -82,6 +82,11 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - SOAP notes auto-build a combined `content` server-side so search, AI summarize, and signatures work identically for both types; card shows a SOAP badge + labeled S/O/A/P sections. Empty notes rejected (client + 400).
 - Tested: 118/118 backend, frontend E2E.
 
+## Iteration 12 (2026-06) — Company letterhead on forms
+- Admin-editable **clinic letterhead** (name, tagline, address, phone, email, logo upload) via `settings` collection: `GET /api/public/settings` (no auth), `GET /api/settings` (authed), `PUT /api/settings` (admin, logo ≤~650KB).
+- Reusable `Letterhead` component renders at the top of every patient-facing public form and on the staff responses view. Editable from Team → "Clinic Letterhead".
+- Tested: 126/126 backend, frontend E2E (public no-auth read, admin-only write 403 for others, logo guard).
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.
