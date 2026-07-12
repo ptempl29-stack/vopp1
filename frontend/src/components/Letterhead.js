@@ -25,6 +25,12 @@ export const Letterhead = ({ settings }) => {
         {settings.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3.5 h-3.5" />{settings.phone}</span>}
         {settings.email && <span className="inline-flex items-center gap-1"><Mail className="w-3.5 h-3.5" />{settings.email}</span>}
       </div>
+      {(settings.mailing_address || settings.primary_insurance) && (
+        <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1 text-xs text-stone-500">
+          {settings.mailing_address && <span><span className="font-semibold text-stone-600">Mailing Address:</span> {settings.mailing_address}</span>}
+          {settings.primary_insurance && <span><span className="font-semibold text-stone-600">Primary Insurance:</span> {settings.primary_insurance}</span>}
+        </div>
+      )}
     </div>
   );
 };

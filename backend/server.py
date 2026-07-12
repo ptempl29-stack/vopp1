@@ -215,10 +215,11 @@ class SummarizeInput(BaseModel):
     content: str
 
 class InvoiceItem(BaseModel):
-    cpt_code: str
-    description: str
-    amount: float
+    cpt_code: str = ""
+    description: str = ""
     quantity: int = 1
+    minutes: int = 0
+    amount: float = 0
 
 class CptInput(BaseModel):
     code: str
@@ -226,7 +227,17 @@ class CptInput(BaseModel):
     amount: float
 
 class InvoiceInput(BaseModel):
-    patient_id: str
+    patient_id: Optional[str] = None
+    patient_name: Optional[str] = None
+    dob: Optional[str] = None
+    ssn: Optional[str] = None
+    policy_number: Optional[str] = None
+    gender: Optional[str] = None
+    invoice_number: Optional[str] = None
+    service_date: Optional[str] = None
+    visit_reason: Optional[str] = None
+    icd10: Optional[str] = None
+    provider: Optional[str] = None
     items: List[InvoiceItem]
     status: str = "unpaid"
     notes: Optional[str] = None
@@ -373,6 +384,8 @@ DEFAULT_SETTINGS = {
     "address": "Puerto Plata, Dominican Republic",
     "phone": "+1 (809) 555-0100",
     "email": "info@vpp-clinic.com",
+    "mailing_address": "",
+    "primary_insurance": "",
     "logo": "",
 }
 
@@ -382,6 +395,8 @@ class SettingsInput(BaseModel):
     address: Optional[str] = ""
     phone: Optional[str] = ""
     email: Optional[str] = ""
+    mailing_address: Optional[str] = ""
+    primary_insurance: Optional[str] = ""
     logo: Optional[str] = ""
 
 async def get_settings_doc():
@@ -553,15 +568,33 @@ async def list_invoices(user: dict = Depends(get_current_user)):
     invoices = await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}" async for p in db.patients.find({}, {"_id": 0})}
     for inv in invoices:
-        inv["patient_name"] = patients.get(inv["patient_id"], "Unknown")
+        inv["patient_name"] = inv.get("patient_name") or patients.get(inv.get("patient_id"), "Unknown")
     return invoices
+
+@api_router.get("/invoices/next-number")
+async def next_invoice_number(user: dict = Depends(require_roles("biller", "receptionist"))):
+    count = await db.invoices.count_documents({})
+    return {"invoice_number": f"MB-{count + 1:04d}"}
 
 @api_router.post("/invoices")
 async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles("biller", "receptionist"))):
     items = [i.model_dump() for i in data.items]
     total = sum(i["amount"] * i["quantity"] for i in items)
-    doc = {"id": str(uuid.uuid4()), "patient_id": data.patient_id, "items": items,
-           "total": round(total, 2), "status": data.status, "notes": data.notes,
+    number = data.invoice_number
+    if not number:
+        count = await db.invoices.count_documents({})
+        number = f"MB-{count + 1:04d}"
+    name = data.patient_name
+    if not name and data.patient_id:
+        p = await db.patients.find_one({"id": data.patient_id}, {"_id": 0})
+        if p:
+            name = f"{p['first_name']} {p['last_name']}"
+    doc = {"id": str(uuid.uuid4()), "invoice_number": number,
+           "patient_id": data.patient_id, "patient_name": name,
+           "dob": data.dob, "ssn": data.ssn, "policy_number": data.policy_number, "gender": data.gender,
+           "service_date": data.service_date, "visit_reason": data.visit_reason,
+           "icd10": data.icd10, "provider": data.provider,
+           "items": items, "total": round(total, 2), "status": data.status, "notes": data.notes,
            "created_at": now_iso(), "created_by": user["name"]}
     await db.invoices.insert_one(doc)
     doc.pop("_id", None)
