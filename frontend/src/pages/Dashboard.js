@@ -30,7 +30,7 @@ export default function Dashboard() {
       <div className="mb-8">
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500">{t("dashboard")}</p>
         <h1 className="font-heading text-3xl sm:text-4xl font-extrabold text-moneygreen-800 tracking-tight mt-1">
-          {t("goodDay")}, {user?.name?.split(" ")[0]}.
+          {t("goodDay")}, {user?.name}.
         </h1>
         <p className="text-stone-500 mt-2">{t("overview")}</p>
       </div>
