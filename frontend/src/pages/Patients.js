@@ -1,0 +1,121 @@
+import React, { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import api, { apiErr } from "../lib/api";
+import { useLang } from "../context/LanguageContext";
+import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { Plus, Search, Pencil, Trash2, Phone } from "lucide-react";
+import { toast } from "sonner";
+
+const blank = { first_name: "", last_name: "", dob: "", gender: "", phone: "", email: "", address: "", notes: "", status: "active" };
+
+export default function Patients() {
+  const { t } = useLang();
+  const [patients, setPatients] = useState([]);
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(blank);
+  const [editId, setEditId] = useState(null);
+
+  const load = () => api.get("/patients", { params: { search } }).then((r) => setPatients(r.data)).catch(() => {});
+  useEffect(() => { const d = setTimeout(load, 250); return () => clearTimeout(d); }, [search]);
+
+  const openNew = () => { setForm(blank); setEditId(null); setOpen(true); };
+  const openEdit = (p) => { setForm(p); setEditId(p.id); setOpen(true); };
+
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      if (editId) await api.put(`/patients/${editId}`, form);
+      else await api.post("/patients", form);
+      toast.success(t("save") + " ✓");
+      setOpen(false); load();
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const remove = async (id) => {
+    try { await api.delete(`/patients/${id}`); toast.success(t("delete") + " ✓"); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  return (
+    <div>
+      <PageHeader title={t("patients")} subtitle={`${patients.length} ${t("patients").toLowerCase()}`}
+        action={<Btn onClick={openNew} data-testid="add-patient-btn"><Plus className="w-4 h-4" />{t("addPatient")}</Btn>} />
+
+      <div className="relative mb-4 max-w-sm">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("search")}
+          data-testid="patient-search"
+          className={inputCls + " pl-9"} />
+      </div>
+
+      <Card className="overflow-hidden">
+        {patients.length === 0 ? <Empty text={t("noData")} /> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
+                  <th className="px-5 py-3">{t("name")}</th>
+                  <th className="px-5 py-3 hidden md:table-cell">{t("phone")}</th>
+                  <th className="px-5 py-3 hidden md:table-cell">{t("dob")}</th>
+                  <th className="px-5 py-3">{t("status")}</th>
+                  <th className="px-5 py-3 text-right">{t("actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {patients.map((p, i) => (
+                  <motion.tr key={p.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
+                    data-testid={`patient-row-${p.id}`}
+                    className={`border-b border-border/60 hover:bg-tan-50 transition-colors duration-200 ${i % 2 ? "bg-tan-50/40" : ""}`}>
+                    <td className="px-5 py-3">
+                      <p className="font-semibold text-moneygreen-800">{p.first_name} {p.last_name}</p>
+                      <p className="text-xs text-stone-500">{p.email || "—"}</p>
+                    </td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{p.phone || "—"}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{p.dob || "—"}</td>
+                    <td className="px-5 py-3"><Badge tone={p.status === "active" ? "green" : "gray"}>{t(p.status === "active" ? "active" : "inactive")}</Badge></td>
+                    <td className="px-5 py-3">
+                      <div className="flex justify-end gap-1">
+                        <Btn variant="ghost" onClick={() => openEdit(p)} data-testid={`edit-patient-${p.id}`} className="!px-2"><Pencil className="w-4 h-4" /></Btn>
+                        <Btn variant="ghost" onClick={() => remove(p.id)} data-testid={`delete-patient-${p.id}`} className="!px-2 !text-destructive"><Trash2 className="w-4 h-4" /></Btn>
+                      </div>
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Modal open={open} onClose={() => setOpen(false)} title={editId ? t("edit") : t("newPatient")}>
+        <form onSubmit={save} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t("firstName")}><input required value={form.first_name} onChange={set("first_name")} className={inputCls} data-testid="pf-first" /></Field>
+            <Field label={t("lastName")}><input required value={form.last_name} onChange={set("last_name")} className={inputCls} data-testid="pf-last" /></Field>
+            <Field label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={inputCls} /></Field>
+            <Field label={t("gender")}>
+              <select value={form.gender || ""} onChange={set("gender")} className={inputCls}>
+                <option value="">—</option><option value="male">M</option><option value="female">F</option><option value="other">X</option>
+              </select>
+            </Field>
+            <Field label={t("phone")}><input value={form.phone || ""} onChange={set("phone")} className={inputCls} /></Field>
+            <Field label={t("email")}><input value={form.email || ""} onChange={set("email")} className={inputCls} /></Field>
+          </div>
+          <Field label={t("address")}><input value={form.address || ""} onChange={set("address")} className={inputCls} /></Field>
+          <Field label={t("status")}>
+            <select value={form.status} onChange={set("status")} className={inputCls}>
+              <option value="active">{t("active")}</option><option value="inactive">{t("inactive")}</option>
+            </select>
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="outline" type="button" onClick={() => setOpen(false)}>{t("cancel")}</Btn>
+            <Btn type="submit" data-testid="save-patient-btn">{t("save")}</Btn>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+}

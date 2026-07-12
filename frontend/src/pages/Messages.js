@@ -1,0 +1,89 @@
+import React, { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import api, { apiErr } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
+import { useLang } from "../context/LanguageContext";
+import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
+import { Plus, Mail, MailOpen } from "lucide-react";
+import { toast } from "sonner";
+
+export default function Messages() {
+  const { t } = useLang();
+  const { user } = useAuth();
+  const [messages, setMessages] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ to_user_id: "", subject: "", body: "" });
+
+  const load = () => api.get("/messages").then((r) => setMessages(r.data)).catch(() => {});
+  useEffect(() => { load(); api.get("/users").then((r) => setUsers(r.data)).catch(() => {}); }, []);
+
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  const send = async (e) => {
+    e.preventDefault();
+    try { await api.post("/messages", form); toast.success(t("send") + " ✓"); setOpen(false); setForm({ to_user_id: "", subject: "", body: "" }); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const openMsg = async (m) => {
+    if (m.to_user_id === user.id && !m.read) { await api.put(`/messages/${m.id}/read`); load(); }
+  };
+
+  return (
+    <div>
+      <PageHeader title={t("messages")} subtitle={t("inbox")}
+        action={<Btn onClick={() => setOpen(true)} data-testid="add-message-btn"><Plus className="w-4 h-4" />{t("newMessage")}</Btn>} />
+
+      {messages.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
+        <div className="space-y-3">
+          {messages.map((m, i) => {
+            const incoming = m.to_user_id === user.id;
+            const unread = incoming && !m.read;
+            return (
+              <motion.div key={m.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}
+                onClick={() => openMsg(m)} data-testid={`message-${m.id}`}>
+                <Card className={`p-4 cursor-pointer hover:border-moneygreen-300 transition-colors duration-200 ${unread ? "border-moneygreen-400 bg-moneygreen-50" : ""}`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${unread ? "bg-moneygreen-600" : "bg-tan-200"}`}>
+                      {unread ? <Mail className="w-4 h-4 text-white" /> : <MailOpen className="w-4 h-4 text-tan-900" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-semibold text-moneygreen-800 text-sm">
+                          {incoming ? `${t("from")}: ${m.from_name}` : `${t("to")}: ${m.to_name}`}
+                        </p>
+                        <span className="text-xs text-stone-400 shrink-0">{new Date(m.created_at).toLocaleDateString()}</span>
+                      </div>
+                      {m.subject && <p className="text-sm font-medium text-stone-700">{m.subject}</p>}
+                      <p className="text-sm text-stone-500 line-clamp-2">{m.body}</p>
+                    </div>
+                  </div>
+                </Card>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+
+      <Modal open={open} onClose={() => setOpen(false)} title={t("newMessage")}>
+        <form onSubmit={send} className="space-y-4">
+          <Field label={t("to")}>
+            <select required value={form.to_user_id} onChange={set("to_user_id")} className={inputCls} data-testid="mf-to">
+              <option value="">—</option>
+              {users.filter((u) => u.id !== user.id).map((u) => (
+                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+              ))}
+            </select>
+          </Field>
+          <Field label={t("subject")}><input value={form.subject} onChange={set("subject")} className={inputCls} data-testid="mf-subject" /></Field>
+          <Field label={t("body")}><textarea required value={form.body} onChange={set("body")} rows={4} className={inputCls} data-testid="mf-body" /></Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="outline" type="button" onClick={() => setOpen(false)}>{t("cancel")}</Btn>
+            <Btn type="submit" data-testid="send-message-btn">{t("send")}</Btn>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+}
