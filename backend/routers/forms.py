@@ -5,7 +5,7 @@ from fastapi.responses import Response
 
 from core.db import db, now_iso, logger
 from core.config import FORMS_ROLES, FORM_STATUSES, EXT_CONTENT_TYPES, APP_NAME, PUBLIC_BASE_URL
-from core.security import get_current_user, require_roles
+from core.security import require_roles
 from core.storage import put_object, get_object
 from core.email_utils import send_email
 from models.schemas import FormInput, FormSubmission
@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/forms")
-async def list_forms(user: dict = Depends(get_current_user)):
+async def list_forms(user: dict = Depends(require_roles("doctor", "nurse", "receptionist"))):
     forms = await db.forms.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}" async for p in db.patients.find({}, {"_id": 0})}
     for f in forms:

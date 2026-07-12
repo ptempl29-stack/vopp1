@@ -112,6 +112,12 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Tested: 132/132 backend pytest (full regression + 6 new tests) + full frontend Playwright regression — 100% pass. RBAC, brute-force lockout, /users minimization, forms security all intact.
 - Advisory (non-blocking, deferred): `/invoices/next-number` uses count-based numbering (race-prone under concurrent creates → consider a counters collection); add `Field(ge=1)` on invoice quantity; sanitize the raw LLM 500 message.
 
+## Security Audit #4 (2026-06) — post-refactor, REMEDIATED
+- SEC-001 (HIGH, CONFIRMED): `GET /api/invoices` was gated only by `get_current_user`, exposing SSN/policy numbers to all authenticated roles. FIXED → `require_roles("biller","receptionist")` (+admin override) and `ssn`/`policy_number` excluded from the list projection. Verified: doctor/psych 403, biller/reception 200, no SSN in payload.
+- SEC-003 (MEDIUM, forms portion): `GET /api/forms` returned patient form responses (medical history/insurance) to any authenticated user. FIXED → `require_roles("doctor","nurse","receptionist")` matching the Forms-tab design. Verified: psych/biller 403, doctor/reception 200.
+- P3 (error leak): `/api/notes/summarize` no longer returns the raw LLM exception; returns a generic message and logs server-side.
+- ACCEPTED for PREVIEW (production-config items, unchanged): SEC-002 demo seeding active (`SEED_DEMO_USERS=true`, weak demo passwords) for demo usability — MUST be `false` + strong passwords in production; wildcard CORS; XFF-based lockout (needs trusted proxy in prod); localStorage token; patient directory readable by all staff (small-clinic design); HIPAA data-at-rest + BAA video remain prod items.
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.

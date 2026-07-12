@@ -55,6 +55,6 @@ async def summarize_note(data: SummarizeInput, user: dict = Depends(require_role
         ).with_model("openai", "gpt-5.4")
         resp = await chat.send_message(UserMessage(text=data.content))
         return {"summary": resp}
-    except Exception as e:
+    except Exception:
         logger.exception("summarize failed")
-        raise HTTPException(status_code=500, detail=f"AI summarization failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="AI summarization failed. Please try again later.")

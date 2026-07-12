@@ -46,8 +46,8 @@ async def delete_cpt(cid: str, user: dict = Depends(require_roles("biller"))):
 
 # ---------------- Invoices ----------------
 @router.get("/invoices")
-async def list_invoices(user: dict = Depends(get_current_user)):
-    invoices = await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+async def list_invoices(user: dict = Depends(require_roles("biller", "receptionist"))):
+    invoices = await db.invoices.find({}, {"_id": 0, "ssn": 0, "policy_number": 0}).sort("created_at", -1).to_list(500)
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}" async for p in db.patients.find({}, {"_id": 0})}
     for inv in invoices:
         inv["patient_name"] = inv.get("patient_name") or patients.get(inv.get("patient_id"), "Unknown")
