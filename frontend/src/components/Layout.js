@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import {
   LayoutDashboard, Users, CalendarDays, FileText, ReceiptText,
-  ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages,
+  ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages, Hash,
 } from "lucide-react";
 
 const nav = [
@@ -14,6 +14,7 @@ const nav = [
   { to: "/telehealth", key: "telehealth", icon: Video },
   { to: "/notes", key: "notes", icon: FileText },
   { to: "/invoices", key: "invoices", icon: ReceiptText },
+  { to: "/cpt-codes", key: "cptCodes", icon: Hash },
   { to: "/forms", key: "forms", icon: ClipboardList },
   { to: "/messages", key: "messages", icon: MessageSquare },
 ];

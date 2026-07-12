@@ -4,6 +4,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 import os
+import re
 import uuid
 import logging
 import bcrypt
@@ -26,7 +27,13 @@ app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 JWT_ALGORITHM = "HS256"
+TOKEN_TTL_HOURS = int(os.environ.get("TOKEN_TTL_HOURS", "8"))
 ROLES = ["doctor", "nurse", "receptionist", "biller", "admin"]
+CLINICAL_ROLES = ("doctor", "nurse")
+MAX_LOGIN_ATTEMPTS = 5
+LOCKOUT_MINUTES = 15
+INVOICE_STATUSES = {"unpaid", "paid", "void"}
+FORM_STATUSES = {"sent", "pending", "received"}
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,7 +48,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(user_id: str, email: str, role: str) -> str:
     payload = {"sub": user_id, "email": email, "role": role,
-               "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "access"}
+               "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_TTL_HOURS), "type": "access"}
     return jwt.encode(payload, os.environ["JWT_SECRET"], algorithm=JWT_ALGORITHM)
 
 async def get_current_user(request: Request) -> dict:
@@ -117,6 +124,11 @@ class InvoiceItem(BaseModel):
     amount: float
     quantity: int = 1
 
+class CptInput(BaseModel):
+    code: str
+    description: str
+    amount: float
+
 class InvoiceInput(BaseModel):
     patient_id: str
     items: List[InvoiceItem]
@@ -142,10 +154,30 @@ def now_iso():
 
 # ---------------- Auth routes ----------------
 @api_router.post("/auth/login")
-async def login(data: LoginInput):
-    user = await db.users.find_one({"email": data.email.lower()})
+async def login(data: LoginInput, request: Request):
+    email = data.email.lower()
+    xff = request.headers.get("x-forwarded-for", "")
+    ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "unknown")
+    identifier = f"{ip}:{email}"
+    now = datetime.now(timezone.utc)
+
+    attempt = await db.login_attempts.find_one({"identifier": identifier})
+    if attempt and attempt.get("count", 0) >= MAX_LOGIN_ATTEMPTS:
+        locked_until = attempt.get("locked_until")
+        if locked_until and datetime.fromisoformat(locked_until) > now:
+            raise HTTPException(status_code=429,
+                detail="Too many failed attempts. Please try again later.")
+
+    user = await db.users.find_one({"email": email})
     if not user or not verify_password(data.password, user["password_hash"]):
+        new_count = (attempt.get("count", 0) if attempt else 0) + 1
+        update = {"count": new_count, "updated_at": now.isoformat()}
+        if new_count >= MAX_LOGIN_ATTEMPTS:
+            update["locked_until"] = (now + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
+        await db.login_attempts.update_one({"identifier": identifier}, {"$set": update}, upsert=True)
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    await db.login_attempts.delete_one({"identifier": identifier})
     token = create_access_token(user["id"], user["email"], user["role"])
     return {"token": token, "user": {"id": user["id"], "email": user["email"],
             "name": user["name"], "role": user["role"]}}
@@ -177,8 +209,9 @@ async def list_users(user: dict = Depends(get_current_user)):
 async def list_patients(search: Optional[str] = None, user: dict = Depends(get_current_user)):
     q = {}
     if search:
-        q = {"$or": [{"first_name": {"$regex": search, "$options": "i"}},
-                     {"last_name": {"$regex": search, "$options": "i"}}]}
+        safe = re.escape(search.strip()[:80])
+        q = {"$or": [{"first_name": {"$regex": safe, "$options": "i"}},
+                     {"last_name": {"$regex": safe, "$options": "i"}}]}
     patients = await db.patients.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return patients
 
@@ -243,7 +276,7 @@ async def delete_appointment(aid: str, user: dict = Depends(require_roles("docto
 
 # ---------------- Progress Notes + AI ----------------
 @api_router.get("/notes")
-async def list_notes(patient_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def list_notes(patient_id: Optional[str] = None, user: dict = Depends(require_roles("doctor", "nurse"))):
     q = {"patient_id": patient_id} if patient_id else {}
     notes = await db.notes.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return notes
@@ -279,7 +312,28 @@ async def summarize_note(data: SummarizeInput, user: dict = Depends(require_role
 # ---------------- Invoices / CPT ----------------
 @api_router.get("/cpt-codes")
 async def cpt_codes(user: dict = Depends(get_current_user)):
-    return CPT_LIBRARY
+    return await db.cpt_codes.find({}, {"_id": 0}).sort("code", 1).to_list(1000)
+
+@api_router.post("/cpt-codes")
+async def create_cpt(data: CptInput, user: dict = Depends(require_roles("biller"))):
+    if await db.cpt_codes.find_one({"code": data.code}):
+        raise HTTPException(status_code=400, detail="CPT code already exists")
+    doc = {"id": str(uuid.uuid4()), **data.model_dump(), "created_at": now_iso()}
+    await db.cpt_codes.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/cpt-codes/{cid}")
+async def update_cpt(cid: str, data: CptInput, user: dict = Depends(require_roles("biller"))):
+    res = await db.cpt_codes.update_one({"id": cid}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="CPT code not found")
+    return await db.cpt_codes.find_one({"id": cid}, {"_id": 0})
+
+@api_router.delete("/cpt-codes/{cid}")
+async def delete_cpt(cid: str, user: dict = Depends(require_roles("biller"))):
+    await db.cpt_codes.delete_one({"id": cid})
+    return {"ok": True}
 
 @api_router.get("/invoices")
 async def list_invoices(user: dict = Depends(get_current_user)):
@@ -302,6 +356,8 @@ async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles(
 
 @api_router.put("/invoices/{iid}/status")
 async def update_invoice_status(iid: str, status: str, user: dict = Depends(require_roles("biller", "receptionist"))):
+    if status not in INVOICE_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid status")
     res = await db.invoices.update_one({"id": iid}, {"$set": {"status": status}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -328,7 +384,9 @@ async def send_message(data: MessageInput, user: dict = Depends(get_current_user
 
 @api_router.put("/messages/{mid}/read")
 async def mark_read(mid: str, user: dict = Depends(get_current_user)):
-    await db.messages.update_one({"id": mid}, {"$set": {"read": True}})
+    res = await db.messages.update_one({"id": mid, "to_user_id": user["id"]}, {"$set": {"read": True}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Message not found")
     return {"ok": True}
 
 
@@ -388,6 +446,8 @@ async def create_form(data: FormInput, user: dict = Depends(get_current_user)):
 
 @api_router.put("/forms/{fid}/status")
 async def update_form_status(fid: str, status: str, user: dict = Depends(get_current_user)):
+    if status not in FORM_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid status")
     res = await db.forms.update_one({"id": fid}, {"$set": {"status": status}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Form not found")
@@ -467,19 +527,32 @@ DEMO_USERS = [
 async def startup():
     await db.users.create_index("email", unique=True)
     await db.patients.create_index("id")
-    # seed admin
+    await db.login_attempts.create_index("identifier", unique=True)
+    await db.forms.create_index("public_token")
+    # seed CPT codes if collection empty
+    if await db.cpt_codes.count_documents({}) == 0:
+        await db.cpt_codes.insert_many([
+            {"id": str(uuid.uuid4()), **c, "created_at": now_iso()} for c in CPT_LIBRARY])
+    # seed/rotate admin (idempotent)
     admin_email = os.environ["ADMIN_EMAIL"].lower()
-    if not await db.users.find_one({"email": admin_email}):
+    admin_pw = os.environ["ADMIN_PASSWORD"]
+    existing = await db.users.find_one({"email": admin_email})
+    if existing is None:
         await db.users.insert_one({"id": str(uuid.uuid4()), "email": admin_email,
-            "password_hash": hash_password(os.environ["ADMIN_PASSWORD"]),
+            "password_hash": hash_password(admin_pw),
             "name": "Clinic Admin", "role": "admin", "created_at": now_iso()})
-    # seed role users
-    for u in DEMO_USERS:
-        if not await db.users.find_one({"email": u["email"]}):
-            await db.users.insert_one({"id": str(uuid.uuid4()), "email": u["email"],
-                "password_hash": hash_password(u["password"]), "name": u["name"],
-                "role": u["role"], "created_at": now_iso()})
-    logger.info("Startup seeding complete")
+    elif not verify_password(admin_pw, existing["password_hash"]):
+        await db.users.update_one({"email": admin_email},
+            {"$set": {"password_hash": hash_password(admin_pw)}})
+    # seed demo staff ONLY when explicitly enabled (never in production)
+    if os.environ.get("SEED_DEMO_USERS", "false").lower() == "true":
+        for u in DEMO_USERS:
+            if not await db.users.find_one({"email": u["email"]}):
+                await db.users.insert_one({"id": str(uuid.uuid4()), "email": u["email"],
+                    "password_hash": hash_password(u["password"]), "name": u["name"],
+                    "role": u["role"], "created_at": now_iso()})
+        logger.info("Demo users seeded (SEED_DEMO_USERS=true)")
+    logger.info("Startup complete")
 
 
 app.include_router(api_router)

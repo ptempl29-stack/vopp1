@@ -11,6 +11,7 @@ import Appointments from "./pages/Appointments";
 import Telehealth from "./pages/Telehealth";
 import Notes from "./pages/Notes";
 import Invoices from "./pages/Invoices";
+import CptCodes from "./pages/CptCodes";
 import Forms from "./pages/Forms";
 import Messages from "./pages/Messages";
 import PublicForm from "./pages/PublicForm";
@@ -40,6 +41,7 @@ function App() {
               <Route path="/telehealth" element={<Protected><Telehealth /></Protected>} />
               <Route path="/notes" element={<Protected><Notes /></Protected>} />
               <Route path="/invoices" element={<Protected><Invoices /></Protected>} />
+              <Route path="/cpt-codes" element={<Protected><CptCodes /></Protected>} />
               <Route path="/forms" element={<Protected><Forms /></Protected>} />
               <Route path="/messages" element={<Protected><Messages /></Protected>} />
             </Routes>

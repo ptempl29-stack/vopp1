@@ -4,6 +4,7 @@ const rules = {
   appointments: ["doctor", "nurse", "receptionist"],
   notes: ["doctor", "nurse"],
   invoices: ["biller", "receptionist"],
+  cpt: ["biller"],
   forms: ["doctor", "nurse", "receptionist", "biller"],
   messages: ["doctor", "nurse", "receptionist", "biller"],
 };

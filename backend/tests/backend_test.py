@@ -13,7 +13,7 @@ CREDS = {
     "nurse": ("nurse@vpp.com", "nurse123"),
     "receptionist": ("reception@vpp.com", "reception123"),
     "biller": ("biller@vpp.com", "biller123"),
-    "admin": ("admin@vpp.com", "admin123"),
+    "admin": ("admin@vpp.com", "VPP-Adm1n!2026-Str0ng#Key"),
 }
 
 tokens = {}
@@ -319,3 +319,174 @@ def test_zz_delete_patient():
 def test_zz_delete_appointment():
     r = requests.delete(f"{API}/appointments/{created_appt_id}", headers=h("receptionist"), timeout=30)
     assert r.status_code == 200
+
+
+# ----- Security: PHI restriction on GET /api/notes -----
+def test_notes_get_forbidden_biller():
+    r = requests.get(f"{API}/notes", headers=h("biller"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_notes_get_forbidden_receptionist():
+    r = requests.get(f"{API}/notes", headers=h("receptionist"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_notes_get_allowed_clinical():
+    for role in ("doctor", "nurse", "admin"):
+        r = requests.get(f"{API}/notes", headers=h(role), timeout=30)
+        assert r.status_code == 200, f"{role} got {r.status_code}"
+
+
+# ----- Security: Admin strong password + old password rejected -----
+def test_admin_old_password_rejected():
+    # use unique XFF so we don't lock out the real admin
+    r = requests.post(f"{API}/auth/login",
+                      json={"email": "admin@vpp.com", "password": "admin123"},
+                      headers={"X-Forwarded-For": "9.9.9.9"},
+                      timeout=30)
+    assert r.status_code == 401
+
+
+# ----- Security: Regex DoS safe -----
+def test_regex_dos_safe():
+    import time
+    payload = "(((a+)+)+)"
+    t0 = time.time()
+    r = requests.get(f"{API}/patients", params={"search": payload}, headers=h("doctor"), timeout=15)
+    elapsed = time.time() - t0
+    assert r.status_code == 200
+    assert elapsed < 5, f"regex search took {elapsed}s"
+
+
+# ----- Security: Status allowlists -----
+def test_invoice_status_invalid_400():
+    # create fresh patient+invoice for this test
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_St", "last_name": "Atus"},
+                     headers=h("receptionist"), timeout=30).json()
+    inv = requests.post(f"{API}/invoices",
+                       json={"patient_id": p["id"], "items": [{"cpt_code": "99213", "description": "v", "amount": 10.0, "quantity": 1}]},
+                       headers=h("biller"), timeout=30).json()
+    r = requests.put(f"{API}/invoices/{inv['id']}/status?status=garbage", headers=h("biller"), timeout=30)
+    assert r.status_code == 400
+    r2 = requests.put(f"{API}/invoices/{inv['id']}/status?status=paid", headers=h("biller"), timeout=30)
+    assert r2.status_code == 200
+    # cleanup
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_form_status_invalid_400():
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_Fs", "last_name": "St"},
+                     headers=h("receptionist"), timeout=30).json()
+    f = requests.post(f"{API}/forms",
+                     json={"patient_id": p["id"], "title": "T", "form_type": "Intake"},
+                     headers=h("receptionist"), timeout=30).json()
+    r = requests.put(f"{API}/forms/{f['id']}/status?status=garbage", headers=h("receptionist"), timeout=30)
+    assert r.status_code == 400
+    r2 = requests.put(f"{API}/forms/{f['id']}/status?status=received", headers=h("receptionist"), timeout=30)
+    assert r2.status_code == 200
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+# ----- Security: Message ownership -----
+def test_message_read_non_recipient_404():
+    login("doctor"); login("nurse"); login("biller")
+    nurse_id = users["nurse"]["id"]
+    # doctor sends to nurse
+    msg = requests.post(f"{API}/messages",
+                       json={"to_user_id": nurse_id, "subject": "own", "body": "test"},
+                       headers=h("doctor"), timeout=30).json()
+    # biller (non-recipient) tries to mark read
+    r = requests.put(f"{API}/messages/{msg['id']}/read", headers=h("biller"), timeout=30)
+    assert r.status_code == 404
+    # actual recipient succeeds
+    r2 = requests.put(f"{API}/messages/{msg['id']}/read", headers=h("nurse"), timeout=30)
+    assert r2.status_code == 200
+
+
+# ----- Security: Brute force lockout (uses unique XFF) -----
+def test_brute_force_lockout_returns_429():
+    xff_ip = "10.99.88.77"
+    email = "bruteforce_target@vpp.com"
+    headers = {"X-Forwarded-For": xff_ip, "Content-Type": "application/json"}
+    for i in range(5):
+        r = requests.post(f"{API}/auth/login",
+                         json={"email": email, "password": "wrongpass"},
+                         headers=headers, timeout=30)
+        assert r.status_code == 401, f"attempt {i+1} got {r.status_code}"
+    # 6th attempt should be 429
+    r6 = requests.post(f"{API}/auth/login",
+                      json={"email": email, "password": "wrongpass"},
+                      headers=headers, timeout=30)
+    assert r6.status_code == 429, r6.text
+
+
+def test_different_account_still_logs_in_after_lockout():
+    # Even after locking out one identifier, a fresh account/IP works
+    r = requests.post(f"{API}/auth/login",
+                     json={"email": "doctor@vpp.com", "password": "doctor123"},
+                     headers={"X-Forwarded-For": "10.99.88.66"},
+                     timeout=30)
+    assert r.status_code == 200
+
+
+# ----- CPT Codes Module -----
+_cpt_created_id = {}
+
+
+def test_cpt_list_seeded():
+    r = requests.get(f"{API}/cpt-codes", headers=h("biller"), timeout=30)
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) >= 10
+    codes = [c["code"] for c in data]
+    assert "99213" in codes
+
+
+def test_cpt_create_biller():
+    payload = {"code": f"TEST{uuid.uuid4().hex[:5].upper()}", "description": "TEST_service", "amount": 42.5}
+    r = requests.post(f"{API}/cpt-codes", json=payload, headers=h("biller"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["code"] == payload["code"]
+    _cpt_created_id["id"] = d["id"]
+    _cpt_created_id["code"] = d["code"]
+
+
+def test_cpt_create_duplicate_400():
+    payload = {"code": _cpt_created_id["code"], "description": "dup", "amount": 1.0}
+    r = requests.post(f"{API}/cpt-codes", json=payload, headers=h("biller"), timeout=30)
+    assert r.status_code == 400
+
+
+def test_cpt_create_forbidden_doctor():
+    r = requests.post(f"{API}/cpt-codes",
+                     json={"code": "TEST_FORBID", "description": "x", "amount": 1.0},
+                     headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_cpt_create_forbidden_receptionist():
+    r = requests.post(f"{API}/cpt-codes",
+                     json={"code": "TEST_FORBID2", "description": "x", "amount": 1.0},
+                     headers=h("receptionist"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_cpt_edit():
+    r = requests.put(f"{API}/cpt-codes/{_cpt_created_id['id']}",
+                    json={"code": _cpt_created_id["code"], "description": "TEST_updated", "amount": 99.9},
+                    headers=h("biller"), timeout=30)
+    assert r.status_code == 200
+    assert r.json()["description"] == "TEST_updated"
+    # verify via GET
+    lst = requests.get(f"{API}/cpt-codes", headers=h("biller"), timeout=30).json()
+    match = [c for c in lst if c["id"] == _cpt_created_id["id"]]
+    assert match and match[0]["amount"] == 99.9
+
+
+def test_cpt_delete():
+    r = requests.delete(f"{API}/cpt-codes/{_cpt_created_id['id']}", headers=h("biller"), timeout=30)
+    assert r.status_code == 200
+    lst = requests.get(f"{API}/cpt-codes", headers=h("biller"), timeout=30).json()
+    assert not any(c["id"] == _cpt_created_id["id"] for c in lst)
