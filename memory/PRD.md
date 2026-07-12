@@ -36,9 +36,10 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - SEC-001 (CRITICAL): demo seeding now gated behind `SEED_DEMO_USERS` env (off by default in code; `true` only in preview); admin password moved to a strong env value with idempotent rotation; **brute-force lockout added** (5 failed attempts / 15 min, keyed on X-Forwarded-For client IP + email).
 - SEC-002 (HIGH): `/api/notes` now restricted to clinical roles (doctor/nurse/admin) — billers/receptionists get 403.
 - SEC-003 (MEDIUM): patient search input `re.escape`-d + length-capped (ReDoS neutralized).
-- SEC-004 (MEDIUM): telehealth room names are unguessable (uuid); Jitsi BAA limitation documented — swap to BAA-covered video before real PHI.
-- Hardening: JWT TTL reduced to 8h; invoice/form status allowlists; message mark-read ownership check.
-- Still OPEN for production PHI: set `SEED_DEMO_USERS=false`, explicit CORS origins, move token to httpOnly cookie, Mongo data-at-rest encryption, and a HIPAA-BAA video provider.
+- SEC-004 (MEDIUM): telehealth room names are unguessable — scheduled = uuid; **ad-hoc rooms now use crypto.randomUUID()** (was timestamp). Jitsi BAA limitation documented — swap to BAA-covered video before real PHI.
+- Hardening: JWT TTL reduced to 8h; invoice/form status allowlists; message mark-read ownership check; **TTL index on `login_attempts.expires_at`** (auto-expires lockout rows).
+- Re-audit (2026-06) verdict: most items resolved. Remaining, accepted for PREVIEW only: demo staff seeding active (`SEED_DEMO_USERS=true`) so the demo is usable — MUST be `false` in production. Login lockout keyed on client-supplied X-Forwarded-For is spoofable (LOW/P3) — rely on a trusted proxy in production.
+- Still OPEN for production PHI: set `SEED_DEMO_USERS=false`, explicit CORS origins, move token to httpOnly cookie, Mongo data-at-rest encryption, HIPAA-BAA video provider, and trusted-proxy IP for throttling.
 
 ## CPT Codes Module (2026-06)
 - DB-backed `cpt_codes` collection (seeded with 10 common codes), full CRUD at `/api/cpt-codes` (biller/admin only). New sidebar page with search, add/edit/delete; codes feed the Invoices line-item dropdown live.

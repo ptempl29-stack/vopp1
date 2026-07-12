@@ -171,7 +171,8 @@ async def login(data: LoginInput, request: Request):
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(data.password, user["password_hash"]):
         new_count = (attempt.get("count", 0) if attempt else 0) + 1
-        update = {"count": new_count, "updated_at": now.isoformat()}
+        update = {"count": new_count, "updated_at": now.isoformat(),
+                  "expires_at": now + timedelta(minutes=LOCKOUT_MINUTES)}
         if new_count >= MAX_LOGIN_ATTEMPTS:
             update["locked_until"] = (now + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
         await db.login_attempts.update_one({"identifier": identifier}, {"$set": update}, upsert=True)
@@ -528,6 +529,7 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.patients.create_index("id")
     await db.login_attempts.create_index("identifier", unique=True)
+    await db.login_attempts.create_index("expires_at", expireAfterSeconds=0)
     await db.forms.create_index("public_token")
     # seed CPT codes if collection empty
     if await db.cpt_codes.count_documents({}) == 0:
