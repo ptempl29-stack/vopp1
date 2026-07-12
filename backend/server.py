@@ -561,6 +561,7 @@ FORM_TEMPLATES = {
         {"name": "reason", "en": "Reason for Visit", "es": "Motivo de la Visita", "type": "textarea", "required": True},
         {"name": "medications", "en": "Current Medications", "es": "Medicamentos Actuales", "type": "textarea", "required": False},
         {"name": "allergies", "en": "Allergies", "es": "Alergias", "type": "text", "required": False},
+        {"name": "signature", "en": "Patient Signature", "es": "Firma del Paciente", "type": "signature", "required": True},
     ],
     "Consent": [
         {"name": "patient_name", "en": "Patient Name", "es": "Nombre del Paciente", "type": "text", "required": True},
@@ -574,17 +575,20 @@ FORM_TEMPLATES = {
         {"name": "family_history", "en": "Family History", "es": "Historia Familiar", "type": "textarea", "required": False},
         {"name": "smoking", "en": "Do you smoke?", "es": "¿Fuma?", "type": "select", "required": True,
          "options": [{"value": "no", "en": "No", "es": "No"}, {"value": "yes", "en": "Yes", "es": "Sí"}, {"value": "former", "en": "Former", "es": "Ex-fumador"}]},
+        {"name": "signature", "en": "Patient Signature", "es": "Firma del Paciente", "type": "signature", "required": True},
     ],
     "Insurance": [
         {"name": "provider", "en": "Insurance Provider", "es": "Aseguradora", "type": "text", "required": True},
         {"name": "policy_number", "en": "Policy Number", "es": "Número de Póliza", "type": "text", "required": True},
         {"name": "group_number", "en": "Group Number", "es": "Número de Grupo", "type": "text", "required": False},
         {"name": "subscriber", "en": "Subscriber Name", "es": "Nombre del Titular", "type": "text", "required": True},
+        {"name": "signature", "en": "Patient Signature", "es": "Firma del Paciente", "type": "signature", "required": True},
     ],
     "Referral": [
         {"name": "referring_provider", "en": "Referring Provider", "es": "Médico que Refiere", "type": "text", "required": True},
         {"name": "specialty", "en": "Specialty", "es": "Especialidad", "type": "text", "required": True},
         {"name": "reason", "en": "Reason for Referral", "es": "Motivo de la Referencia", "type": "textarea", "required": True},
+        {"name": "signature", "en": "Patient Signature", "es": "Firma del Paciente", "type": "signature", "required": True},
     ],
 }
 

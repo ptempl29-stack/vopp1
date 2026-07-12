@@ -3,11 +3,14 @@ import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
-import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2 } from "lucide-react";
+import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine } from "lucide-react";
 import { toast } from "sonner";
 
 const types = ["Intake", "Consent", "Medical History", "Insurance", "Referral"];
 const toneMap = { sent: "amber", pending: "amber", received: "green" };
+
+const isSigned = (f) => !!f.responses && Object.values(f.responses).some(
+  (v) => typeof v === "string" && v.startsWith("data:image"));
 
 export default function Forms() {
   const { t } = useLang();
@@ -118,7 +121,16 @@ export default function Forms() {
                     </td>
                     <td className="px-5 py-3 text-stone-600">{f.form_type}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{f.patient_name}</td>
-                    <td className="px-5 py-3"><Badge tone={toneMap[f.status] || "gray"}>{t(f.status)}</Badge></td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        <Badge tone={toneMap[f.status] || "gray"}>{t(f.status)}</Badge>
+                        {isSigned(f) && (
+                          <span data-testid={`signed-badge-${f.id}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-moneygreen-100 text-moneygreen-700">
+                            <PenLine className="w-3 h-3" />{t("signed")}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         {f.attachment && (

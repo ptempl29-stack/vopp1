@@ -213,7 +213,7 @@ def test_create_form():
     created_form_id = data["id"]
     # New public form fields
     assert "public_token" in data and isinstance(data["public_token"], str) and len(data["public_token"]) >= 16
-    assert isinstance(data.get("template"), list) and len(data["template"]) == 6
+    assert isinstance(data.get("template"), list) and len(data["template"]) == 7
     assert data.get("responses") is None
     public_token_holder["token"] = data["public_token"]
 
@@ -224,7 +224,7 @@ def test_public_get_form_unauth():
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["form_type"] == "Intake"
-    assert len(d["template"]) == 6
+    assert len(d["template"]) == 7
     assert d["status"] != "received"
 
 
@@ -236,7 +236,7 @@ def test_public_get_form_bad_token():
 def test_public_submit_form_unauth():
     tok = public_token_holder["token"]
     r = requests.post(f"{API}/public/forms/{tok}/submit",
-                     json={"responses": {"full_name": "TEST_Patient", "dob": "1990-01-01", "reason": "cough"}},
+                     json={"responses": {"full_name": "TEST_Patient", "dob": "1990-01-01", "reason": "cough", "signature": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="}},
                      timeout=30)
     assert r.status_code == 200, r.text
     assert r.json().get("ok") is True
@@ -1164,3 +1164,46 @@ def test_messaging_recipient_dropdown_non_admin():
                       json={"to_user_id": nurse["id"], "subject": "sig-test", "body": "hi"},
                       headers=h("doctor"), timeout=30)
     assert m.status_code == 200
+
+
+
+# ---- Iter 10: signature field on ALL form templates ----
+import pytest
+
+@pytest.mark.parametrize("form_type", ["Intake", "Consent", "Medical History", "Insurance", "Referral"])
+def test_all_templates_have_required_signature_field(form_type):
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_SigAll", "last_name": form_type.replace(" ", "_")},
+                      headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/forms",
+                      json={"patient_id": p["id"], "title": f"TEST_{form_type}_sig", "form_type": form_type},
+                      headers=h("receptionist"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    tok = d["public_token"]
+    # public GET (unauth) should expose the signature field
+    pub = requests.get(f"{API}/public/forms/{tok}", timeout=30).json()
+    sig_fields = [f for f in pub["template"] if f.get("type") == "signature"]
+    assert len(sig_fields) >= 1, f"{form_type}: no signature field in public template"
+    assert sig_fields[0].get("required") is True, f"{form_type}: signature not required"
+    # submit signed
+    sig = _fake_sig_data_url()
+    responses = {}
+    for f in pub["template"]:
+        if f.get("required"):
+            if f["type"] == "signature":
+                responses[f["name"]] = sig
+            elif f["type"] == "checkbox":
+                responses[f["name"]] = True
+            elif f["type"] == "date":
+                responses[f["name"]] = "1990-01-01"
+            else:
+                responses[f["name"]] = "x"
+    sub = requests.post(f"{API}/public/forms/{tok}/submit", json={"responses": responses}, timeout=30)
+    assert sub.status_code == 200, f"{form_type} submit failed: {sub.text}"
+    # staff list confirms responses stored with data:image signature -> signed badge would render
+    lst = requests.get(f"{API}/forms", headers=h("receptionist"), timeout=30).json()
+    match = [f for f in lst if f["id"] == d["id"]][0]
+    resp = match.get("responses") or {}
+    has_data_image = any(isinstance(v, str) and v.startswith("data:image") for v in resp.values())
+    assert has_data_image, f"{form_type}: no data:image value in responses (badge won't render)"
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)

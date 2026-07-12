@@ -1,0 +1,32 @@
+{
+  "summary": "Iter 10 additive feature: signature on ALL form templates (Intake/Medical History/Insurance/Referral in addition to Consent) + signed-badge in staff Forms list. Backend: 111/111 pytest passed (added parametrized test_all_templates_have_required_signature_field across 5 form_types; fixed stale Intake-field-count assertions from 6->7 due to added signature field). Frontend: verified via Playwright + evaluate — pf-signature canvas renders on public /form/<token> for all 5 form_types unauthenticated, submit button present. Signed-badge cross-check across 84 forms: 15/15 data:image responses have signed-badge-<id>, 69/69 unsigned forms have no badge (0 mismatches). All 5 form_types present in the signed-badge distribution. resp-sig-signature img still renders with data:image/png prefix in staff Responses modal. Login OK for doctor/biller/psych (admin hit brute-force lockout from UI-side repeated attempts; pytest confirms admin login works via unique X-Forwarded-For).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "signature_and_badge_verifications": {
+    "public_form_signature_pad_all_types": "Unauth GET /form/<token> renders exactly 1 pf-signature canvas + 1 public-form-submit button for Intake, Consent, Medical History, Insurance, Referral (verified in browser).",
+    "signed_badge_cross_check": "84 forms scanned: signed(data:image)=15, badgePresent=15, mismatches=0. form_types with badge: [Consent, Insurance, Intake, Medical History, Referral] — all 5.",
+    "unsigned_no_badge": "Rows with status=sent (no responses) and rows with responses but no data:image string return badgePresent=false. Confirmed no false positives.",
+    "backend_parametrized_test": "test_all_templates_have_required_signature_field[Intake|Consent|Medical History|Insurance|Referral] — 5/5 PASSED. Each: verifies template has signature-type required field, submits signed payload, reads back via GET /forms and confirms data:image value stored.",
+    "staff_view_responses_regression": "resp-sig-signature <img> src still begins with 'data:image/png;base64,iVBORw0KGgo...' — image renders correctly, no raw text leak."
+  },
+  "regression_verified": [
+    "login doctor/biller/psych via UI OK (admin lockout from repeated UI attempts — pytest confirms admin login works)",
+    "EN/ES lang toggle switches labels (e.g., Logout -> Cerrar sesión)",
+    "Non-admin GET /api/users returns only {id,name,role} (pytest passes)",
+    "Full 111/111 pytest suite green (was 106; +5 new template-signature parametrized cases)"
+  ],
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/iteration_10.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Forms.js isSigned() helper uses Object.values(f.responses).some(v=>v.startsWith('data:image')). This is efficient and matches server storage format. Consider narrowing to fields where template.type==='signature' to future-proof against non-signature fields that happen to accept image data URLs (e.g., a future 'photo upload' field-type).",
+    "FORM_TEMPLATES in server.py now has all 5 form-types with an appended signature field. As templates grow, consider moving them to a separate module or JSON file to keep server.py under 1000 lines (currently ~880).",
+    "The signed-badge only renders in the list view; consider also showing it in the Responses modal header for extra confirmation to staff (nice-to-have)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (111/111)", "frontend": "100% (signature pad renders on all 5 form types public pages; signed-badge shows 15/15 signed forms, 0/69 unsigned; resp-sig image renders)"},
+  "test_credentials": "Loaded from /app/memory/test_credentials.md — reception/doctor/biller/psych/admin verified.",
+  "seed_data_creation": "pytest creates+cleans TEST_ patients/forms; UI test left ~5 TEST_UI_SIG_<type> forms in 'sent' state (not submitted via UI — mouse-draw did not produce a data-URL, expected in headless Playwright; backend parametrized test proves the flow works via HTTP).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Signature field is now required on ALL 5 form templates. Signed badge (Forms.js isSigned() helper) driven purely by scanning responses for any value starting with 'data:image'. Backend template field-count for Intake is 7 (was 6) — earlier tests updated. For UI Playwright drawing on <canvas>, mouse.move+down+move+up alone may not fire the app's mousedown handler consistently; use page.evaluate to synthesize pointer events on the canvas element or rely on backend integration tests for signed-submit flow (already covered by parametrized test)."
+}
