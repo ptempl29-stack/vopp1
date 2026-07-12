@@ -32,13 +32,16 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Bilingual EN/ES toggle; responsive tan & money-green UI.
 - Tested: 36/36 backend, frontend 100%.
 
-## Security Audit (2026-06) — OPEN ITEMS (not yet fixed)
-Audit verdict: FAIL/DO-NOT-LAUNCH for production PHI. Key findings to address before real patient data:
-- SEC-001 CRITICAL: hard-coded/self-seeding demo staff + default admin creds → remove seeding, strong unique admin secret.
-- SEC-002 HIGH: all roles can read all patient records/clinical notes → restrict PHI reads by role/need-to-know.
-- SEC-003 MEDIUM: patient search $regex ReDoS → escape/anchor input + timeouts.
-- SEC-004 MEDIUM: public Jitsi rooms, predictable ad-hoc names → BAA-compliant video / lobby + secret.
-- P3 hardening: CORS '*'+credentials, localStorage token (XSS), 7-day JWT no revocation, no login rate limit, arbitrary status query params, mark_read no ownership check, no data-at-rest encryption (HIPAA).
+## Security Audit (2026-06) — REMEDIATED
+- SEC-001 (CRITICAL): demo seeding now gated behind `SEED_DEMO_USERS` env (off by default in code; `true` only in preview); admin password moved to a strong env value with idempotent rotation; **brute-force lockout added** (5 failed attempts / 15 min, keyed on X-Forwarded-For client IP + email).
+- SEC-002 (HIGH): `/api/notes` now restricted to clinical roles (doctor/nurse/admin) — billers/receptionists get 403.
+- SEC-003 (MEDIUM): patient search input `re.escape`-d + length-capped (ReDoS neutralized).
+- SEC-004 (MEDIUM): telehealth room names are unguessable (uuid); Jitsi BAA limitation documented — swap to BAA-covered video before real PHI.
+- Hardening: JWT TTL reduced to 8h; invoice/form status allowlists; message mark-read ownership check.
+- Still OPEN for production PHI: set `SEED_DEMO_USERS=false`, explicit CORS origins, move token to httpOnly cookie, Mongo data-at-rest encryption, and a HIPAA-BAA video provider.
+
+## CPT Codes Module (2026-06)
+- DB-backed `cpt_codes` collection (seeded with 10 common codes), full CRUD at `/api/cpt-codes` (biller/admin only). New sidebar page with search, add/edit/delete; codes feed the Invoices line-item dropdown live.
 
 ## Known Limitations
 - AI summarization returns clean 500 until the Emergent LLM Universal Key balance is topped up ($0 currently).
