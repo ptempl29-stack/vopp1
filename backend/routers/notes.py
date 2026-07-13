@@ -70,6 +70,19 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
     return await db.notes.find_one({"id": nid}, {"_id": 0})
 
 
+@router.delete("/notes/{nid}")
+async def delete_note(nid: str, user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "admin"))):
+    existing = await db.notes.find_one({"id": nid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if user["role"] != "admin" and existing.get("author") not in (user["name"], None):
+        raise HTTPException(status_code=403, detail="You can only delete notes you authored")
+    await db.notes.delete_one({"id": nid})
+    await log_audit("delete", "note", actor=user, resource_id=nid,
+                    detail=f"{existing.get('note_type', 'free')}: {existing.get('title', '')}")
+    return {"ok": True}
+
+
 @router.get("/notes/for-billing")
 async def notes_for_billing(patient_id: str,
                             user: dict = Depends(require_roles("biller", "receptionist", "admin"))):

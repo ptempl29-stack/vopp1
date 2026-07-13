@@ -16,13 +16,15 @@ from core.audit import set_client_ip
 from data.seed import CPT_LIBRARY, DEMO_USERS
 
 from routers import (auth, settings, patients, appointments, notes,
-                     billing, messages, forms, dashboard, audit, telehealth, claims, invites, assistant)
+                     billing, messages, forms, dashboard, audit, telehealth, claims, invites, assistant,
+                     users, roles)
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 for module in (auth, settings, patients, appointments, notes,
-               billing, messages, forms, dashboard, audit, telehealth, claims, invites, assistant):
+               billing, messages, forms, dashboard, audit, telehealth, claims, invites, assistant,
+               users, roles):
     api_router.include_router(module.router)
 
 

@@ -7,7 +7,7 @@ import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Stethoscope, Eye, Pencil, Stamp, Save } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Stethoscope, Eye, Pencil, Stamp, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const reasons = ["General Consultation", "Physical Therapy", "Therapeutic Massage", "Relaxing Massage", "Evaluation", "Follow-up", "Re-evaluation", "Psychotherapy", "Group Therapy"];
@@ -37,6 +37,12 @@ export default function Notes() {
   const [savingSig, setSavingSig] = useState(false);
 
   const load = () => api.get("/notes").then((r) => setNotes(r.data)).catch(() => {});
+
+  const deleteNote = async (n) => {
+    if (!window.confirm(t("confirmDeleteNote"))) return;
+    try { await api.delete(`/notes/${n.id}`); toast.success(t("delete") + " ✓"); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
   useEffect(() => {
     load();
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
@@ -160,6 +166,7 @@ export default function Notes() {
                 <div className="mt-3 pt-3 border-t border-border flex justify-end gap-2">
                   <Btn variant="outline" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`}><Eye className="w-4 h-4" />{t("view")}</Btn>
                   {allowed && <Btn variant="outline" onClick={() => openEdit(n)} data-testid={`edit-note-${n.id}`}><Pencil className="w-4 h-4" />{t("edit")}</Btn>}
+                  {allowed && <Btn variant="ghost" onClick={() => deleteNote(n)} data-testid={`delete-note-${n.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>}
                 </div>
               </Card>
             </motion.div>
