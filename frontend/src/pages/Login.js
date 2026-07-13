@@ -6,15 +6,6 @@ import { apiErr } from "../lib/api";
 import { Stethoscope, Languages, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-const demos = [
-  { role: "doctor", email: "doctor@vpp.com" },
-  { role: "nurse", email: "nurse@vpp.com" },
-  { role: "receptionist", email: "reception@vpp.com" },
-  { role: "biller", email: "biller@vpp.com" },
-];
-const pwMap = { "doctor@vpp.com": "doctor123", "nurse@vpp.com": "nurse123",
-  "reception@vpp.com": "reception123", "biller@vpp.com": "biller123" };
-
 export default function Login() {
   const { login } = useAuth();
   const { t, lang, toggle } = useLang();
@@ -35,8 +26,6 @@ export default function Login() {
       setLoading(false);
     }
   };
-
-  const quick = (em) => { setEmail(em); setPassword(pwMap[em]); };
 
   return (
     <div className="min-h-screen flex">
@@ -100,20 +89,6 @@ export default function Login() {
               {loading ? t("loggingIn") : t("login")}
             </button>
           </form>
-
-          <div className="mt-8">
-            <p className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500 mb-3">{t("demoAccounts")}</p>
-            <div className="grid grid-cols-2 gap-2">
-              {demos.map((d) => (
-                <button key={d.email} onClick={() => quick(d.email)}
-                  data-testid={`demo-${d.role}`}
-                  className="text-left px-3 py-2 rounded-md bg-white border border-border hover:border-moneygreen-500 transition-colors duration-200">
-                  <span className="block text-sm font-semibold text-moneygreen-700 capitalize">{d.role}</span>
-                  <span className="block text-xs text-stone-500 truncate">{d.email}</span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>

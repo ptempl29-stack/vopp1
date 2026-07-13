@@ -222,11 +222,18 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Accounts**: erased the 5 demo staff + old `admin@vpp.com`; created the real admin **ADMIN / usvopp@yahoo.com**. Set `.env` `ADMIN_EMAIL`/`ADMIN_PASSWORD` to match and `SEED_DEMO_USERS=false`. Only the real admin remains. (Production: set the same env vars in the deployment.)
 - Verified: new admin logs in (14 tabs); old admin + demo staff → 401; note delete create→delete→404.
 
+## Iteration 30 (2026-06) — Deployment readiness
+- Ran deployment agent: **no blockers** (can deploy). Fixed the two flagged N+1 patterns — `appointments` list, `invoices` list, and billing CSV export now project only `id/first_name/last_name` when building the patient-name map.
+- Fixed login-page bug: removed the hardcoded demo quick-login cards (demo accounts were erased) — they were 401ing.
+- Cleaned leftover test data (52 test invoices, test users/patients). DB now: 1 real admin (usvopp@yahoo.com), 1 patient, 27 real invoices.
+- Verified: 15/15 backend regression tests pass (testing agent, iteration_24), real admin logs in, no demo panel.
+
 ## In progress / Pending
-- **AI assistant markdown + streaming** (from prior request): `react-markdown`+`remark-gfm` installed; `stream_message` (SSE) backend endpoint + markdown rendering NOT yet wired. Resume here.
+- **AI assistant markdown + streaming**: `react-markdown`+`remark-gfm` installed; SSE `stream_message` endpoint + markdown rendering NOT yet wired. Resume here.
 
 ## Backlog / Next
 - P2: Stripe payment gateway for invoices.
+- Optional: DELETE /api/invoices/{id} (admin) for cleanup; extract shared patient-name map helper (DRY).
 - P3: In-browser .docx/.xlsx editing — DECIDED NOT building.
 
 ## Earlier backlog
