@@ -216,10 +216,17 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Admin page "Add User" button now navigates to `/enroll`; old modal removed.
 - Tested: backend curl (custom tabs + profile fields persisted, must_change) + full UI e2e (fill → submit → credentials panel). No issues.
 
+## Iteration 29 (2026-06) — Delete notes, refactor auth, real accounts
+- **Delete progress notes**: `DELETE /api/notes/{id}` (author or admin, audited) + trash button on each note card with confirm.
+- **Refactor**: split `routers/auth.py` → kept auth-only endpoints (login, register, change-password, me, signature); moved user management to `routers/users.py` and role/tab meta to `routers/roles.py`. URLs unchanged; all endpoints verified 200.
+- **Accounts**: erased the 5 demo staff + old `admin@vpp.com`; created the real admin **ADMIN / usvopp@yahoo.com**. Set `.env` `ADMIN_EMAIL`/`ADMIN_PASSWORD` to match and `SEED_DEMO_USERS=false`. Only the real admin remains. (Production: set the same env vars in the deployment.)
+- Verified: new admin logs in (14 tabs); old admin + demo staff → 401; note delete create→delete→404.
+
+## In progress / Pending
+- **AI assistant markdown + streaming** (from prior request): `react-markdown`+`remark-gfm` installed; `stream_message` (SSE) backend endpoint + markdown rendering NOT yet wired. Resume here.
+
 ## Backlog / Next
-- Refactor: split large `routers/auth.py` into `routers/users.py` + `routers/roles.py`; add `ChangePasswordInput` schema.
 - P2: Stripe payment gateway for invoices.
-- Enhancement: markdown rendering + token streaming for AI assistant replies.
 - P3: In-browser .docx/.xlsx editing — DECIDED NOT building.
 
 ## Earlier backlog
