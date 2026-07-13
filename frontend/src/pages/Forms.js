@@ -4,7 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { Letterhead } from "../components/Letterhead";
-import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown } from "lucide-react";
+import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown, FileText, FileSpreadsheet, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 
 const types = ["Intake", "Consent", "Medical History", "Insurance", "Referral"];
@@ -54,6 +54,27 @@ export default function Forms() {
     } catch (err) { toast.error(apiErr(err)); }
   };
 
+  const downloadTemplate = async (kind) => {
+    try {
+      const res = await api.get(`/forms/blank-template/${kind}`, { responseType: "blob" });
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = kind === "docx" ? "blank_form.docx" : kind === "xlsx" ? "blank_spreadsheet.xlsx" : "blank_form.pdf";
+      document.body.appendChild(a); a.click(); a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const sendWhatsApp = (f) => {
+    const url = `${window.location.origin}/form/${f.public_token}`;
+    const clinic = settings?.clinic_name || "Veterans of Puerto Plata";
+    const msg = encodeURIComponent(`${clinic}: Please complete your form "${f.title}": ${url}`);
+    const p = patients.find((x) => x.id === f.patient_id);
+    const phone = (p?.phone || "").replace(/\D/g, "");
+    window.open(`https://wa.me/${phone}?text=${msg}`, "_blank", "noopener,noreferrer");
+  };
+
   const save = async (e) => {
     e.preventDefault();
     try {
@@ -96,7 +117,10 @@ export default function Forms() {
   return (
     <div>
       <PageHeader title={t("forms")} subtitle={`${forms.length}`}
-        action={<div className="flex gap-2">
+        action={<div className="flex gap-2 flex-wrap">
+          <Btn variant="outline" onClick={() => downloadTemplate("docx")} data-testid="tpl-docx-btn" className="!px-2.5" title="Blank Word"><FileText className="w-4 h-4" />Word</Btn>
+          <Btn variant="outline" onClick={() => downloadTemplate("xlsx")} data-testid="tpl-xlsx-btn" className="!px-2.5" title="Blank Excel"><FileSpreadsheet className="w-4 h-4" />Excel</Btn>
+          <Btn variant="outline" onClick={() => downloadTemplate("pdf")} data-testid="tpl-pdf-btn" className="!px-2.5" title="Blank PDF"><FileDown className="w-4 h-4" />PDF</Btn>
           <Btn variant="outline" onClick={() => setUploadOpen(true)} data-testid="upload-form-btn"><Upload className="w-4 h-4" />{t("uploadForm")}</Btn>
           <Btn onClick={() => setOpen(true)} data-testid="add-form-btn"><Plus className="w-4 h-4" />{t("newForm")}</Btn>
         </div>} />
@@ -153,6 +177,11 @@ export default function Forms() {
                         {!f.attachment && (
                           <Btn variant="ghost" onClick={() => copyLink(f)} data-testid={`copy-link-${f.id}`} className="!px-2" title={t("copyLink")}>
                             <Link2 className="w-4 h-4" />
+                          </Btn>
+                        )}
+                        {f.public_token && (
+                          <Btn variant="ghost" onClick={() => sendWhatsApp(f)} data-testid={`whatsapp-${f.id}`} className="!px-2" title={t("sendWhatsApp")}>
+                            <MessageCircle className="w-4 h-4" />
                           </Btn>
                         )}
                         {f.status === "received" && f.responses && (

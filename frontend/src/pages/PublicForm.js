@@ -29,6 +29,24 @@ export default function PublicForm() {
   }, [token]);
 
   const set = (name, val) => setValues((v) => ({ ...v, [name]: val }));
+  const [docFile, setDocFile] = useState(null);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+
+  const uploadBack = async () => {
+    if (!docFile) { alert(t("chooseFile")); return; }
+    if (docFile.size > 15 * 1024 * 1024) { alert(t("fileTooLarge")); return; }
+    setUploadingDoc(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", docFile);
+      await axios.post(`${API}/public/forms/${token}/upload`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setState("done");
+    } catch (err) {
+      const d = err?.response?.data?.detail;
+      if (typeof d === "string" && d.includes("already")) setState("already");
+      else alert(typeof d === "string" ? d : t("uploadFailed"));
+    } finally { setUploadingDoc(false); }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -91,6 +109,7 @@ export default function PublicForm() {
           {form.patient_first_name ? `${t("hello")}, ${form.patient_first_name}. ` : ""}{t("patientFormIntro")}
         </p>
 
+        {form.template && form.template.length > 0 && (
         <form onSubmit={submit} className="mt-6 space-y-5" data-testid="public-form">
           {form.template.map((f) => (
             <div key={f.name}>
@@ -131,6 +150,19 @@ export default function PublicForm() {
             {submitting && <Loader2 className="w-4 h-4 animate-spin" />}{t("submitForm")}
           </button>
         </form>
+        )}
+
+        <div className="mt-6 border-t border-border pt-6" data-testid="public-upload-section">
+          <p className="text-sm font-semibold text-moneygreen-800">{t("uploadCompletedDoc")}</p>
+          <p className="text-xs text-stone-500 mb-3">{t("uploadCompletedHint")}</p>
+          <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.webp"
+            onChange={(e) => setDocFile(e.target.files[0])} data-testid="pf-doc-file"
+            className="block w-full text-sm text-stone-600 file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-moneygreen-600 file:text-white file:font-semibold file:cursor-pointer" />
+          <button type="button" onClick={uploadBack} disabled={uploadingDoc || !docFile} data-testid="pf-doc-upload-btn"
+            className="mt-3 w-full py-2.5 rounded-md bg-moneygreen-600 text-white font-semibold hover:bg-moneygreen-700 transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-60">
+            {uploadingDoc && <Loader2 className="w-4 h-4 animate-spin" />}{t("sendDocument")}
+          </button>
+        </div>
       </div>
     </Shell>
   );

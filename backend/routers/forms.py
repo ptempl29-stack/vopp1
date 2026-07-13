@@ -1,7 +1,8 @@
 import uuid
+import io
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from core.db import db, now_iso, logger
 from core.config import FORMS_ROLES, FORM_STATUSES, EXT_CONTENT_TYPES, APP_NAME, PUBLIC_BASE_URL
@@ -13,6 +14,74 @@ from models.schemas import FormInput, FormSubmission
 from data.seed import FORM_TEMPLATES
 
 router = APIRouter()
+
+_TEMPLATE_META = {
+    "docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "blank_form.docx"),
+    "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "blank_spreadsheet.xlsx"),
+    "pdf": ("application/pdf", "blank_form.pdf"),
+}
+
+
+def _build_docx(clinic: str) -> bytes:
+    from docx import Document
+    doc = Document()
+    doc.add_heading(clinic, level=0)
+    doc.add_heading("Patient Form", level=1)
+    for label in ["Patient Name:", "Date of Birth:", "Date:", "Notes:"]:
+        doc.add_paragraph(label)
+    for _ in range(12):
+        doc.add_paragraph("")
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def _build_xlsx(clinic: str) -> bytes:
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Form"
+    ws["A1"] = clinic
+    ws["A2"] = "Patient Form"
+    ws.append([])
+    ws.append(["Field", "Value"])
+    for label in ["Patient Name", "Date of Birth", "Date", "Notes"]:
+        ws.append([label, ""])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _build_pdf(clinic: str) -> bytes:
+    from fpdf import FPDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 12, clinic, ln=True)
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Patient Form", ln=True)
+    pdf.ln(4)
+    pdf.set_font("Helvetica", size=12)
+    for label in ["Patient Name: ______________________________", "Date of Birth: _____________________________",
+                  "Date: ______________________________________", "Notes:"]:
+        pdf.cell(0, 10, label, ln=True)
+    for _ in range(10):
+        pdf.cell(0, 10, "_" * 70, ln=True)
+    out = pdf.output(dest="S")
+    return bytes(out) if isinstance(out, (bytes, bytearray)) else out.encode("latin-1")
+
+
+@router.get("/forms/blank-template/{kind}")
+async def blank_template(kind: str, user: dict = Depends(require_roles(*FORMS_ROLES))):
+    if kind not in _TEMPLATE_META:
+        raise HTTPException(status_code=400, detail="Unsupported template type")
+    s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
+    clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
+    builders = {"docx": _build_docx, "xlsx": _build_xlsx, "pdf": _build_pdf}
+    data = builders[kind](clinic)
+    ctype, fname = _TEMPLATE_META[kind]
+    return StreamingResponse(io.BytesIO(data), media_type=ctype,
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @router.get("/forms")
@@ -118,6 +187,7 @@ async def public_get_form(token: str):
         patient = p["first_name"] if p else None
     return {"id": f["id"], "title": f["title"], "form_type": f["form_type"],
             "template": f.get("template", []), "status": f["status"],
+            "has_template": bool(f.get("template")), "has_attachment": bool(f.get("attachment")),
             "patient_first_name": patient, "clinic": "Veterans of Puerto Plata"}
 
 
@@ -137,4 +207,32 @@ async def public_submit_form(token: str, data: FormSubmission):
         raise HTTPException(status_code=400, detail=f"Missing required fields: {', '.join(missing)}")
     await db.forms.update_one({"public_token": token},
         {"$set": {"responses": data.responses, "status": "received", "submitted_at": now_iso()}})
+    return {"ok": True}
+
+
+@router.post("/public/forms/{token}/upload")
+async def public_upload_back(token: str, file: UploadFile = File(...)):
+    f = await db.forms.find_one({"public_token": token})
+    if not f:
+        raise HTTPException(status_code=404, detail="Form not found")
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "bin"
+    allowed = {"pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "txt", "xls", "xlsx"}
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+    ct_map = {"xls": "application/vnd.ms-excel",
+              "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+    safe_ct = EXT_CONTENT_TYPES.get(ext) or ct_map.get(ext, "application/octet-stream")
+    payload = await file.read()
+    if len(payload) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 15MB)")
+    path = f"{APP_NAME}/forms/patient-uploads/{token}/{uuid.uuid4()}.{ext}"
+    try:
+        result = put_object(path, payload, safe_ct)
+    except Exception as e:
+        logger.error(f"patient upload failed: {e}")
+        raise HTTPException(status_code=502, detail="File storage failed")
+    await db.forms.update_one({"public_token": token}, {"$set": {
+        "attachment": {"storage_path": result["path"], "filename": file.filename,
+                       "content_type": safe_ct, "size": result.get("size")},
+        "status": "received", "submitted_at": now_iso()}})
     return {"ok": True}

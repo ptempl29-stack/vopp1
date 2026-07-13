@@ -222,6 +222,7 @@ export default function Team() {
             <Field label={t("phone")}><input value={lh.phone || ""} onChange={setLhField("phone")} className={inputCls} data-testid="lh-phone" /></Field>
             <Field label={t("email")}><input value={lh.email || ""} onChange={setLhField("email")} className={inputCls} data-testid="lh-email" /></Field>
           </div>
+          <Field label={t("whatsapp")}><input value={lh.whatsapp || ""} onChange={setLhField("whatsapp")} className={inputCls} data-testid="lh-whatsapp" placeholder="+1 809 555 0100" /></Field>
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="outline" type="button" onClick={() => setLhOpen(false)}>{t("cancel")}</Btn>
             <Btn type="submit" data-testid="save-letterhead-btn">{t("save")}</Btn>

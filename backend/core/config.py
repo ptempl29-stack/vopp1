@@ -35,6 +35,7 @@ DEFAULT_SETTINGS = {
     "address": "Puerto Plata, Dominican Republic",
     "phone": "+1 (809) 555-0100",
     "email": "info@vpp-clinic.com",
+    "whatsapp": "",
     "mailing_address": "",
     "primary_insurance": "",
     "logo": "",

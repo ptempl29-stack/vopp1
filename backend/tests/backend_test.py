@@ -1989,3 +1989,154 @@ def test_note_summary_merged_no_heading_preserved_on_save():
     assert "AI SUMMARY" not in (d.get("summary") or "")
     assert "AI SUMMARY" not in (d.get("content") or "")
     requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+
+# ============================================================
+# Iteration 17: WhatsApp header, blank templates, upload-back
+# ============================================================
+
+# ----- WhatsApp header in settings -----
+def test_settings_public_returns_whatsapp_field():
+    r = requests.get(f"{API}/public/settings", timeout=30)
+    assert r.status_code == 200
+    assert "whatsapp" in r.json()
+
+
+@pytest.mark.parametrize("role", ["admin", "doctor", "nurse", "psychologist"])
+def test_settings_put_whatsapp_allowed(role):
+    number = f"+1809555{uuid.uuid4().hex[:4]}"
+    r = requests.put(f"{API}/settings",
+                     json={"whatsapp": number, "clinic_name": "Veterans of Puerto Plata"},
+                     headers=h(role), timeout=30)
+    assert r.status_code == 200, r.text
+    assert r.json().get("whatsapp") == number
+    # Persist check via public endpoint
+    r2 = requests.get(f"{API}/public/settings", timeout=30)
+    assert r2.json().get("whatsapp") == number
+
+
+@pytest.mark.parametrize("role", ["receptionist", "biller"])
+def test_settings_put_whatsapp_forbidden(role):
+    r = requests.put(f"{API}/settings",
+                     json={"whatsapp": "+18095550000"},
+                     headers=h(role), timeout=30)
+    assert r.status_code == 403
+
+
+# ----- Blank templates -----
+@pytest.mark.parametrize("kind,ctype,magic", [
+    ("docx", "wordprocessingml", b"PK"),
+    ("xlsx", "spreadsheetml", b"PK"),
+    ("pdf", "pdf", b"%PDF"),
+])
+def test_blank_template_download(kind, ctype, magic):
+    r = requests.get(f"{API}/forms/blank-template/{kind}", headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    assert ctype in r.headers.get("content-type", "")
+    assert len(r.content) > 200
+    assert r.content.startswith(magic)
+
+
+def test_blank_template_invalid_kind_400():
+    r = requests.get(f"{API}/forms/blank-template/foo", headers=h("doctor"), timeout=30)
+    assert r.status_code == 400
+
+
+@pytest.mark.parametrize("role", ["doctor", "nurse", "psychologist", "receptionist", "biller", "admin"])
+def test_blank_template_forms_roles_allowed(role):
+    r = requests.get(f"{API}/forms/blank-template/pdf", headers=h(role), timeout=30)
+    assert r.status_code == 200
+
+
+def test_blank_template_no_auth_401():
+    r = requests.get(f"{API}/forms/blank-template/pdf", timeout=30)
+    assert r.status_code == 401
+
+
+# ----- Public: has_template / has_attachment flags -----
+def _create_test_patient():
+    p = requests.post(f"{API}/patients",
+                      json={"first_name": "TEST_Upl", "last_name": "Back"},
+                      headers=h("receptionist"), timeout=30).json()
+    return p
+
+
+def test_public_form_get_returns_flags():
+    p = _create_test_patient()
+    fr = requests.post(f"{API}/forms",
+                       json={"patient_id": p["id"], "title": "TEST_UB",
+                             "form_type": "intake", "fields": {}, "status": "sent"},
+                       headers=h("doctor"), timeout=30).json()
+    token = fr["public_token"]
+    r = requests.get(f"{API}/public/forms/{token}", timeout=30)
+    assert r.status_code == 200
+    body = r.json()
+    assert "has_template" in body and "has_attachment" in body
+    assert body["has_attachment"] is False
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+# ----- Patient upload-back -----
+def test_public_upload_back_full_flow():
+    p = _create_test_patient()
+    fr = requests.post(f"{API}/forms",
+                       json={"patient_id": p["id"], "title": "TEST_UploadBack",
+                             "form_type": "intake", "fields": {}, "status": "sent"},
+                       headers=h("doctor"), timeout=30).json()
+    fid = fr["id"]
+    token = fr["public_token"]
+    # Public upload PDF
+    files = {"file": ("completed.pdf", b"%PDF-1.4\n%test\n", "application/pdf")}
+    r = requests.post(f"{API}/public/forms/{token}/upload", files=files, timeout=60)
+    assert r.status_code == 200, r.text
+    assert r.json().get("ok") is True
+    # Verify persistence
+    r2 = requests.get(f"{API}/public/forms/{token}", timeout=30)
+    assert r2.json().get("has_attachment") is True
+    assert r2.json().get("status") == "received"
+    # Staff can download
+    r3 = requests.get(f"{API}/forms/{fid}/download", headers=h("doctor"), timeout=30)
+    assert r3.status_code == 200
+    assert r3.headers.get("content-type", "").startswith("application/octet-stream")
+    assert "nosniff" in r3.headers.get("x-content-type-options", "").lower()
+    assert r3.content.startswith(b"%PDF")
+    # Present in staff /forms list with status received
+    lst = requests.get(f"{API}/forms", headers=h("doctor"), timeout=30).json()
+    match = [x for x in lst if x["id"] == fid]
+    assert match and match[0]["status"] == "received"
+    assert match[0].get("attachment")
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_public_upload_back_bad_extension_400():
+    p = _create_test_patient()
+    fr = requests.post(f"{API}/forms",
+                       json={"patient_id": p["id"], "title": "TEST_UB_bad",
+                             "form_type": "intake", "fields": {}, "status": "sent"},
+                       headers=h("doctor"), timeout=30).json()
+    token = fr["public_token"]
+    files = {"file": ("bad.exe", b"MZ\x00\x00hello", "application/octet-stream")}
+    r = requests.post(f"{API}/public/forms/{token}/upload", files=files, timeout=30)
+    assert r.status_code == 400
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_public_upload_back_too_large_400():
+    p = _create_test_patient()
+    fr = requests.post(f"{API}/forms",
+                       json={"patient_id": p["id"], "title": "TEST_UB_big",
+                             "form_type": "intake", "fields": {}, "status": "sent"},
+                       headers=h("doctor"), timeout=30).json()
+    token = fr["public_token"]
+    big = b"a" * (15 * 1024 * 1024 + 100)
+    files = {"file": ("huge.pdf", big, "application/pdf")}
+    r = requests.post(f"{API}/public/forms/{token}/upload", files=files, timeout=120)
+    assert r.status_code == 400
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_public_upload_back_bad_token_404():
+    files = {"file": ("x.pdf", b"%PDF-1.4\n", "application/pdf")}
+    r = requests.post(f"{API}/public/forms/nonexistent-token/upload", files=files, timeout=30)
+    assert r.status_code == 404

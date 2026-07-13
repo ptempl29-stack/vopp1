@@ -122,6 +122,7 @@ class SettingsInput(BaseModel):
     address: Optional[str] = ""
     phone: Optional[str] = ""
     email: Optional[str] = ""
+    whatsapp: Optional[str] = ""
     mailing_address: Optional[str] = ""
     primary_insurance: Optional[str] = ""
     logo: Optional[str] = ""

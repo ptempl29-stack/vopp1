@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import api, { apiErr } from "../lib/api";
-import { Stethoscope, MapPin, Phone, Mail, Pencil, Save, X, Upload, Loader2 } from "lucide-react";
+import { Stethoscope, MapPin, Phone, Mail, Pencil, Save, X, Upload, Loader2, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export const Letterhead = ({ settings }) => {
@@ -25,6 +25,7 @@ export const Letterhead = ({ settings }) => {
       <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-xs text-stone-500">
         {settings.address && <span className="inline-flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{settings.address}</span>}
         {settings.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3.5 h-3.5" />{settings.phone}</span>}
+        {settings.whatsapp && <span className="inline-flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" />WhatsApp: {settings.whatsapp}</span>}
         {settings.email && <span className="inline-flex items-center gap-1"><Mail className="w-3.5 h-3.5" />{settings.email}</span>}
       </div>
       {(settings.mailing_address || settings.primary_insurance) && (
@@ -67,6 +68,7 @@ export const EditableLetterhead = ({ settings, onSaved, canEdit = false, t = (x)
         address: form.address || "",
         phone: form.phone || "",
         email: form.email || "",
+        whatsapp: form.whatsapp || "",
         mailing_address: form.mailing_address || "",
         primary_insurance: (settings && settings.primary_insurance) || "",
         logo: form.logo || "",
@@ -121,6 +123,8 @@ export const EditableLetterhead = ({ settings, onSaved, canEdit = false, t = (x)
           <input value={form.email || ""} onChange={set("email")} className={cell} data-testid="lh-email" /></div>
         <div><label className="text-xs font-semibold text-stone-500">{t("phone") || "Phone"}</label>
           <input value={form.phone || ""} onChange={set("phone")} className={cell} data-testid="lh-phone" /></div>
+        <div><label className="text-xs font-semibold text-stone-500">{t("whatsapp") || "WhatsApp Number"}</label>
+          <input value={form.whatsapp || ""} onChange={set("whatsapp")} className={cell} data-testid="lh-whatsapp" placeholder="+1 809 555 0100" /></div>
         <div className="sm:col-span-2"><label className="text-xs font-semibold text-stone-500">{t("mailingAddress") || "Mailing Address"}</label>
           <input value={form.mailing_address || ""} onChange={set("mailing_address")} className={cell} data-testid="lh-mailing" /></div>
       </div>
