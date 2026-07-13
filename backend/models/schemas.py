@@ -45,6 +45,7 @@ class AppointmentInput(BaseModel):
     date: str
     time: Optional[str] = None
     reason: Optional[str] = None
+    appointment_type: str = "in_person"
     status: str = "scheduled"
 
 
