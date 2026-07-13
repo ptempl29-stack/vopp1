@@ -24,7 +24,7 @@ async def read_settings(user: dict = Depends(get_current_user)):
 
 
 @router.put("/settings")
-async def update_settings(data: SettingsInput, current: dict = Depends(require_roles("admin"))):
+async def update_settings(data: SettingsInput, current: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
     payload = data.model_dump()
     if payload.get("logo") and len(payload["logo"]) > 900000:
         raise HTTPException(status_code=400, detail="Logo image too large (max ~650KB)")

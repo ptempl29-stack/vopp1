@@ -531,7 +531,7 @@ def test_meta_tabs_admin_only():
     r = requests.get(f"{API}/meta/tabs", headers=h("admin"), timeout=30)
     assert r.status_code == 200
     d = r.json()
-    assert len(d["tabs"]) == 11 and len(d["roles"]) == 6
+    assert len(d["tabs"]) == 12 and len(d["roles"]) == 6
     r2 = requests.get(f"{API}/meta/tabs", headers=h("doctor"), timeout=30)
     assert r2.status_code == 403
 
@@ -940,8 +940,9 @@ def test_forms_roles_gating_non_forms_role_blocked():
     unknown roles, we instead validate the *positive* path: every seeded non-admin role IS
     allowed, and admin (bypass) is allowed.
     """
-    # Positive: each FORMS role can call GET /forms
-    for role in ("doctor", "nurse", "psychologist", "receptionist", "biller", "admin"):
+    # Positive: each seeded FORMS role can call GET /forms.
+    # Note: per iter14, psychologist and biller are now BLOCKED from GET /forms.
+    for role in ("doctor", "nurse", "receptionist", "admin"):
         r = requests.get(f"{API}/forms", headers=h(role), timeout=30)
         assert r.status_code == 200, f"{role} GET /forms -> {r.status_code}"
 
@@ -1355,16 +1356,32 @@ def test_settings_put_admin_ok_and_persists():
     requests.put(f"{API}/settings", json=restore, headers=h("admin"), timeout=30)
 
 
-def test_settings_put_forbidden_for_doctor():
-    r = requests.put(f"{API}/settings",
-                     json={"clinic_name": "hack"}, headers=h("doctor"), timeout=30)
-    assert r.status_code == 403
-
-
 def test_settings_put_forbidden_for_receptionist():
     r = requests.put(f"{API}/settings",
                      json={"clinic_name": "hack"}, headers=h("receptionist"), timeout=30)
     assert r.status_code == 403
+
+
+def test_settings_put_forbidden_for_biller():
+    r = requests.put(f"{API}/settings",
+                     json={"clinic_name": "hack"}, headers=h("biller"), timeout=30)
+    assert r.status_code == 403
+
+
+@pytest.mark.parametrize("role", ["admin", "doctor", "nurse", "psychologist"])
+def test_settings_put_allowed_for_clinical_and_admin(role):
+    # Fetch original, mutate, restore
+    orig = requests.get(f"{API}/public/settings", timeout=30).json()
+    payload = {k: orig.get(k, "") for k in ("clinic_name", "tagline", "address",
+                                            "phone", "email", "logo")}
+    payload["clinic_name"] = f"TEST_{role}_LH"
+    r = requests.put(f"{API}/settings", json=payload, headers=h(role), timeout=30)
+    assert r.status_code == 200, f"{role}: {r.status_code} {r.text}"
+    assert r.json()["clinic_name"] == f"TEST_{role}_LH"
+    # restore
+    restore = {k: orig.get(k, "") for k in ("clinic_name", "tagline", "address",
+                                            "phone", "email", "logo")}
+    requests.put(f"{API}/settings", json=restore, headers=h("admin"), timeout=30)
 
 
 def test_settings_put_no_auth_401():
@@ -1487,3 +1504,152 @@ def test_invoice_status_invalid_rejected():
     assert r2.status_code == 200
     assert r2.json()["status"] == "paid"
     requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+# ================= NEW iter 14: HIPAA Audit Log =================
+def _audit(role, **params):
+    return requests.get(f"{API}/audit", headers=h(role), params=params, timeout=30)
+
+
+def test_audit_admin_only_others_forbidden():
+    for role in ("doctor", "nurse", "psychologist", "receptionist", "biller"):
+        r = _audit(role, limit=1)
+        assert r.status_code == 403, f"{role} got {r.status_code}"
+
+
+def test_audit_admin_returns_shape():
+    r = _audit("admin", limit=5)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert "total" in d and "items" in d
+    assert isinstance(d["items"], list)
+    if d["items"]:
+        row = d["items"][0]
+        for k in ("id", "action", "resource", "actor_name", "actor_role",
+                 "ip", "created_at"):
+            assert k in row, f"missing key {k}"
+        # _id must not leak
+        assert "_id" not in row
+
+
+def test_audit_login_success_written():
+    xff = f"172.28.{uuid.uuid4().int % 250}.9"
+    requests.post(f"{API}/auth/login",
+                  json={"email": "doctor@vpp.com", "password": "doctor123"},
+                  headers={"X-Forwarded-For": xff}, timeout=30)
+    r = _audit("admin", action="login_success", limit=25)
+    assert r.status_code == 200
+    items = r.json()["items"]
+    # a fresh recent login_success for auth resource must exist
+    ok = [i for i in items if i["resource"] == "auth" and i.get("actor_role") == "doctor"]
+    assert ok, "no login_success audit row for doctor"
+
+
+def test_audit_login_failed_written():
+    xff = f"172.28.{uuid.uuid4().int % 250}.11"
+    bad_email = f"nobody_{uuid.uuid4().hex[:6]}@test.com"
+    requests.post(f"{API}/auth/login",
+                  json={"email": bad_email, "password": "wrong"},
+                  headers={"X-Forwarded-For": xff}, timeout=30)
+    r = _audit("admin", action="login_failed", limit=50)
+    assert r.status_code == 200
+    items = r.json()["items"]
+    hits = [i for i in items if bad_email in (i.get("detail") or "")]
+    assert hits, f"login_failed row not found for {bad_email}"
+    assert hits[0]["resource"] == "auth"
+
+
+def test_audit_view_created_on_list():
+    # Doctor viewing /notes creates a view row
+    requests.get(f"{API}/notes", headers=h("doctor"), timeout=30)
+    r = _audit("admin", action="view", resource="note", limit=25)
+    assert r.status_code == 200
+    items = r.json()["items"]
+    doc_views = [i for i in items if i.get("actor_role") == "doctor"]
+    assert doc_views, "no view/note audit row for doctor"
+
+
+def test_audit_create_row_on_patient_create():
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_Audit", "last_name": "P"},
+                      headers=h("receptionist"), timeout=30).json()
+    r = _audit("admin", action="create", resource="patient", limit=25)
+    assert r.status_code == 200
+    items = r.json()["items"]
+    hits = [i for i in items if i.get("resource_id") == p["id"]]
+    assert hits, "no create/patient audit row"
+    assert hits[0]["actor_role"] == "receptionist"
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_audit_filter_resource_and_pagination():
+    # resource filter
+    r = _audit("admin", resource="patient", limit=10)
+    assert r.status_code == 200
+    d = r.json()
+    assert all(i["resource"] == "patient" for i in d["items"])
+    # pagination
+    r_all = _audit("admin", limit=5, skip=0)
+    r_next = _audit("admin", limit=5, skip=5)
+    assert r_all.status_code == 200 and r_next.status_code == 200
+    ids_a = {i["id"] for i in r_all.json()["items"]}
+    ids_b = {i["id"] for i in r_next.json()["items"]}
+    # No overlap between skipped pages (unless total < 5)
+    if r_all.json()["total"] > 10:
+        assert not (ids_a & ids_b)
+
+
+def test_audit_filter_date_range():
+    today = __import__("datetime").datetime.utcnow().strftime("%Y-%m-%d")
+    r = _audit("admin", start=today, end=today, limit=5)
+    assert r.status_code == 200
+    d = r.json()
+    for i in d["items"]:
+        assert i["created_at"][:10] == today
+
+
+# ================= NEW iter 14: RBAC regression + PHI leak checks =================
+@pytest.mark.parametrize("role", ["doctor", "psychologist"])
+def test_invoices_get_forbidden_clinical(role):
+    r = requests.get(f"{API}/invoices", headers=h(role), timeout=30)
+    assert r.status_code == 403
+
+
+@pytest.mark.parametrize("role", ["biller", "receptionist"])
+def test_invoices_get_allowed_and_no_phi_leak(role):
+    r = requests.get(f"{API}/invoices", headers=h(role), timeout=30)
+    assert r.status_code == 200
+    for inv in r.json():
+        assert "ssn" not in inv, f"ssn leaked in invoice payload for {role}"
+        assert "policy_number" not in inv, f"policy_number leaked for {role}"
+
+
+@pytest.mark.parametrize("role", ["psychologist", "biller"])
+def test_forms_get_forbidden_for(role):
+    r = requests.get(f"{API}/forms", headers=h(role), timeout=30)
+    assert r.status_code == 403
+
+
+@pytest.mark.parametrize("role", ["doctor", "receptionist", "nurse", "admin"])
+def test_forms_get_allowed_for(role):
+    r = requests.get(f"{API}/forms", headers=h(role), timeout=30)
+    assert r.status_code == 200
+
+
+# ================= NEW iter 14: Auto-title for daily progress note (frontend-side) =================
+# NOTE: Auto-title is generated CLIENT-SIDE in Notes.js as
+#   "Daily Progress Note — <patient> · <date>". Backend still requires 'title'.
+# So we assert only that a title supplied by the client is persisted for a daily note.
+def test_daily_note_client_supplied_title_persists():
+    p = requests.post(f"{API}/patients",
+                      json={"first_name": "TEST_AutoT", "last_name": "Daily"},
+                      headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/notes",
+                      json={"patient_id": p["id"], "note_type": "daily",
+                            "title": "Daily Progress Note — TEST_AutoT Daily · 2026-01-16",
+                            "content": "Patient stable, alert."},
+                      headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["title"].startswith("Daily Progress Note")
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+

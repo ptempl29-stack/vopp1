@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
 import { SignaturePad } from "../components/SignaturePad";
-import { Letterhead } from "../components/Letterhead";
+import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Stethoscope } from "lucide-react";
 import { toast } from "sonner";
 
@@ -193,7 +193,8 @@ export default function Notes() {
           {form.note_type === "daily" && (
             <div id="note-print" data-testid="daily-fields">
               <div className="rounded-lg border border-border p-4 mb-4">
-                <Letterhead settings={settings} />
+                <EditableLetterhead settings={settings} onSaved={setSettings} t={t}
+                  canEdit={["admin", "doctor", "nurse", "psychologist"].includes(user?.role)} />
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
                 <Field label={t("patient")}>
