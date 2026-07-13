@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="2" failures="0" skipped="0" tests="13" time="4.657" timestamp="2026-07-13T04:41:17.550105+00:00" hostname="agent-env-275b90fe-7c89-44f2-bb67-165d0c54e5f0"><testcase classname="tests.test_iter22_admin_control.TestRoleTemplates" name="test_get_role_templates" time="0.984" /><testcase classname="tests.test_iter22_admin_control.TestSuspendRestore" name="test_suspend_blocks_login" time="1.920" /><testcase classname="tests.test_iter22_admin_control.TestRoleTemplates" name="test_put_role_template_and_apply" time="1.566" /><testcase classname="tests.test_iter22_admin_control.TestSuspendRestore" name="test_restore_allows_login" time="0.630" /><testcase classname="tests.test_iter22_admin_control.TestSuspendRestore" name="test_suspend_invalidates_existing_jwt" time="0.929" /><testcase classname="tests.test_iter22_admin_control.TestRoleTemplates" name="test_role_template_rejects_admin" time="0.309" /><testcase classname="tests.test_iter22_admin_control.TestRoleTemplates" name="test_role_template_rejects_invalid" time="0.081" /><testcase classname="tests.test_iter22_admin_control.TestRBAC" name="test_non_admin_cannot_suspend" time="0.481" /><testcase classname="tests.test_iter22_admin_control.TestRBAC" name="test_non_admin_cannot_read_templates" time="0.107" /><testcase classname="tests.test_iter22_admin_control.TestRBAC" name="test_non_admin_cannot_edit_templates" time="0.067" /><testcase classname="tests.test_iter22_admin_control.TestSuspendRestore" name="test_cannot_suspend_self" time="0.193" /><testcase classname="tests.test_iter22_admin_control.TestRBAC" name="test_non_admin_cannot_read_meta_tabs" time="0.218"><error message="failed on teardown with &quot;pymongo.errors.InvalidURI: Invalid URI scheme: URI must begin with 'mongodb://' or 'mongodb+srv://'&quot;">backend/tests/test_iter22_admin_control.py:216: in _reset_nurse_template
+    asyncio.get_event_loop().run_until_complete(_clean())
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/tests/test_iter22_admin_control.py:207: in _clean
+    client = AsyncIOMotorClient(mongo_url)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:148: in __init__
+    delegate = self.__delegate_class__(*args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/pymongo/mongo_client.py:771: in __init__
+    res = uri_parser.parse_uri(
+/root/.venv/lib/python3.11/site-packages/pymongo/uri_parser.py:497: in parse_uri
+    raise InvalidURI(f"Invalid URI scheme: URI must begin with '{SCHEME}' or '{SRV_SCHEME}'")
+E   pymongo.errors.InvalidURI: Invalid URI scheme: URI must begin with 'mongodb://' or 'mongodb+srv://'</error></testcase><testcase classname="tests.test_iter22_admin_control.TestSuspendRestore" name="test_cannot_suspend_admin_role" time="0.329"><error message="failed on teardown with &quot;pymongo.errors.InvalidURI: Invalid URI scheme: URI must begin with 'mongodb://' or 'mongodb+srv://'&quot;">backend/tests/test_iter22_admin_control.py:216: in _reset_nurse_template
+    asyncio.get_event_loop().run_until_complete(_clean())
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/tests/test_iter22_admin_control.py:207: in _clean
+    client = AsyncIOMotorClient(mongo_url)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:148: in __init__
+    delegate = self.__delegate_class__(*args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/pymongo/mongo_client.py:771: in __init__
+    res = uri_parser.parse_uri(
+/root/.venv/lib/python3.11/site-packages/pymongo/uri_parser.py:497: in parse_uri
+    raise InvalidURI(f"Invalid URI scheme: URI must begin with '{SCHEME}' or '{SRV_SCHEME}'")
+E   pymongo.errors.InvalidURI: Invalid URI scheme: URI must begin with 'mongodb://' or 'mongodb+srv://'</error></testcase></testsuite></testsuites>

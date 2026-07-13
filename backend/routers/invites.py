@@ -7,6 +7,7 @@ from core.db import db, now_iso
 from core.config import ROLES, ALL_TABS, DEFAULT_TABS
 from core.security import hash_password, create_access_token, require_roles, effective_tabs
 from core.audit import log_audit
+from core.roles import resolve_role_tabs
 from routers.settings import get_settings_doc
 from models.schemas import InviteInput, InviteAccept
 
@@ -33,7 +34,7 @@ async def create_invite(data: InviteInput, user: dict = Depends(require_roles("a
     email = data.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="A user with this email already exists")
-    tabs = data.allowed_tabs if data.allowed_tabs is not None else DEFAULT_TABS.get(data.role, ["dashboard"])
+    tabs = data.allowed_tabs if data.allowed_tabs is not None else await resolve_role_tabs(data.role)
     tabs = [tt for tt in tabs if tt in ALL_TABS]
     inv = {"id": str(uuid.uuid4()), "token": secrets.token_urlsafe(32), "email": email,
            "role": data.role, "allowed_tabs": tabs, "status": "pending",
@@ -76,10 +77,10 @@ async def accept_invite(token: str, data: InviteAccept):
     if await db.users.find_one({"email": inv["email"]}):
         await db.invites.update_one({"id": inv["id"]}, {"$set": {"status": "accepted"}})
         raise HTTPException(status_code=400, detail="An account already exists for this email. Please sign in.")
-    tabs = [tt for tt in inv.get("allowed_tabs", []) if tt in ALL_TABS] or DEFAULT_TABS.get(inv["role"], ["dashboard"])
+    tabs = [tt for tt in inv.get("allowed_tabs", []) if tt in ALL_TABS] or await resolve_role_tabs(inv["role"])
     user_doc = {"id": str(uuid.uuid4()), "email": inv["email"],
                 "password_hash": hash_password(data.password), "name": data.name.strip(),
-                "role": inv["role"], "allowed_tabs": tabs, "created_at": now_iso()}
+                "role": inv["role"], "allowed_tabs": tabs, "active": True, "created_at": now_iso()}
     await db.users.insert_one(user_doc)
     await db.invites.update_one({"id": inv["id"]},
         {"$set": {"status": "accepted", "accepted_at": now_iso(), "user_id": user_doc["id"]}})

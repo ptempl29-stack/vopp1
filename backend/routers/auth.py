@@ -9,6 +9,7 @@ from core.config import ROLES, ALL_TABS, DEFAULT_TABS, MAX_LOGIN_ATTEMPTS, LOCKO
 from core.security import (hash_password, verify_password, create_access_token,
                            get_current_user, require_roles, effective_tabs)
 from core.audit import log_audit
+from core.roles import get_role_templates, resolve_role_tabs
 from models.schemas import LoginInput, RegisterInput, UpdateUserInput
 
 router = APIRouter()
@@ -41,6 +42,9 @@ async def login(data: LoginInput, request: Request):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     await db.login_attempts.delete_one({"identifier": identifier})
+    if user.get("active") is False:
+        await log_audit("login_failed", "auth", detail=f"{email} (suspended)")
+        raise HTTPException(status_code=403, detail="Your access has been suspended. Please contact an administrator.")
     token = create_access_token(user["id"], user["email"], user["role"])
     await log_audit("login_success", "auth", actor=user)
     return {"token": token, "user": {"id": user["id"], "email": user["email"],
@@ -57,11 +61,11 @@ async def register(data: RegisterInput, current: dict = Depends(require_roles("a
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     if await db.users.find_one({"email": data.email.lower()}):
         raise HTTPException(status_code=400, detail="Email already registered")
-    tabs = data.allowed_tabs if data.allowed_tabs is not None else DEFAULT_TABS.get(data.role, ["dashboard"])
+    tabs = data.allowed_tabs if data.allowed_tabs is not None else await resolve_role_tabs(data.role)
     tabs = [tt for tt in tabs if tt in ALL_TABS]
     user = {"id": str(uuid.uuid4()), "email": data.email.lower(),
             "password_hash": hash_password(data.password), "name": data.name,
-            "role": data.role, "allowed_tabs": tabs, "created_at": now_iso()}
+            "role": data.role, "allowed_tabs": tabs, "active": True, "created_at": now_iso()}
     await db.users.insert_one(user)
     return {"id": user["id"], "email": user["email"], "name": user["name"],
             "role": user["role"], "allowed_tabs": tabs}
@@ -142,6 +146,44 @@ async def delete_user(uid: str, current: dict = Depends(require_roles("admin")))
     return {"ok": True}
 
 
+@router.put("/users/{uid}/active")
+async def set_user_active(uid: str, payload: dict, current: dict = Depends(require_roles("admin"))):
+    target = await db.users.find_one({"id": uid})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if uid == current["id"]:
+        raise HTTPException(status_code=400, detail="You cannot change your own access")
+    if target.get("role") == "admin":
+        raise HTTPException(status_code=400, detail="Cannot suspend an administrator")
+    active = bool(payload.get("active", True))
+    await db.users.update_one({"id": uid}, {"$set": {"active": active}})
+    await log_audit("update", "user", actor=current, resource_id=uid,
+                    detail=f"access {'restored' if active else 'suspended'}")
+    u = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+    u["allowed_tabs"] = effective_tabs(u)
+    return u
+
+
+@router.get("/role-templates")
+async def read_role_templates(current: dict = Depends(require_roles("admin"))):
+    return await get_role_templates()
+
+
+@router.put("/role-templates/{role}")
+async def update_role_template(role: str, payload: dict, current: dict = Depends(require_roles("admin"))):
+    if role not in ROLES or role == "admin":
+        raise HTTPException(status_code=400, detail="Invalid role")
+    tabs = [tt for tt in payload.get("allowed_tabs", []) if tt in ALL_TABS]
+    await db.role_templates.update_one({"role": role}, {"$set": {"role": role, "allowed_tabs": tabs}}, upsert=True)
+    updated = 0
+    if payload.get("apply_to_existing"):
+        res = await db.users.update_many({"role": role}, {"$set": {"allowed_tabs": tabs}})
+        updated = res.modified_count
+    await log_audit("update", "role", actor=current, resource_id=role,
+                    detail=f"tabs={len(tabs)} applied_to={updated}")
+    return {"role": role, "allowed_tabs": tabs, "applied_to_existing": updated}
+
+
 @router.get("/meta/tabs")
 async def meta_tabs(current: dict = Depends(require_roles("admin"))):
-    return {"tabs": ALL_TABS, "roles": ROLES, "defaults": DEFAULT_TABS}
+    return {"tabs": ALL_TABS, "roles": ROLES, "defaults": await get_role_templates()}

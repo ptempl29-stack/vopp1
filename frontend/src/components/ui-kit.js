@@ -58,7 +58,7 @@ export function Btn({ children, variant = "primary", className = "", ...props })
   );
 }
 
-export function Badge({ children, tone = "gray" }) {
+export function Badge({ children, tone = "gray", ...props }) {
   const tones = {
     green: "bg-moneygreen-100 text-moneygreen-700",
     tan: "bg-tan-200 text-tan-900",
@@ -66,7 +66,7 @@ export function Badge({ children, tone = "gray" }) {
     amber: "bg-amber-100 text-amber-700",
     gray: "bg-stone-200 text-stone-600",
   };
-  return <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold capitalize ${tones[tone]}`}>{children}</span>;
+  return <span {...props} className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold capitalize ${tones[tone]}`}>{children}</span>;
 }
 
 export function Empty({ text }) {
@@ -78,6 +78,6 @@ export function Empty({ text }) {
   );
 }
 
-export function Card({ children, className = "" }) {
-  return <div className={`bg-white rounded-lg border border-border ${className}`}>{children}</div>;
+export function Card({ children, className = "", ...props }) {
+  return <div {...props} className={`bg-white rounded-lg border border-border ${className}`}>{children}</div>;
 }

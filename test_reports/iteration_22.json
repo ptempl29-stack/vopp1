@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 22: Tested admin suspend/restore, role templates, RBAC, and Admin page UI. All 13 backend pytest cases passed (100%). Frontend Admin page renders correctly with proper testids after a small fix to ui-kit (Badge/Card now forward props). Suspend/Restore toggle flow verified end-to-end via UI.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "components/ui-kit.js Badge & Card", "issue": "Did not forward props/data-testid to DOM element, so user-status-{id} and role-card-{role} testids were missing from HTML (though present in JSX). FIXED by spreading ...props onto span/div.", "selector": "[data-testid^=user-status-], [data-testid^=role-card-]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter22_admin_control.py", "/app/test_reports/pytest/iter22.xml"],
+  "action_items": [
+    "None blocking. UI-kit prop-forwarding fix already applied by tester.",
+    "Consider auditing other ui-kit primitives (Btn already forwards, Empty likely doesn't) to consistently forward props for testability."
+  ],
+  "critical_code_review_comments": [
+    "ui-kit Badge/Card previously silently dropped data-testid/aria props — this hurts testability across the app. Fixed by adding ...props spread. Same pattern should be applied wherever a component is used as a wrapper.",
+    "auth.py set_user_active correctly enforces self and admin-role safeguards and returns updated user with recomputed allowed_tabs. Good.",
+    "get_current_user rejects active=False with 403; existing JWTs immediately invalidated on suspension. Confirmed.",
+    "role-templates PUT correctly bulk-updates existing users when apply_to_existing=true, and register/invite paths inherit via resolve_role_tabs. Good."
+  ],
+  "updated_files": ["/app/frontend/src/components/ui-kit.js", "/app/backend/tests/test_iter22_admin_control.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@vpp.com / VPP-Adm1n!2026-Str0ng#Key; doctor@vpp.com / doctor123",
+  "seed_data_creation": "Throwaway nurse users (TEST_*) created via register and deleted at end of tests. role_templates.nurse doc created during apply_to_existing test and deleted afterwards; allowed_tabs $unset on seeded nurse@vpp.com so it reverts to code defaults. Verified via mongo cleanup script.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend endpoints /api/users/{id}/active, /api/role-templates, /api/role-templates/{role}, /api/meta/tabs all working with proper RBAC and safeguards. Frontend Admin page (Team.js) fully functional: Status column, toggle-active button with confirm dialog, Role Access cards with template modal (14 tabs, apply-to-existing checkbox, save button). NOTE: I applied a fix to Badge & Card components in ui-kit.js so they forward props (data-testid). If other primitives (Empty, etc.) show missing testids, apply the same ...props spread pattern."
+}

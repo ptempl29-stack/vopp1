@@ -4,7 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
-import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, Copy, Link2, Send } from "lucide-react";
+import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, Copy, Link2, Send, Ban, RotateCcw, Users } from "lucide-react";
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
@@ -33,6 +33,31 @@ export default function Team() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: "", role: "receptionist", allowed_tabs: [] });
   const [createdLink, setCreatedLink] = useState("");
+  const [roleTpl, setRoleTpl] = useState(null);
+
+  const loadMeta = () => api.get("/meta/tabs").then((r) => { setRoles(r.data.roles); setDefaults(r.data.defaults); }).catch(() => {});
+
+  const toggleActive = async (u) => {
+    const next = u.active === false;
+    if (!next && !window.confirm(t("confirmSuspend"))) return;
+    try {
+      await api.put(`/users/${u.id}/active`, { active: next });
+      toast.success(next ? t("accessRestored") : t("accessSuspended"));
+      load();
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const openRoleTpl = (role) => setRoleTpl({ role, allowed_tabs: [...(defaults[role] || [])], apply_to_existing: false });
+  const toggleRoleTplTab = (tab) => setRoleTpl((s) => ({
+    ...s, allowed_tabs: s.allowed_tabs.includes(tab) ? s.allowed_tabs.filter((x) => x !== tab) : [...s.allowed_tabs, tab],
+  }));
+  const saveRoleTpl = async () => {
+    try {
+      await api.put(`/role-templates/${roleTpl.role}`, { allowed_tabs: roleTpl.allowed_tabs, apply_to_existing: roleTpl.apply_to_existing });
+      toast.success(t("roleTemplateSaved"));
+      setRoleTpl(null); loadMeta(); load();
+    } catch (err) { toast.error(apiErr(err)); }
+  };
 
   const loadInvites = () => api.get("/invites").then((r) => setInvites(r.data)).catch(() => {});
   const inviteUrl = (tok) => `${window.location.origin}/accept-invite/${tok}`;
@@ -89,7 +114,7 @@ export default function Team() {
   useEffect(() => {
     load();
     loadInvites();
-    api.get("/meta/tabs").then((r) => { setRoles(r.data.roles); setDefaults(r.data.defaults); }).catch(() => {});
+    loadMeta();
   }, []);
 
   const createUser = async (e) => {
@@ -149,6 +174,7 @@ export default function Team() {
                 <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
                   <th className="px-5 py-3">{t("name")}</th>
                   <th className="px-5 py-3">{t("role")}</th>
+                  <th className="px-5 py-3">{t("status")}</th>
                   <th className="px-5 py-3 hidden md:table-cell">{t("tabAccess")}</th>
                   <th className="px-5 py-3 text-right">{t("actions")}</th>
                 </tr>
@@ -163,6 +189,11 @@ export default function Team() {
                       <p className="text-xs text-stone-500">{u.email}</p>
                     </td>
                     <td className="px-5 py-3"><Badge tone={roleColors[u.role] || "gray"}>{u.role}</Badge></td>
+                    <td className="px-5 py-3">
+                      <Badge tone={u.active === false ? "gray" : "green"} data-testid={`user-status-${u.id}`}>
+                        {u.active === false ? t("suspended") : t("active")}
+                      </Badge>
+                    </td>
                     <td className="px-5 py-3 hidden md:table-cell">
                       <span className="text-xs text-stone-500">{(u.allowed_tabs || []).length} tabs</span>
                     </td>
@@ -174,6 +205,13 @@ export default function Team() {
                         <Btn variant="outline" onClick={() => openTabs(u)} data-testid={`edit-tabs-${u.id}`}>
                           <ShieldCheck className="w-4 h-4" />{t("tabAccess")}
                         </Btn>
+                        {u.id !== me.id && u.role !== "admin" && (
+                          <Btn variant="ghost" onClick={() => toggleActive(u)} data-testid={`toggle-active-${u.id}`}
+                            className={`!px-2 ${u.active === false ? "!text-moneygreen-600" : "!text-amber-600"}`}
+                            title={u.active === false ? t("restore") : t("suspend")}>
+                            {u.active === false ? <RotateCcw className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                          </Btn>
+                        )}
                         {u.id !== me.id && u.role !== "admin" && (
                           <Btn variant="ghost" onClick={() => removeUser(u.id)} data-testid={`delete-user-${u.id}`} className="!px-2 !text-destructive"><Trash2 className="w-4 h-4" /></Btn>
                         )}
@@ -223,6 +261,55 @@ export default function Team() {
           )}
         </Card>
       </div>
+
+      <div className="mt-8">
+        <h3 className="font-heading text-lg font-bold text-moneygreen-800 mb-1">{t("roleAccess")}</h3>
+        <p className="text-sm text-stone-400 mb-3">{t("roleAccessSubtitle")}</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="role-templates">
+          {(roles.length ? roles : ["doctor", "nurse", "psychologist", "receptionist", "biller"]).filter((r) => r !== "admin").map((role) => (
+            <Card key={role} className="p-4 flex flex-col" data-testid={`role-card-${role}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-md bg-moneygreen-100 flex items-center justify-center text-moneygreen-600"><Users className="w-4 h-4" /></div>
+                <span className="font-heading font-bold capitalize text-moneygreen-800">{role}</span>
+                <span className="ml-auto text-xs text-stone-400">{(defaults[role] || []).length} tabs</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 mb-3 flex-1">
+                {(defaults[role] || []).map((tb) => (
+                  <span key={tb} className="text-[11px] px-2 py-0.5 rounded-full bg-tan-100 text-stone-600 capitalize">{tb}</span>
+                ))}
+              </div>
+              <Btn variant="outline" onClick={() => openRoleTpl(role)} data-testid={`edit-role-${role}`} className="w-full justify-center">
+                <ShieldCheck className="w-4 h-4" />{t("editRoleTemplate")}
+              </Btn>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      <Modal open={!!roleTpl} onClose={() => setRoleTpl(null)} title={roleTpl ? `${t("editRoleTemplate")} — ${roleTpl.role}` : ""}>
+        {roleTpl && (
+          <div>
+            <div className="grid grid-cols-2 gap-2" data-testid="role-tabs-checklist">
+              {ALL_TABS.map((tab) => (
+                <label key={tab} className="flex items-center gap-2 px-3 py-2 rounded-md border border-border cursor-pointer hover:bg-tan-50 transition-colors duration-200">
+                  <input type="checkbox" checked={roleTpl.allowed_tabs.includes(tab)} onChange={() => toggleRoleTplTab(tab)}
+                    data-testid={`role-tab-${tab}`} className="w-4 h-4 accent-moneygreen-600" />
+                  <span className="text-sm capitalize text-moneygreen-800">{tab}</span>
+                </label>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 mt-4 cursor-pointer">
+              <input type="checkbox" checked={roleTpl.apply_to_existing} onChange={(e) => setRoleTpl({ ...roleTpl, apply_to_existing: e.target.checked })}
+                data-testid="apply-to-existing" className="w-4 h-4 accent-moneygreen-600" />
+              <span className="text-sm text-stone-600">{t("applyToExisting")}</span>
+            </label>
+            <div className="flex justify-end gap-2 pt-4">
+              <Btn variant="outline" type="button" onClick={() => setRoleTpl(null)}>{t("cancel")}</Btn>
+              <Btn onClick={saveRoleTpl} data-testid="save-role-template-btn">{t("save")}</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal open={inviteOpen} onClose={() => setInviteOpen(false)} title={t("inviteStaff")}>
         {createdLink ? (
