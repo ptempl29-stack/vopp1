@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
@@ -18,15 +19,14 @@ const roleColors = {
 export default function Team() {
   const { t } = useLang();
   const { user: me } = useAuth();
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [defaults, setDefaults] = useState({});
-  const [addOpen, setAddOpen] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [editTabs, setEditTabs] = useState([]);
   const [infoUser, setInfoUser] = useState(null);
   const [infoForm, setInfoForm] = useState({ name: "", email: "", role: "", password: "" });
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "receptionist", require_password_change: true });
   const [pwUser, setPwUser] = useState(null);
   const [pwForm, setPwForm] = useState({ password: "", require_change: true });
   const [lhOpen, setLhOpen] = useState(false);
@@ -119,15 +119,6 @@ export default function Team() {
     loadMeta();
   }, []);
 
-  const createUser = async (e) => {
-    e.preventDefault();
-    try {
-      await api.post("/auth/register", form);
-      toast.success(t("createUser") + " ✓");
-      setAddOpen(false); setForm({ name: "", email: "", password: "", role: "receptionist", require_password_change: true }); load();
-    } catch (err) { toast.error(apiErr(err)); }
-  };
-
   const openTabs = (u) => { setEditUser(u); setEditTabs(u.allowed_tabs || []); };
   const toggleTab = (tab) => setEditTabs((prev) => prev.includes(tab) ? prev.filter((x) => x !== tab) : [...prev, tab]);
   const saveTabs = async () => {
@@ -171,15 +162,13 @@ export default function Team() {
   };
   const setInfo = (k) => (e) => setInfoForm({ ...infoForm, [k]: e.target.value });
 
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
-
   return (
     <div>
       <PageHeader title={t("settings")} subtitle={t("settingsSubtitle")}
         action={<div className="flex gap-2 flex-wrap">
           <Btn variant="outline" onClick={openLetterhead} data-testid="edit-letterhead-btn"><FileSignature className="w-4 h-4" />{t("letterhead")}</Btn>
           <Btn variant="outline" onClick={openInvite} data-testid="invite-staff-btn"><Mail className="w-4 h-4" />{t("inviteStaff")}</Btn>
-          <Btn onClick={() => setAddOpen(true)} data-testid="add-user-btn"><UserPlus className="w-4 h-4" />{t("addUser")}</Btn>
+          <Btn onClick={() => navigate("/enroll")} data-testid="add-user-btn"><UserPlus className="w-4 h-4" />{t("enrollStaff")}</Btn>
         </div>} />
 
       <h3 className="font-heading text-lg font-bold text-moneygreen-800 mb-3">{t("staffMembers")}</h3>
@@ -378,29 +367,6 @@ export default function Team() {
             </div>
           </form>
         )}
-      </Modal>
-
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title={t("newUser")}>
-        <form onSubmit={createUser} className="space-y-4">
-          <Field label={t("fullName")}><input required value={form.name} onChange={set("name")} className={inputCls} data-testid="uf-name" /></Field>
-          <Field label={t("email")}><input type="email" required value={form.email} onChange={set("email")} className={inputCls} data-testid="uf-email" /></Field>
-          <Field label={t("password")}><input type="password" required minLength={6} value={form.password} onChange={set("password")} className={inputCls} data-testid="uf-password" /></Field>
-          <Field label={t("role")}>
-            <select value={form.role} onChange={set("role")} className={inputCls} data-testid="uf-role">
-              {(roles.length ? roles : ["doctor", "nurse", "psychologist", "receptionist", "biller"]).filter((r) => r !== "admin").map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </Field>
-          <p className="text-xs text-stone-500">Default tabs for this role: {(defaults[form.role] || []).join(", ")}</p>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.require_password_change} onChange={(e) => setForm({ ...form, require_password_change: e.target.checked })}
-              data-testid="uf-require-change" className="w-4 h-4 accent-moneygreen-600" />
-            <span className="text-sm text-stone-600">{t("requirePwChangeCreate")}</span>
-          </label>
-          <div className="flex justify-end gap-2 pt-2">
-            <Btn variant="outline" type="button" onClick={() => setAddOpen(false)}>{t("cancel")}</Btn>
-            <Btn type="submit" data-testid="save-user-btn">{t("createUser")}</Btn>
-          </div>
-        </form>
       </Modal>
 
       <Modal open={!!pwUser} onClose={() => setPwUser(null)} title={pwUser ? `${t("resetPassword")} — ${pwUser.name}` : ""}>

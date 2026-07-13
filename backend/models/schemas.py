@@ -14,6 +14,10 @@ class RegisterInput(BaseModel):
     role: str = "receptionist"
     allowed_tabs: Optional[List[str]] = None
     require_password_change: bool = True
+    phone: Optional[str] = None
+    title: Optional[str] = None
+    license_number: Optional[str] = None
+    doxy_room: Optional[str] = None
 
 
 class UpdateUserInput(BaseModel):

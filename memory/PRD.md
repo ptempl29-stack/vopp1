@@ -209,10 +209,17 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Admin UI: per-user Reset password + Force logout actions; Add User "require password change" checkbox.
 - Tested: 17/17 backend pytest + 100% frontend UI e2e (forced-change gate, reset/force-logout session kill, safeguards, RBAC, login regression all 6 roles). No issues.
 
+## Iteration 28 (2026-06) — Staff Enrollment page (admin)
+- New dedicated **Enroll Staff** page (`/enroll`, admin-only) replacing the Add-User modal. Sections: Account (name/email/role), **Access** (tab checklist prefilled from the role template — this is where the admin assigns clinic **Dashboard** + other tab access), Login Credentials (auto-generated temp password + Generate button + "require password change on first login"), and Professional Profile (phone, title, license #, Doxy.me room).
+- On submit → creates the account and shows a success panel with the login email + temporary password + Copy credentials / Enroll another / Back to Admin.
+- Backend: `RegisterInput` extended with `phone/title/license_number/doxy_room` (stored on the user doc). `/auth/register` unchanged otherwise.
+- Admin page "Add User" button now navigates to `/enroll`; old modal removed.
+- Tested: backend curl (custom tabs + profile fields persisted, must_change) + full UI e2e (fill → submit → credentials panel). No issues.
+
 ## Backlog / Next
-- Refactor: split large `routers/auth.py` (~240 lines) into `routers/users.py` + `routers/roles.py`; add `ChangePasswordInput` schema.
+- Refactor: split large `routers/auth.py` into `routers/users.py` + `routers/roles.py`; add `ChangePasswordInput` schema.
 - P2: Stripe payment gateway for invoices.
 - Enhancement: markdown rendering + token streaming for AI assistant replies.
-- P3: In-browser .docx/.xlsx editing — DECIDED NOT building (keep download/upload-back flow).
+- P3: In-browser .docx/.xlsx editing — DECIDED NOT building.
 
 ## Earlier backlog

@@ -22,6 +22,7 @@ import AIAssistant from "./pages/AIAssistant";
 import AuditLog from "./pages/AuditLog";
 import Claims from "./pages/Claims";
 import ChangePassword from "./pages/ChangePassword";
+import StaffEnrollment from "./pages/StaffEnrollment";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children, tab }) {
@@ -59,6 +60,7 @@ function App() {
               <Route path="/assistant" element={<Protected tab="assistant"><AIAssistant /></Protected>} />
               <Route path="/team" element={<Protected tab="team"><Team /></Protected>} />
               <Route path="/settings" element={<Protected tab="team"><Team /></Protected>} />
+              <Route path="/enroll" element={<Protected tab="team"><StaffEnrollment /></Protected>} />
               <Route path="/audit" element={<Protected tab="audit"><AuditLog /></Protected>} />
               <Route path="/claims" element={<Protected tab="claims"><Claims /></Protected>} />
             </Routes>
