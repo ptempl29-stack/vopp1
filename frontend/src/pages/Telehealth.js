@@ -1,108 +1,106 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import api from "../lib/api";
+import React, { useEffect, useMemo, useState } from "react";
+import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
-import { PageHeader, Btn, Card, Field, inputCls } from "../components/ui-kit";
-import { Video, PhoneOff, Calendar } from "lucide-react";
+import { PageHeader, Btn, Card, inputCls } from "../components/ui-kit";
+import { Video, Calendar, Save, Link2, Mail, ShieldCheck, ExternalLink, Loader2, Copy } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Telehealth() {
   const { t } = useLang();
-  const { user } = useAuth();
-  const [params, setParams] = useSearchParams();
+  const { user, refreshUser } = useAuth();
   const [appts, setAppts] = useState([]);
-  const [room, setRoom] = useState(params.get("room") || "");
-  const [peer, setPeer] = useState(params.get("name") || "");
-  const [active, setActive] = useState(!!params.get("room"));
-  const containerRef = useRef(null);
-  const apiRef = useRef(null);
+  const [room, setRoom] = useState(user?.doxy_room || "");
+  const [savingRoom, setSavingRoom] = useState(false);
+  const [inviting, setInviting] = useState(null);
 
+  useEffect(() => { setRoom(user?.doxy_room || ""); }, [user]);
   useEffect(() => { api.get("/appointments").then((r) => setAppts(r.data)).catch(() => {}); }, []);
 
   const activeAppts = useMemo(() => appts.filter((a) => a.status !== "cancelled"), [appts]);
+  const hasRoom = !!user?.doxy_room;
 
-  useEffect(() => {
-    if (!active || !room) return;
-    const load = () => {
-      if (!window.JitsiMeetExternalAPI || !containerRef.current) return;
-      apiRef.current = new window.JitsiMeetExternalAPI("meet.jit.si", {
-        roomName: room,
-        parentNode: containerRef.current,
-        width: "100%", height: "100%",
-        userInfo: { displayName: user?.name || "Clinician" },
-        configOverwrite: { prejoinPageEnabled: false, startWithAudioMuted: false },
-        interfaceConfigOverwrite: { MOBILE_APP_PROMO: false },
+  const saveRoom = async () => {
+    setSavingRoom(true);
+    try {
+      const r = await api.put("/telehealth/my-room", { room });
+      await refreshUser();
+      setRoom(r.data.doxy_room);
+      toast.success(t("roomSaved"));
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setSavingRoom(false); }
+  };
+
+  const openMyRoom = () => window.open(`https://doxy.me/${encodeURIComponent(user.doxy_room)}`, "_blank", "noopener,noreferrer");
+
+  const invite = async (a, sendEmail) => {
+    setInviting(a.id + (sendEmail ? "-email" : ""));
+    try {
+      const r = await api.post("/telehealth/doxy-invite", {
+        patient_name: a.patient_name, patient_id: a.patient_id, send_email: false,
       });
-    };
-    if (window.JitsiMeetExternalAPI) load();
-    else {
-      const s = document.createElement("script");
-      s.src = "https://meet.jit.si/external_api.js";
-      s.async = true; s.onload = load;
-      document.body.appendChild(s);
-    }
-    return () => { if (apiRef.current) { apiRef.current.dispose(); apiRef.current = null; } };
-  }, [active, room, user]);
-
-  const start = (r, name) => { setRoom(r); setPeer(name); setActive(true); setParams({ room: r, name: name || "" }); };
-  const end = () => {
-    if (apiRef.current) { apiRef.current.dispose(); apiRef.current = null; }
-    setActive(false); setRoom(""); setParams({});
+      await navigator.clipboard.writeText(r.data.join_url).catch(() => {});
+      toast.success(t("linkCopied"));
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setInviting(null); }
   };
-  const randomRoomId = () => {
-    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-    const a = new Uint8Array(16);
-    (window.crypto || {}).getRandomValues?.(a);
-    return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
-  };
-  const startAdhoc = () => start(`vpp-${randomRoomId()}`, "");
-
-  if (active && room) {
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500">{t("telehealth")}</p>
-            <h1 className="font-heading text-2xl font-extrabold text-moneygreen-800">{peer || room}</h1>
-          </div>
-          <Btn variant="danger" onClick={end} data-testid="end-call-btn"><PhoneOff className="w-4 h-4" />{t("endCall")}</Btn>
-        </div>
-        <div ref={containerRef} data-testid="jitsi-container"
-          className="w-full h-[70vh] rounded-lg overflow-hidden border border-border bg-moneygreen-900" />
-      </div>
-    );
-  }
 
   return (
-    <div>
+    <div data-testid="telehealth-page">
       <PageHeader title={t("telehealth")} subtitle={t("roomReady")}
-        action={<Btn onClick={startAdhoc} data-testid="start-adhoc-btn"><Video className="w-4 h-4" />{t("startTelehealth")}</Btn>} />
+        action={hasRoom && <Btn onClick={openMyRoom} data-testid="open-room-btn"><Video className="w-4 h-4" />{t("openMyRoom")}</Btn>} />
 
-      <Card className="p-6 mb-6 bg-moneygreen-50 border-moneygreen-100">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-md bg-moneygreen-600 flex items-center justify-center">
-            <Video className="w-5 h-5 text-white" />
+      <Card className="p-5 mb-6 bg-moneygreen-50 border-moneygreen-100">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="w-11 h-11 rounded-md bg-moneygreen-600 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-5 h-5 text-white" />
           </div>
           <div>
-            <p className="font-heading font-bold text-moneygreen-800">{t("startTelehealth")}</p>
-            <p className="text-sm text-stone-500">{t("selectAppt")}</p>
+            <p className="font-heading font-bold text-moneygreen-800">{t("myDoxyRoom")}</p>
+            <p className="text-sm text-stone-500">{t("doxyHint")}</p>
           </div>
+        </div>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="flex items-center flex-1 rounded-md border border-border bg-white overflow-hidden">
+            <span className="px-3 py-2 text-sm text-stone-400 border-r border-border select-none">doxy.me/</span>
+            <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="drmarte"
+              className="flex-1 px-3 py-2 text-sm focus:outline-none" data-testid="doxy-room-input" />
+          </div>
+          <Btn onClick={saveRoom} disabled={savingRoom} data-testid="save-room-btn">
+            {savingRoom ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}{t("save")}
+          </Btn>
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {activeAppts.map((a) => (
-          <Card key={a.id} className="p-5" data-testid={`tele-appt-${a.id}`}>
-            <p className="font-heading font-bold text-moneygreen-800">{a.patient_name}</p>
-            <p className="text-sm text-stone-500 flex items-center gap-1.5 mt-1 mb-4">
-              <Calendar className="w-4 h-4" /> {a.date} {a.time && `· ${a.time}`}
-            </p>
-            <Btn onClick={() => start(`vpp-${a.id}`, a.patient_name)} data-testid={`tele-join-${a.id}`} className="w-full">
-              <Video className="w-4 h-4" />{t("startVisit")}
-            </Btn>
-          </Card>
-        ))}
-      </div>
+      {!hasRoom && (
+        <Card className="p-6 text-center text-stone-500 mb-6" data-testid="no-room-notice">
+          {t("setRoomFirst")}
+        </Card>
+      )}
+
+      {hasRoom && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {activeAppts.map((a) => (
+            <Card key={a.id} className="p-5" data-testid={`tele-appt-${a.id}`}>
+              <p className="font-heading font-bold text-moneygreen-800">{a.patient_name}</p>
+              <p className="text-sm text-stone-500 flex items-center gap-1.5 mt-1 mb-4">
+                <Calendar className="w-4 h-4" /> {a.date} {a.time && `· ${a.time}`}
+              </p>
+              <div className="flex flex-col gap-2">
+                <Btn onClick={openMyRoom} data-testid={`tele-join-${a.id}`} className="w-full">
+                  <ExternalLink className="w-4 h-4" />{t("startVisit")}
+                </Btn>
+                <Btn variant="outline" onClick={() => invite(a, false)} disabled={inviting === a.id} data-testid={`tele-copylink-${a.id}`} className="w-full">
+                  {inviting === a.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}{t("copyPatientLink")}
+                </Btn>
+              </div>
+            </Card>
+          ))}
+          {activeAppts.length === 0 && (
+            <Card className="p-6 text-center text-stone-500 col-span-full">{t("noData")}</Card>
+          )}
+        </div>
+      )}
     </div>
   );
 }

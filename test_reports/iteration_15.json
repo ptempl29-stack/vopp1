@@ -1,0 +1,25 @@
+{
+  "summary": "Iter 15: VIEW/EDIT progress notes + staff signature default + Doxy.me telehealth. Backend pytest: 177/177 (added 22 new: PUT /notes/{id} success + updated_by/updated_at persistence + list-verify, 404 missing note, empty content 400, SOAP rebuild content on edit, PUT/receptionist 403, PUT/biller 403; PUT /auth/signature save+GET /auth/me returns default_signature, login response includes default_signature + doxy_room, 800KB size guard 400, empty clears OK, no-auth 401; PUT /telehealth/my-room valid slug 200, strips doxy.me/ URL prefix, invalid slug 'bad room!!' 400, biller+receptionist 403, nurse+psych allowed, empty clears OK; POST /telehealth/doxy-invite success URL contains autocheckin=true + hashed pid (raw patient_id NOT leaked), biller+reception 403, no-room 400). Frontend Playwright (doctor + biller): note-view modal opens, view-edit-btn opens editor pre-filled, save-note-btn updates content and updated content reappears in list; SignaturePad has note-signature-upload + save-default-sig-btn (insert-saved-sig-btn shows once default set); telehealth-page renders, doxy-room-input+save-room-btn saves 'drmarte' → open-room-btn appears, 14 tele-join-* + 14 tele-copylink-* cards render for active appointments; biller sees no nav-telehealth/nav-notes sidebar items and direct /telehealth URL shows 'You don't have access to this section.' RBAC regression preserved.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iteration_15.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "backend/routers/auth.py PUT /auth/signature: error message says 'max ~600KB' but validation threshold is 800000 bytes — copy/limit inconsistency. Either raise threshold reference in the message to 800KB or drop the limit to 600000 to match notes.py which uses 600000. notes.py:29 vs auth.py:79.",
+    "backend/routers/notes.py PUT /notes/{nid}: RBAC allows only doctor/nurse/psychologist — problem statement asked for admin too ('only clinical roles (doctor/nurse/psychologist/admin) can edit'). Currently admin cannot edit notes. Consider adding 'admin' to require_roles if that is intended.",
+    "backend/routers/notes.py update_note: on SOAP edit, if the client omits content and all SOAP fields are also empty, empty content check would raise 400 — good. But updated_by is set to user['name'] (not user id) — consistent with author but if names collide across users the audit trail is weaker. Consider tracking both actor_id and actor_name for updates.",
+    "frontend/src/pages/Telehealth.js: hasRoom is derived from user context; UI clearing the room then saving should immediately hide open-room-btn and show no-room-notice. In one UI test run the notice did not re-appear immediately after clearing (may be a subtle refreshUser timing quirk). Consider setting local state so UI updates without needing refreshUser round-trip.",
+    "backend/routers/telehealth.py _pid uses HMAC-SHA256 truncated to 16 base64url chars — decent, but pid=<16-char> is a stable derived identifier. If the goal is per-visit unlinkability, include appointment_id or timestamp in the HMAC input."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (177/177)", "frontend": "100% (view/edit note modal, signature UI, doxy telehealth room + appt cards + RBAC regression all verified)"},
+  "test_credentials": "From /app/memory/test_credentials.md; all six seed roles used.",
+  "seed_data_creation": "Playwright created one 'TEST_UI Note15' note under an existing patient via doctor; not deleted (cosmetic — note list will show it). Backend pytest tests self-clean their created patients.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "177 backend tests all pass. New endpoints covered: PUT /notes/{id} (RBAC clinical, 404, 400, SOAP rebuild), PUT /auth/signature (size 800KB, empty clears, no-auth 401), PUT /telehealth/my-room (validate_room + doxy.me/ prefix strip, invalid slug 400, empty clear, RBAC clinical), POST /telehealth/doxy-invite (autocheckin + HMAC pid does NOT leak raw patient_id, no-room 400, RBAC). Login+me now include default_signature + doxy_room. Frontend testids used: view-note-<id>, edit-note-<id>, note-view, view-edit-btn, save-note-btn, note-signature-upload, save-default-sig-btn, insert-saved-sig-btn (conditional), telehealth-page, doxy-room-input, save-room-btn, open-room-btn, no-room-notice, tele-join-<id>, tele-copylink-<id>. Biller /telehealth direct navigation shows 'You don't have access to this section.' Copy-limit inconsistency in auth.py signature guard (800KB threshold vs '600KB' message) is a minor polish nit.",
+  "rca of the issue": "N/A - no unresolved issues"
+}

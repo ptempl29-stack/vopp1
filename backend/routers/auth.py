@@ -44,7 +44,9 @@ async def login(data: LoginInput, request: Request):
     token = create_access_token(user["id"], user["email"], user["role"])
     await log_audit("login_success", "auth", actor=user)
     return {"token": token, "user": {"id": user["id"], "email": user["email"],
-            "name": user["name"], "role": user["role"], "allowed_tabs": effective_tabs(user)}}
+            "name": user["name"], "role": user["role"], "allowed_tabs": effective_tabs(user),
+            "default_signature": user.get("default_signature", ""),
+            "doxy_room": user.get("doxy_room", "")}}
 
 
 @router.post("/auth/register")
@@ -69,6 +71,15 @@ async def register(data: RegisterInput, current: dict = Depends(require_roles("a
 async def me(user: dict = Depends(get_current_user)):
     user["allowed_tabs"] = effective_tabs(user)
     return user
+
+
+@router.put("/auth/signature")
+async def update_signature(payload: dict, user: dict = Depends(get_current_user)):
+    sig = (payload or {}).get("signature", "")
+    if sig and len(sig) > 800000:
+        raise HTTPException(status_code=400, detail="Signature image too large (max ~600KB)")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"default_signature": sig}})
+    return {"ok": True, "default_signature": sig}
 
 
 @router.get("/users")

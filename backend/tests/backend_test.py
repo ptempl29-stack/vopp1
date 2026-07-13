@@ -1653,3 +1653,234 @@ def test_daily_note_client_supplied_title_persists():
     assert d["title"].startswith("Daily Progress Note")
     requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
 
+
+# ============================================================
+# Iteration 15: Edit Note, Staff Signature Default, Doxy.me
+# ============================================================
+
+def _make_patient():
+    p = requests.post(f"{API}/patients",
+                      json={"first_name": "TEST_I15", "last_name": "Pat"},
+                      headers=h("receptionist"), timeout=30).json()
+    return p["id"]
+
+
+def _make_note(pid, role="doctor"):
+    r = requests.post(f"{API}/notes",
+                      json={"patient_id": pid, "title": "Original", "content": "orig content"},
+                      headers=h(role), timeout=30)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+# ----- Edit note -----
+def test_edit_note_updates_content_and_updated_by():
+    pid = _make_patient()
+    note = _make_note(pid)
+    nid = note["id"]
+    r = requests.put(f"{API}/notes/{nid}",
+                     json={"patient_id": pid, "title": "Updated", "content": "new content"},
+                     headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["content"] == "new content"
+    assert d["title"] == "Updated"
+    assert d.get("updated_by")
+    assert d.get("updated_at")
+    # GET verify persistence
+    got = requests.get(f"{API}/notes?patient_id={pid}", headers=h("doctor"), timeout=30).json()
+    found = [n for n in got if n["id"] == nid][0]
+    assert found["content"] == "new content"
+    requests.delete(f"{API}/patients/{pid}", headers=h("receptionist"), timeout=30)
+
+
+def test_edit_note_forbidden_biller():
+    pid = _make_patient()
+    note = _make_note(pid)
+    r = requests.put(f"{API}/notes/{note['id']}",
+                     json={"patient_id": pid, "title": "x", "content": "y"},
+                     headers=h("biller"), timeout=30)
+    assert r.status_code == 403
+    requests.delete(f"{API}/patients/{pid}", headers=h("receptionist"), timeout=30)
+
+
+def test_edit_note_forbidden_receptionist():
+    pid = _make_patient()
+    note = _make_note(pid)
+    r = requests.put(f"{API}/notes/{note['id']}",
+                     json={"patient_id": pid, "title": "x", "content": "y"},
+                     headers=h("receptionist"), timeout=30)
+    assert r.status_code == 403
+    requests.delete(f"{API}/patients/{pid}", headers=h("receptionist"), timeout=30)
+
+
+def test_edit_note_404_missing():
+    r = requests.put(f"{API}/notes/nonexistent-id-xyz",
+                     json={"patient_id": "pp", "title": "x", "content": "y"},
+                     headers=h("doctor"), timeout=30)
+    assert r.status_code == 404
+
+
+def test_edit_note_empty_content_400():
+    pid = _make_patient()
+    note = _make_note(pid)
+    r = requests.put(f"{API}/notes/{note['id']}",
+                     json={"patient_id": pid, "title": "x", "content": ""},
+                     headers=h("doctor"), timeout=30)
+    assert r.status_code == 400
+    requests.delete(f"{API}/patients/{pid}", headers=h("receptionist"), timeout=30)
+
+
+def test_edit_soap_note_rebuilds_content():
+    pid = _make_patient()
+    r = requests.post(f"{API}/notes",
+                      json={"patient_id": pid, "title": "SOAP", "note_type": "soap",
+                            "subjective": "S1", "objective": "O1",
+                            "assessment": "A1", "plan": "P1"},
+                      headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    nid = r.json()["id"]
+    r2 = requests.put(f"{API}/notes/{nid}",
+                      json={"patient_id": pid, "title": "SOAP", "note_type": "soap",
+                            "subjective": "S2", "objective": "O2",
+                            "assessment": "A2", "plan": "P2"},
+                      headers=h("doctor"), timeout=30)
+    assert r2.status_code == 200, r2.text
+    d = r2.json()
+    assert "S: S2" in d["content"] and "P: P2" in d["content"]
+    requests.delete(f"{API}/patients/{pid}", headers=h("receptionist"), timeout=30)
+
+
+# ----- Staff default signature -----
+SMALL_SIG = "data:image/png;base64," + ("A" * 200)
+
+
+def test_signature_put_and_me_returns_default():
+    r = requests.put(f"{API}/auth/signature",
+                     json={"signature": SMALL_SIG},
+                     headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    assert r.json()["default_signature"] == SMALL_SIG
+    me = requests.get(f"{API}/auth/me", headers=h("doctor"), timeout=30).json()
+    assert me.get("default_signature") == SMALL_SIG
+
+
+def test_login_response_includes_default_signature_and_doxy():
+    # login fresh (do not use cache)
+    r = requests.post(f"{API}/auth/login",
+                      json={"email": "doctor@vpp.com", "password": "doctor123"}, timeout=30)
+    assert r.status_code == 200
+    u = r.json()["user"]
+    assert "default_signature" in u
+    assert "doxy_room" in u
+
+
+def test_signature_too_large_400():
+    huge = "data:image/png;base64," + ("A" * 900000)
+    r = requests.put(f"{API}/auth/signature",
+                     json={"signature": huge},
+                     headers=h("nurse"), timeout=30)
+    assert r.status_code == 400
+
+
+def test_signature_clear_empty_ok():
+    r = requests.put(f"{API}/auth/signature", json={"signature": ""},
+                     headers=h("psychologist"), timeout=30)
+    assert r.status_code == 200
+    assert r.json()["default_signature"] == ""
+
+
+def test_signature_no_auth_401():
+    r = requests.put(f"{API}/auth/signature", json={"signature": "x"}, timeout=30)
+    assert r.status_code == 401
+
+
+# ----- Doxy.me telehealth -----
+def test_my_room_valid_slug_saves():
+    r = requests.put(f"{API}/telehealth/my-room",
+                     json={"room": "drmarte"}, headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    assert r.json()["doxy_room"] == "drmarte"
+    me = requests.get(f"{API}/auth/me", headers=h("doctor"), timeout=30).json()
+    assert me["doxy_room"] == "drmarte"
+
+
+def test_my_room_strips_doxy_url_prefix():
+    r = requests.put(f"{API}/telehealth/my-room",
+                     json={"room": "doxy.me/drmarte"}, headers=h("doctor"), timeout=30)
+    assert r.status_code == 200
+    assert r.json()["doxy_room"] == "drmarte"
+
+
+def test_my_room_invalid_slug_400():
+    r = requests.put(f"{API}/telehealth/my-room",
+                     json={"room": "bad room!!"}, headers=h("doctor"), timeout=30)
+    assert r.status_code == 400
+
+
+def test_my_room_forbidden_biller():
+    r = requests.put(f"{API}/telehealth/my-room",
+                     json={"room": "someroom"}, headers=h("biller"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_my_room_forbidden_receptionist():
+    r = requests.put(f"{API}/telehealth/my-room",
+                     json={"room": "someroom"}, headers=h("receptionist"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_my_room_allowed_nurse_psych():
+    for role in ("nurse", "psychologist"):
+        r = requests.put(f"{API}/telehealth/my-room",
+                         json={"room": f"room{role}"}, headers=h(role), timeout=30)
+        assert r.status_code == 200, f"{role}: {r.text}"
+
+
+def test_doxy_invite_success_hashes_pid():
+    # Ensure doctor has a room set
+    requests.put(f"{API}/telehealth/my-room", json={"room": "drmarte"},
+                 headers=h("doctor"), timeout=30)
+    raw_pid = "patient-plaintext-xyz-123"
+    r = requests.post(f"{API}/telehealth/doxy-invite",
+                      json={"patient_name": "John Doe", "patient_id": raw_pid},
+                      headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    url = r.json()["join_url"]
+    assert "https://doxy.me/drmarte" in url
+    assert "autocheckin=true" in url
+    assert "username=" in url
+    assert "pid=" in url
+    # raw patient id must NOT be in URL
+    assert raw_pid not in url
+
+
+def test_doxy_invite_forbidden_biller():
+    r = requests.post(f"{API}/telehealth/doxy-invite",
+                      json={"patient_name": "X"}, headers=h("biller"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_doxy_invite_forbidden_receptionist():
+    r = requests.post(f"{API}/telehealth/doxy-invite",
+                      json={"patient_name": "X"}, headers=h("receptionist"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_doxy_invite_no_room_400():
+    # clear nurse's room first
+    requests.put(f"{API}/telehealth/my-room", json={"room": ""},
+                 headers=h("nurse"), timeout=30)
+    r = requests.post(f"{API}/telehealth/doxy-invite",
+                     json={"patient_name": "X"}, headers=h("nurse"), timeout=30)
+    assert r.status_code == 400
+
+
+def test_my_room_empty_clears():
+    # nurse: set then clear
+    requests.put(f"{API}/telehealth/my-room", json={"room": "tmproom"},
+                 headers=h("nurse"), timeout=30)
+    r = requests.put(f"{API}/telehealth/my-room", json={"room": ""},
+                    headers=h("nurse"), timeout=30)
+    assert r.status_code == 200
+    assert r.json()["doxy_room"] == ""

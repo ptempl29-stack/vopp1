@@ -7,7 +7,7 @@ import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Stethoscope, Eye, Pencil } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Stethoscope, Eye, Pencil, Stamp, Save } from "lucide-react";
 import { toast } from "sonner";
 
 const reasons = ["General Consultation", "Physical Therapy", "Therapeutic Massage", "Relaxing Massage", "Evaluation", "Follow-up", "Re-evaluation", "Psychotherapy", "Group Therapy"];
@@ -22,7 +22,7 @@ const soapText = (f) => [["S", f.subjective], ["O", f.objective], ["A", f.assess
 
 export default function Notes() {
   const { t } = useLang();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const allowed = can(user?.role, "notes");
   const [notes, setNotes] = useState([]);
   const [patients, setPatients] = useState([]);
@@ -33,6 +33,8 @@ export default function Notes() {
   const [editId, setEditId] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [summarizing, setSummarizing] = useState(false);
+  const [sigKey, setSigKey] = useState(0);
+  const [savingSig, setSavingSig] = useState(false);
 
   const load = () => api.get("/notes").then((r) => setNotes(r.data)).catch(() => {});
   useEffect(() => {
@@ -79,8 +81,17 @@ export default function Notes() {
     } catch (err) { toast.error(apiErr(err)); }
   };
 
-  const openNew = () => { setForm(blank); setEditId(null); setOpen(true); };
-  const openEdit = (n) => { setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setOpen(true); };
+  const openNew = () => { setForm({ ...blank, signature: user?.default_signature || "" }); setEditId(null); setSigKey((k) => k + 1); setOpen(true); };
+  const openEdit = (n) => { setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setSigKey((k) => k + 1); setOpen(true); };
+
+  const insertSavedSig = () => { setForm((f) => ({ ...f, signature: user.default_signature })); setSigKey((k) => k + 1); };
+  const saveDefaultSig = async () => {
+    if (!form.signature) { toast.error(t("providerSignature")); return; }
+    setSavingSig(true);
+    try { await api.put("/auth/signature", { signature: form.signature }); await refreshUser(); toast.success(t("signatureSaved")); }
+    catch (err) { toast.error(apiErr(err)); }
+    finally { setSavingSig(false); }
+  };
 
   const patientName = (id) => {
     const p = patients.find((x) => x.id === id);
@@ -283,10 +294,23 @@ export default function Notes() {
           </div>
 
           <div className="p-4 rounded-md bg-tan-50 border border-tan-200">
-            <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5 mb-2">
-              <PenLine className="w-3.5 h-3.5" /> {t("providerSignature")}
-            </p>
-            <SignaturePad value={form.signature} onChange={(v) => setForm((f) => ({ ...f, signature: v }))} testid="note-signature" />
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5">
+                <PenLine className="w-3.5 h-3.5" /> {t("providerSignature")}
+              </p>
+              <div className="flex items-center gap-2">
+                {user?.default_signature && (
+                  <Btn type="button" variant="outline" onClick={insertSavedSig} data-testid="insert-saved-sig-btn">
+                    <Stamp className="w-4 h-4" />{t("insertMySignature")}
+                  </Btn>
+                )}
+                <Btn type="button" variant="outline" onClick={saveDefaultSig} disabled={savingSig || !form.signature} data-testid="save-default-sig-btn">
+                  {savingSig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}{t("saveAsMyDefault")}
+                </Btn>
+              </div>
+            </div>
+            <SignaturePad key={sigKey} value={form.signature} allowUpload
+              onChange={(v) => setForm((f) => ({ ...f, signature: v }))} testid="note-signature" />
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

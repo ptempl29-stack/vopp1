@@ -1,11 +1,24 @@
 import React, { useRef, useEffect, useState } from "react";
-import { Eraser } from "lucide-react";
+import { Eraser, Upload } from "lucide-react";
+import { toast } from "sonner";
 
-export const SignaturePad = ({ value, onChange, testid, height = 160 }) => {
+export const SignaturePad = ({ value, onChange, testid, height = 160, allowUpload = false }) => {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const last = useRef([0, 0]);
   const [empty, setEmpty] = useState(!value);
+
+  const draw = (src) => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+    img.src = src;
+    setEmpty(false);
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -13,12 +26,7 @@ export const SignaturePad = ({ value, onChange, testid, height = 160 }) => {
     ctx.lineWidth = 2.2;
     ctx.lineCap = "round";
     ctx.strokeStyle = "#18301F";
-    if (value) {
-      const img = new Image();
-      img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      img.src = value;
-      setEmpty(false);
-    }
+    if (value) draw(value);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const point = (e) => {
@@ -57,6 +65,17 @@ export const SignaturePad = ({ value, onChange, testid, height = 160 }) => {
     onChange?.("");
   };
 
+  const onUpload = (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { toast.error("Please upload an image file"); return; }
+    if (file.size > 600 * 1024) { toast.error("Signature image too large (max ~600KB)"); return; }
+    const reader = new FileReader();
+    reader.onload = () => { draw(reader.result); onChange?.(reader.result); };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div>
       <div className="relative rounded-md border-2 border-dashed border-tan-300 bg-tan-50 overflow-hidden">
@@ -76,10 +95,20 @@ export const SignaturePad = ({ value, onChange, testid, height = 160 }) => {
           </span>
         )}
       </div>
-      <button type="button" onClick={clear} data-testid={testid ? `${testid}-clear` : "sig-clear"}
-        className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-stone-500 hover:text-moneygreen-700 transition-colors duration-200">
-        <Eraser className="w-3.5 h-3.5" /> Clear
-      </button>
+      <div className="mt-2 flex items-center gap-4">
+        <button type="button" onClick={clear} data-testid={testid ? `${testid}-clear` : "sig-clear"}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-500 hover:text-moneygreen-700 transition-colors duration-200">
+          <Eraser className="w-3.5 h-3.5" /> Clear
+        </button>
+        {allowUpload && (
+          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-500 hover:text-moneygreen-700 transition-colors duration-200 cursor-pointer"
+            data-testid={testid ? `${testid}-upload-label` : "sig-upload-label"}>
+            <Upload className="w-3.5 h-3.5" /> Upload image
+            <input type="file" accept="image/*" className="hidden" onChange={onUpload}
+              data-testid={testid ? `${testid}-upload` : "sig-upload"} />
+          </label>
+        )}
+      </div>
     </div>
   );
 };
