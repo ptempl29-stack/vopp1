@@ -11,8 +11,60 @@ from core.config import APP_NAME, EXT_CONTENT_TYPES
 from core.security import require_roles
 from core.audit import log_audit
 from core.storage import put_object, get_object
+from routers.settings import get_settings_doc
 
 router = APIRouter()
+
+
+def _s(x):
+    return str(x if x is not None else "").encode("latin-1", "replace").decode("latin-1")
+
+
+def _invoice_pdf(inv: dict, clinic: str) -> bytes:
+    from fpdf import FPDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 12, _s(clinic)[:60], ln=True)
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(0, 9, _s(f"Invoice {inv.get('invoice_number', '')}"), ln=True)
+    pdf.ln(2)
+    pdf.set_font("Helvetica", size=11)
+
+    def row(label, val):
+        if val:
+            pdf.cell(45, 7, label, border=0)
+            pdf.cell(0, 7, _s(val), ln=True)
+
+    row("Patient:", inv.get("patient_name"))
+    row("DOB:", inv.get("dob"))
+    row("Service Date:", inv.get("service_date"))
+    row("Provider:", inv.get("provider"))
+    row("Visit Reason:", inv.get("visit_reason"))
+    row("ICD-10:", inv.get("icd10"))
+    row("Status:", inv.get("status"))
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(28, 8, "CPT", border=1)
+    pdf.cell(90, 8, "Description", border=1)
+    pdf.cell(20, 8, "Qty", border=1, align="R")
+    pdf.cell(0, 8, "Amount", border=1, ln=True, align="R")
+    pdf.set_font("Helvetica", size=10)
+    for it in inv.get("items", []):
+        qty = it.get("quantity", 1)
+        pdf.cell(28, 8, _s(it.get("cpt_code", ""))[:12], border=1)
+        pdf.cell(90, 8, _s(it.get("description", ""))[:55], border=1)
+        pdf.cell(20, 8, _s(qty), border=1, align="R")
+        pdf.cell(0, 8, f"${it.get('amount', 0) * qty:.2f}", border=1, ln=True, align="R")
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(138, 9, "Total", border=1)
+    pdf.cell(0, 9, f"${inv.get('total', 0):.2f}", border=1, ln=True, align="R")
+    if inv.get("notes"):
+        pdf.ln(3)
+        pdf.set_font("Helvetica", size=10)
+        pdf.multi_cell(0, 6, _s(f"Notes: {inv['notes']}"))
+    out = pdf.output(dest="S")
+    return bytes(out) if isinstance(out, (bytes, bytearray)) else out.encode("latin-1")
 
 CLAIM_STATUSES = {"draft", "submitted"}
 UPLOAD_EXTS = {"pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "txt", "xls", "xlsx"}
@@ -125,6 +177,58 @@ async def upload_to_claim(cid: str, file: UploadFile = File(...), user: dict = D
             "size": result.get("size")}
     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"upload {file.filename}")
+    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+
+
+@router.get("/claims/options/forms")
+async def attachable_forms(user: dict = Depends(require_roles("admin"))):
+    forms = await db.forms.find({"attachment": {"$ne": None}}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    patients = {p["id"]: f"{p['first_name']} {p['last_name']}" async for p in db.patients.find({}, {"_id": 0})}
+    return [{"id": f["id"], "title": f.get("title"), "form_type": f.get("form_type"),
+             "filename": f["attachment"].get("filename"),
+             "patient_name": patients.get(f.get("patient_id"), "-")} for f in forms]
+
+
+@router.get("/claims/options/invoices")
+async def attachable_invoices(user: dict = Depends(require_roles("admin"))):
+    invoices = await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return [{"id": i["id"], "invoice_number": i.get("invoice_number"),
+             "patient_name": i.get("patient_name") or "-", "total": i.get("total", 0),
+             "status": i.get("status"), "service_date": i.get("service_date")} for i in invoices]
+
+
+@router.get("/claims/options/patients")
+async def attachable_patients(user: dict = Depends(require_roles("admin"))):
+    pts = await db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).to_list(1000)
+    return [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}"} for p in pts]
+
+
+@router.post("/claims/{cid}/attach-invoice")
+async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
+    c = await db.claim_packets.find_one({"id": cid})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    inv = await db.invoices.find_one({"id": payload.get("invoice_id")}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    try:
+        pdf_bytes = _invoice_pdf(inv, clinic)
+    except Exception as e:
+        logger.error(f"invoice pdf failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not render invoice PDF")
+    fname = f"Invoice_{inv.get('invoice_number', inv['id'][:8])}.pdf"
+    path = f"{APP_NAME}/claims/{cid}/{uuid.uuid4()}.pdf"
+    try:
+        result = put_object(path, pdf_bytes, "application/pdf")
+    except Exception as e:
+        logger.error(f"invoice storage failed: {e}")
+        raise HTTPException(status_code=502, detail="File storage failed")
+    item = {"id": str(uuid.uuid4()), "source": "invoice", "form_id": None, "invoice_id": inv["id"],
+            "storage_path": result["path"], "filename": fname, "content_type": "application/pdf",
+            "size": result.get("size")}
+    await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+    await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach invoice {inv.get('invoice_number')}")
     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
 
 

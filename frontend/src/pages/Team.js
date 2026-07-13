@@ -8,7 +8,7 @@ import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature } from "lucide-rea
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
-  "invoices", "cpt", "reports", "forms", "messages", "team"];
+  "invoices", "cpt", "reports", "forms", "messages", "team", "audit", "claims"];
 
 const roleColors = {
   doctor: "green", nurse: "green", psychologist: "green",

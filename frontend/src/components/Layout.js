@@ -5,7 +5,7 @@ import { useLang } from "../context/LanguageContext";
 import {
   LayoutDashboard, Users, CalendarDays, FileText, ReceiptText,
   ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages, Hash,
-  BarChart3, UserCog, ShieldCheck,
+  BarChart3, UserCog, ShieldCheck, FolderArchive,
 } from "lucide-react";
 
 const nav = [
@@ -18,6 +18,7 @@ const nav = [
   { to: "/cpt-codes", tab: "cpt", key: "cptCodes", icon: Hash },
   { to: "/reports", tab: "reports", key: "reports", icon: BarChart3 },
   { to: "/forms", tab: "forms", key: "forms", icon: ClipboardList },
+  { to: "/claims", tab: "claims", key: "claims", icon: FolderArchive },
   { to: "/messages", tab: "messages", key: "messages", icon: MessageSquare },
   { to: "/team", tab: "team", key: "team", icon: UserCog },
   { to: "/audit", tab: "audit", key: "auditLog", icon: ShieldCheck },

@@ -531,7 +531,7 @@ def test_meta_tabs_admin_only():
     r = requests.get(f"{API}/meta/tabs", headers=h("admin"), timeout=30)
     assert r.status_code == 200
     d = r.json()
-    assert len(d["tabs"]) == 12 and len(d["roles"]) == 6
+    assert len(d["tabs"]) == 13 and len(d["roles"]) == 6
     r2 = requests.get(f"{API}/meta/tabs", headers=h("doctor"), timeout=30)
     assert r2.status_code == 403
 
@@ -2140,3 +2140,247 @@ def test_public_upload_back_bad_token_404():
     files = {"file": ("x.pdf", b"%PDF-1.4\n", "application/pdf")}
     r = requests.post(f"{API}/public/forms/nonexistent-token/upload", files=files, timeout=30)
     assert r.status_code == 404
+
+
+# ================= NEW: Claim Packets (Iteration 18) =================
+_claim_state = {}
+
+
+def test_claims_list_requires_admin_403_doctor():
+    r = requests.get(f"{API}/claims", headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_claims_list_requires_admin_403_biller():
+    r = requests.get(f"{API}/claims", headers=h("biller"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_claims_no_auth_401():
+    r = requests.get(f"{API}/claims", timeout=30)
+    assert r.status_code == 401
+
+
+def test_claims_list_admin_ok():
+    r = requests.get(f"{API}/claims", headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+def test_claim_create_admin():
+    payload = {"name": "TEST_Packet_A", "claim_number": "CN-TEST-001", "status": "draft",
+               "notes": "created by pytest"}
+    r = requests.post(f"{API}/claims", json=payload, headers=h("admin"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["name"] == "TEST_Packet_A"
+    assert d["claim_number"] == "CN-TEST-001"
+    assert d["status"] == "draft"
+    assert d["items"] == []
+    assert "id" in d
+    assert d.get("created_by")
+    _claim_state["id"] = d["id"]
+    # verify persistence
+    g = requests.get(f"{API}/claims/{d['id']}", headers=h("admin"), timeout=30)
+    assert g.status_code == 200
+    assert g.json()["name"] == "TEST_Packet_A"
+
+
+def test_claim_create_forbidden_doctor():
+    r = requests.post(f"{API}/claims",
+                     json={"name": "hack", "status": "draft"},
+                     headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_claim_create_invalid_status_400():
+    r = requests.post(f"{API}/claims",
+                     json={"name": "TEST_bad", "status": "garbage"},
+                     headers=h("admin"), timeout=30)
+    assert r.status_code == 400
+
+
+def test_claim_update_admin():
+    cid = _claim_state["id"]
+    r = requests.put(f"{API}/claims/{cid}",
+                     json={"name": "TEST_Packet_A_updated", "status": "submitted",
+                           "claim_number": "CN-TEST-001", "notes": "updated"},
+                     headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["name"] == "TEST_Packet_A_updated"
+    assert d["status"] == "submitted"
+    # verify GET
+    g = requests.get(f"{API}/claims/{cid}", headers=h("admin"), timeout=30).json()
+    assert g["name"] == "TEST_Packet_A_updated"
+    assert g["status"] == "submitted"
+
+
+def test_claim_options_forms_admin():
+    r = requests.get(f"{API}/claims/options/forms", headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+def test_claim_options_invoices_admin():
+    r = requests.get(f"{API}/claims/options/invoices", headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    lst = r.json()
+    assert isinstance(lst, list)
+    _claim_state["invoices"] = lst
+
+
+def test_claim_options_patients_admin():
+    r = requests.get(f"{API}/claims/options/patients", headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+def test_claim_options_forbidden_doctor():
+    r = requests.get(f"{API}/claims/options/invoices", headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_claim_attach_invoice():
+    cid = _claim_state["id"]
+    invs = _claim_state.get("invoices") or []
+    if not invs:
+        pytest.skip("No invoices seeded")
+    inv_id = invs[0]["id"]
+    r = requests.post(f"{API}/claims/{cid}/attach-invoice",
+                      json={"invoice_id": inv_id}, headers=h("admin"), timeout=60)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    items = d["items"]
+    assert len(items) >= 1
+    inv_item = [i for i in items if i["source"] == "invoice"][0]
+    assert inv_item["content_type"] == "application/pdf"
+    assert inv_item["filename"].endswith(".pdf")
+    _claim_state["inv_item_id"] = inv_item["id"]
+
+
+def test_claim_upload_pdf():
+    cid = _claim_state["id"]
+    pdf = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+    files = {"file": ("TEST_extra.pdf", pdf, "application/pdf")}
+    r = requests.post(f"{API}/claims/{cid}/upload", files=files,
+                     headers={"Authorization": f"Bearer {login('admin')}"}, timeout=60)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    ups = [i for i in d["items"] if i["source"] == "upload"]
+    assert len(ups) >= 1
+    _claim_state["upload_item_id"] = ups[-1]["id"]
+
+
+def test_claim_upload_bad_ext_400():
+    cid = _claim_state["id"]
+    files = {"file": ("bad.exe", b"MZ..", "application/octet-stream")}
+    r = requests.post(f"{API}/claims/{cid}/upload", files=files,
+                     headers={"Authorization": f"Bearer {login('admin')}"}, timeout=30)
+    assert r.status_code == 400
+
+
+def test_claim_upload_forbidden_doctor():
+    cid = _claim_state["id"]
+    files = {"file": ("x.pdf", b"%PDF-1.4\n", "application/pdf")}
+    r = requests.post(f"{API}/claims/{cid}/upload", files=files,
+                     headers={"Authorization": f"Bearer {login('doctor')}"}, timeout=30)
+    assert r.status_code == 403
+
+
+def test_claim_attach_form_no_attachment_400():
+    """If a form_id has no attachment (or unknown), expect 400."""
+    cid = _claim_state["id"]
+    r = requests.post(f"{API}/claims/{cid}/attach-form",
+                     json={"form_id": "nonexistent-form-id"},
+                     headers=h("admin"), timeout=30)
+    assert r.status_code == 400
+
+
+def test_claim_item_download():
+    cid = _claim_state["id"]
+    item_id = _claim_state.get("inv_item_id") or _claim_state.get("upload_item_id")
+    assert item_id, "no item to download"
+    r = requests.get(f"{API}/claims/{cid}/items/{item_id}/download",
+                    headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    assert r.headers.get("content-type", "").lower().startswith("application/octet-stream")
+    assert "attachment" in r.headers.get("content-disposition", "").lower()
+    assert r.headers.get("x-content-type-options", "").lower() == "nosniff"
+    assert len(r.content) > 0
+
+
+def test_claim_item_download_forbidden_doctor():
+    cid = _claim_state["id"]
+    item_id = _claim_state.get("inv_item_id") or _claim_state.get("upload_item_id")
+    r = requests.get(f"{API}/claims/{cid}/items/{item_id}/download",
+                    headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_claim_merged_pdf():
+    cid = _claim_state["id"]
+    r = requests.get(f"{API}/claims/{cid}/merged", headers=h("admin"), timeout=60)
+    assert r.status_code == 200, r.text
+    assert r.headers.get("content-type", "").lower().startswith("application/pdf")
+    assert r.content[:4] == b"%PDF"
+
+
+def test_claim_remove_item():
+    cid = _claim_state["id"]
+    item_id = _claim_state.get("upload_item_id")
+    if not item_id:
+        pytest.skip("no upload item")
+    r = requests.delete(f"{API}/claims/{cid}/items/{item_id}",
+                       headers=h("admin"), timeout=30)
+    assert r.status_code == 200
+    remaining = [i for i in r.json()["items"] if i["id"] == item_id]
+    assert not remaining
+
+
+def test_claim_merged_no_items_400():
+    """Create a fresh empty packet, expect 400 on merged."""
+    r = requests.post(f"{API}/claims",
+                     json={"name": "TEST_Empty", "status": "draft"},
+                     headers=h("admin"), timeout=30).json()
+    cid = r["id"]
+    m = requests.get(f"{API}/claims/{cid}/merged", headers=h("admin"), timeout=30)
+    assert m.status_code == 400
+    requests.delete(f"{API}/claims/{cid}", headers=h("admin"), timeout=30)
+
+
+def test_claim_merged_forbidden_doctor():
+    cid = _claim_state["id"]
+    r = requests.get(f"{API}/claims/{cid}/merged", headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
+
+
+def test_claim_get_404():
+    r = requests.get(f"{API}/claims/nonexistent-id-xyz", headers=h("admin"), timeout=30)
+    assert r.status_code == 404
+
+
+def test_claim_doctor_tabs_no_claims():
+    """doctor role should NOT have 'claims' in allowed_tabs."""
+    login("doctor")
+    assert "claims" not in users["doctor"]["allowed_tabs"]
+
+
+def test_claim_admin_tabs_has_claims():
+    login("admin")
+    assert "claims" in users["admin"]["allowed_tabs"]
+
+
+def test_zz_claim_delete():
+    cid = _claim_state.get("id")
+    if cid:
+        r = requests.delete(f"{API}/claims/{cid}", headers=h("admin"), timeout=30)
+        assert r.status_code == 200
+        g = requests.get(f"{API}/claims/{cid}", headers=h("admin"), timeout=30)
+        assert g.status_code == 404
+
+
+def test_zz_claim_delete_forbidden_doctor():
+    """Sanity: doctor cannot delete."""
+    r = requests.delete(f"{API}/claims/fake-id", headers=h("doctor"), timeout=30)
+    assert r.status_code == 403
