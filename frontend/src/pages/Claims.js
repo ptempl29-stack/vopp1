@@ -68,6 +68,7 @@ export default function Claims() {
   };
 
   const remove = async (id) => {
+    if (!window.confirm(t("confirmDeletePacket"))) return;
     try { await api.delete(`/claims/${id}`); toast.success(t("delete") + " ✓"); load(); }
     catch (e) { toast.error(apiErr(e)); }
   };

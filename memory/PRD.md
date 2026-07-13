@@ -161,7 +161,20 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - AI summarization returns clean 500 until the Emergent LLM Universal Key balance is topped up ($0 currently).
 - No payment gateway (deferred by user choice).
 
+## Iteration 21 (2026-06) — Claim Packets (Admin-only)
+- **Claim Packets** module (`/api/claims`, admin-only) to bundle documents for VA billing. Router `routers/claims.py` registered in `server.py`; tab `claims` in `ALL_TABS` (admin default), page `/app/frontend/src/pages/Claims.js`, nav in `Layout.js`, bilingual i18n keys.
+- Packet fields: name, patient (optional), claim number, status (draft/submitted), notes. Full CRUD.
+- **Attach existing forms** (`POST /claims/{cid}/attach-form`, references form's stored attachment), **attach invoices** (`POST /claims/{cid}/attach-invoice` → renders a styled invoice PDF via fpdf2 and stores as item), **upload new docs** (`POST /claims/{cid}/upload`, exts pdf/img/doc/docx/txt/xls/xlsx, 15MB). Remove items, individual download (octet-stream + nosniff), and **merged PDF** (`GET /claims/{cid}/merged`, combines PDF + image items only; Word/Excel downloadable individually).
+- Admin-only option lists: `GET /claims/options/forms|invoices|patients`.
+- Storage cleanup: deleting a packet or removing an upload/invoice item now calls `storage.delete_object()` (best-effort) to avoid orphaned blobs; form-sourced items are NOT deleted (shared with the form). UI confirms before packet delete.
+- Tested: 238/238 backend pytest + 100% frontend (CRUD, attach-invoice→PDF, upload, merged PDF, item download/remove, RBAC hide for non-admin). No critical issues.
+- Known limitation: invoice-PDF text uses latin-1 fallback (`_s`) — non-Latin chars (accents/ñ) replaced with `?`; acceptable for now, revisit with a Unicode TTF font.
+
 ## Backlog / Next
-- P0: Top up Universal Key to enable AI summaries.
-- P1: Payment gateway (Stripe) for invoices; patient detail page with note/appointment history.
-- P2: Appointment calendar view; form field builder + patient-facing form fill; audit log; charts on dashboard.
+- P1: "Create Invoice from Note" (convert a documented session into a billable claim).
+- P1: Send forms via SMS (Twilio — needs user API key).
+- P2: Stripe payment gateway for invoices.
+- P2: Unicode font for invoice/claim PDFs (accents/ñ support).
+- P3: Real in-browser .docx/.xlsx editing (OnlyOffice/Collabora) — deferred, container constraints.
+
+## Prior Backlog / Next (superseded)

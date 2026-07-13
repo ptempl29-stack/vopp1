@@ -10,7 +10,7 @@ from core.db import db, now_iso, logger
 from core.config import APP_NAME, EXT_CONTENT_TYPES
 from core.security import require_roles
 from core.audit import log_audit
-from core.storage import put_object, get_object
+from core.storage import put_object, get_object, delete_object
 from routers.settings import get_settings_doc
 
 router = APIRouter()
@@ -132,6 +132,11 @@ async def update_claim(cid: str, data: ClaimInput, user: dict = Depends(require_
 
 @router.delete("/claims/{cid}")
 async def delete_claim(cid: str, user: dict = Depends(require_roles("admin"))):
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if c:
+        for it in c.get("items", []):
+            if it.get("source") in ("upload", "invoice") and it.get("storage_path"):
+                delete_object(it["storage_path"])
     await db.claim_packets.delete_one({"id": cid})
     await log_audit("delete", "claim", actor=user, resource_id=cid)
     return {"ok": True}
@@ -234,6 +239,11 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
 
 @router.delete("/claims/{cid}/items/{item_id}")
 async def remove_item(cid: str, item_id: str, user: dict = Depends(require_roles("admin"))):
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if c:
+        it = next((i for i in c.get("items", []) if i["id"] == item_id), None)
+        if it and it.get("source") in ("upload", "invoice") and it.get("storage_path"):
+            delete_object(it["storage_path"])
     await db.claim_packets.update_one({"id": cid}, {"$pull": {"items": {"id": item_id}}, "$set": {"updated_at": now_iso()}})
     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
 

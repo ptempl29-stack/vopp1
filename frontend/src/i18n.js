@@ -89,6 +89,7 @@ export const translations = {
     selectForm: "Select a form…", selectInvoice: "Select an invoice…", addToPacket: "Add to Packet",
     removeFromPacket: "Remove", backToPackets: "Back to Packets", packetSaved: "Packet saved ✓",
     mergeHint: "Only PDF & image documents are combined into the merged PDF.", filename: "File", createdBy: "Created by",
+    confirmDeletePacket: "Delete this claim packet and its uploaded documents? This cannot be undone.",
   },
   es: {
     appName: "Veteranos de Puerto Plata",
@@ -180,5 +181,6 @@ export const translations = {
     selectForm: "Seleccione un formulario…", selectInvoice: "Seleccione una factura…", addToPacket: "Agregar al Paquete",
     removeFromPacket: "Quitar", backToPackets: "Volver a Paquetes", packetSaved: "Paquete guardado ✓",
     mergeHint: "Solo se combinan documentos PDF e imágenes en el PDF combinado.", filename: "Archivo", createdBy: "Creado por",
+    confirmDeletePacket: "¿Eliminar este paquete de reclamación y sus documentos subidos? Esta acción no se puede deshacer.",
   },
 };
