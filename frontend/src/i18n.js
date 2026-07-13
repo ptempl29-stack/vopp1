@@ -90,6 +90,11 @@ export const translations = {
     removeFromPacket: "Remove", backToPackets: "Back to Packets", packetSaved: "Packet saved ✓",
     mergeHint: "Only PDF & image documents are combined into the merged PDF.", filename: "File", createdBy: "Created by",
     confirmDeletePacket: "Delete this claim packet and its uploaded documents? This cannot be undone.",
+    sendSms: "Send via SMS", smsSent: "SMS sent to patient ✓", smsFailed: "Could not send SMS.",
+    smsNotConfigured: "SMS is not configured yet. Add Twilio credentials to enable text sending.",
+    createFromNote: "Create from Note", selectNoteHint: "Select a patient, then choose a documented session to pre-fill this invoice.",
+    noNotesForPatient: "No progress notes found for this patient.", useThisNote: "Use this note",
+    prefilledFromNote: "Invoice pre-filled from note ✓", session: "Session",
   },
   es: {
     appName: "Veteranos de Puerto Plata",
@@ -182,5 +187,10 @@ export const translations = {
     removeFromPacket: "Quitar", backToPackets: "Volver a Paquetes", packetSaved: "Paquete guardado ✓",
     mergeHint: "Solo se combinan documentos PDF e imágenes en el PDF combinado.", filename: "Archivo", createdBy: "Creado por",
     confirmDeletePacket: "¿Eliminar este paquete de reclamación y sus documentos subidos? Esta acción no se puede deshacer.",
+    sendSms: "Enviar por SMS", smsSent: "SMS enviado al paciente ✓", smsFailed: "No se pudo enviar el SMS.",
+    smsNotConfigured: "SMS aún no está configurado. Agregue credenciales de Twilio para habilitar el envío de textos.",
+    createFromNote: "Crear desde Nota", selectNoteHint: "Seleccione un paciente, luego elija una sesión documentada para pre-llenar esta factura.",
+    noNotesForPatient: "No se encontraron notas de progreso para este paciente.", useThisNote: "Usar esta nota",
+    prefilledFromNote: "Factura pre-llenada desde la nota ✓", session: "Sesión",
   },
 };

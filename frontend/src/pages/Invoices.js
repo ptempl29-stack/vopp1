@@ -2,8 +2,8 @@ import React, { useEffect, useState } from "react";
 import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { Letterhead } from "../components/Letterhead";
-import { PageHeader, Btn, Card, Badge, inputCls } from "../components/ui-kit";
-import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, CheckCircle2 } from "lucide-react";
+import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
+import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, CheckCircle2, NotebookPen, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 let seq = 0;
@@ -26,6 +26,10 @@ export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
   const [inv, setInv] = useState(emptyInvoice);
   const [items, setItems] = useState([newItem()]);
+  const [noteModal, setNoteModal] = useState(false);
+  const [notePatient, setNotePatient] = useState("");
+  const [billingNotes, setBillingNotes] = useState([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
 
   const loadInvoices = () => api.get("/invoices").then((r) => setInvoices(r.data)).catch(() => {});
   const loadNumber = () => api.get("/invoices/next-number").then((r) => setInv((s) => ({ ...s, invoice_number: r.data.invoice_number }))).catch(() => {});
@@ -58,6 +62,38 @@ export default function Invoices() {
 
   const resetInvoice = () => { setInv(emptyInvoice); setItems([newItem()]); loadNumber(); };
 
+  const openNoteModal = () => { setNotePatient(""); setBillingNotes([]); setNoteModal(true); };
+  const onNotePatient = (e) => {
+    const pid = e.target.value;
+    setNotePatient(pid);
+    setBillingNotes([]);
+    if (!pid) return;
+    setLoadingNotes(true);
+    api.get("/notes/for-billing", { params: { patient_id: pid } })
+      .then((r) => setBillingNotes(r.data))
+      .catch((err) => toast.error(apiErr(err)))
+      .finally(() => setLoadingNotes(false));
+  };
+  const applyNote = (n) => {
+    const p = patients.find((x) => x.id === notePatient);
+    setInv((s) => ({
+      ...s,
+      patient_id: notePatient,
+      patient_name: p ? `${p.first_name} ${p.last_name}` : s.patient_name,
+      dob: n.dob || p?.dob || s.dob,
+      gender: n.gender || p?.gender || s.gender,
+      ssn: n.ssn || s.ssn,
+      service_date: n.visit_date || (n.created_at || "").slice(0, 10) || s.service_date,
+      visit_reason: n.reason_for_visit || s.visit_reason,
+      icd10: n.icd10 || s.icd10,
+      provider: n.attending_provider || s.provider,
+    }));
+    setNoteModal(false);
+    toast.success(t("prefilledFromNote"));
+  };
+  const reasonOptions = inv.visit_reason && !reasons.includes(inv.visit_reason)
+    ? [inv.visit_reason, ...reasons] : reasons;
+
   const save = async () => {
     const valid = items.filter((i) => i.cpt_code || i.description);
     if (!inv.patient_id && !inv.patient_name) { toast.error(t("patient")); return; }
@@ -79,6 +115,7 @@ export default function Invoices() {
       <div className="no-print">
         <PageHeader title={t("invoices")}
           action={<div className="flex flex-wrap gap-2">
+            <Btn variant="outline" onClick={openNoteModal} data-testid="create-from-note-btn"><NotebookPen className="w-4 h-4" />{t("createFromNote")}</Btn>
             <Btn variant="outline" onClick={resetInvoice} data-testid="new-invoice-btn"><FilePlus2 className="w-4 h-4" />{t("newInvoice")}</Btn>
             <Btn onClick={save} data-testid="save-invoice-btn"><Save className="w-4 h-4" />{t("saveInvoice")}</Btn>
             <Btn variant="outline" onClick={() => window.print()} data-testid="save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
@@ -120,7 +157,7 @@ export default function Invoices() {
                 <Row label={t("visitReason")}>
                   <select value={inv.visit_reason || ""} onChange={setF("visit_reason")} className={cellCls} data-testid="inv-reason">
                     <option value="">—</option>
-                    {reasons.map((r) => <option key={r} value={r}>{r}</option>)}
+                    {reasonOptions.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </Row>
                 <Row label="ICD-10-CM"><input value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" /></Row>
@@ -219,6 +256,41 @@ export default function Invoices() {
           )}
         </Card>
       </div>
+
+      <Modal open={noteModal} onClose={() => setNoteModal(false)} title={t("createFromNote")} wide>
+        <div className="space-y-4">
+          <p className="text-sm text-stone-500">{t("selectNoteHint")}</p>
+          <div>
+            <label className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500">{t("patient")}</label>
+            <select value={notePatient} onChange={onNotePatient} className={`${inputCls} mt-1.5`} data-testid="note-patient-select">
+              <option value="">{t("selectPatient")}</option>
+              {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+            </select>
+          </div>
+          {notePatient && (
+            <div className="space-y-2 max-h-[45vh] overflow-y-auto custom-scroll" data-testid="billing-notes-list">
+              {loadingNotes ? <p className="text-sm text-stone-400 py-6 text-center">…</p>
+                : billingNotes.length === 0 ? <p className="text-sm text-stone-400 py-6 text-center">{t("noNotesForPatient")}</p>
+                : billingNotes.map((n) => (
+                  <button key={n.id} type="button" onClick={() => applyNote(n)} data-testid={`billing-note-${n.id}`}
+                    className="w-full text-left p-3 rounded-md border border-border hover:border-moneygreen-500 hover:bg-moneygreen-50 transition-colors duration-200 group">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Badge tone="green">{t("session")}</Badge>
+                        <span className="text-xs font-mono text-stone-500">{n.visit_date || (n.created_at || "").slice(0, 10)}</span>
+                        {n.icd10 && <span className="text-xs text-stone-500">· ICD-10 {n.icd10}</span>}
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-moneygreen-600 shrink-0" />
+                    </div>
+                    {n.reason_for_visit && <p className="text-sm font-semibold text-moneygreen-800 mt-1">{n.reason_for_visit}</p>}
+                    {n.preview && <p className="text-xs text-stone-500 mt-0.5 line-clamp-2">{n.preview}</p>}
+                    {n.attending_provider && <p className="text-xs text-stone-400 mt-1">{t("attendingProvider")}: {n.attending_provider}</p>}
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

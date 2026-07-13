@@ -10,6 +10,7 @@ from core.security import require_roles
 from core.audit import log_audit
 from core.storage import put_object, get_object
 from core.email_utils import send_email
+from core.sms_utils import send_sms, sms_configured
 from models.schemas import FormInput, FormSubmission
 from data.seed import FORM_TEMPLATES
 
@@ -162,6 +163,29 @@ async def download_form(fid: str, user: dict = Depends(require_roles(*FORMS_ROLE
     return Response(content=data, media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{fname}"',
                  "X-Content-Type-Options": "nosniff"})
+
+
+@router.post("/forms/{fid}/send-sms")
+async def send_form_sms(fid: str, user: dict = Depends(require_roles(*FORMS_ROLES))):
+    f = await db.forms.find_one({"id": fid}, {"_id": 0})
+    if not f:
+        raise HTTPException(status_code=404, detail="Form not found")
+    if not f.get("public_token"):
+        raise HTTPException(status_code=400, detail="This form has no shareable link")
+    if not sms_configured():
+        return {"sent": False, "configured": False}
+    phone = None
+    if f.get("patient_id"):
+        p = await db.patients.find_one({"id": f["patient_id"]}, {"_id": 0, "phone": 1})
+        phone = (p or {}).get("phone")
+    if not phone:
+        raise HTTPException(status_code=400, detail="Patient has no phone number on file")
+    s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
+    clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
+    link = f"{PUBLIC_BASE_URL.rstrip('/')}/form/{f['public_token']}"
+    ok = send_sms(phone, f'{clinic}: Please complete your form "{f["title"]}": {link}')
+    await log_audit("update", "form", actor=user, resource_id=fid, detail=f"sms sent={ok}")
+    return {"sent": ok, "configured": True}
 
 
 @router.put("/forms/{fid}/status")

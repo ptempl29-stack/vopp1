@@ -70,6 +70,25 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
     return await db.notes.find_one({"id": nid}, {"_id": 0})
 
 
+@router.get("/notes/for-billing")
+async def notes_for_billing(patient_id: str,
+                            user: dict = Depends(require_roles("biller", "receptionist", "admin"))):
+    notes = await db.notes.find({"patient_id": patient_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    await log_audit("view", "note", actor=user, detail=f"for-billing patient={patient_id} ({len(notes)})")
+    out = []
+    for n in notes:
+        content = (n.get("content") or "").strip()
+        out.append({
+            "id": n["id"], "note_type": n.get("note_type", "free"),
+            "created_at": n.get("created_at"), "visit_date": n.get("visit_date"),
+            "reason_for_visit": n.get("reason_for_visit"), "icd10": n.get("icd10"),
+            "attending_provider": n.get("attending_provider"),
+            "dob": n.get("dob"), "gender": n.get("gender"), "ssn": n.get("ssn"),
+            "preview": content[:180] + ("…" if len(content) > 180 else ""),
+        })
+    return out
+
+
 @router.post("/notes/summarize")
 async def summarize_note(data: SummarizeInput, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
     if not data.content.strip():

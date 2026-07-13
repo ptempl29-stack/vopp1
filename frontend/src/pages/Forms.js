@@ -4,7 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { Letterhead } from "../components/Letterhead";
-import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown, FileText, FileSpreadsheet, MessageCircle } from "lucide-react";
+import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown, FileText, FileSpreadsheet, MessageCircle, Send } from "lucide-react";
 import { toast } from "sonner";
 
 const types = ["Intake", "Consent", "Medical History", "Insurance", "Referral"];
@@ -73,6 +73,15 @@ export default function Forms() {
     const p = patients.find((x) => x.id === f.patient_id);
     const phone = (p?.phone || "").replace(/\D/g, "");
     window.open(`https://wa.me/${phone}?text=${msg}`, "_blank", "noopener,noreferrer");
+  };
+
+  const sendSms = async (f) => {
+    try {
+      const res = await api.post(`/forms/${f.id}/send-sms`);
+      if (res.data.configured === false) toast.info(t("smsNotConfigured"));
+      else if (res.data.sent) toast.success(t("smsSent"));
+      else toast.error(t("smsFailed"));
+    } catch (err) { toast.error(apiErr(err)); }
   };
 
   const save = async (e) => {
@@ -182,6 +191,11 @@ export default function Forms() {
                         {f.public_token && (
                           <Btn variant="ghost" onClick={() => sendWhatsApp(f)} data-testid={`whatsapp-${f.id}`} className="!px-2" title={t("sendWhatsApp")}>
                             <MessageCircle className="w-4 h-4" />
+                          </Btn>
+                        )}
+                        {f.public_token && f.patient_id && (
+                          <Btn variant="ghost" onClick={() => sendSms(f)} data-testid={`sms-${f.id}`} className="!px-2" title={t("sendSms")}>
+                            <Send className="w-4 h-4" />
                           </Btn>
                         )}
                         {f.status === "received" && f.responses && (
