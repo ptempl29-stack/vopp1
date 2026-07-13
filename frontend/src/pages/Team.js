@@ -8,7 +8,7 @@ import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, Copy, Link2
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
-  "invoices", "cpt", "reports", "forms", "messages", "team", "audit", "claims"];
+  "invoices", "cpt", "reports", "forms", "messages", "team", "audit", "claims", "assistant"];
 
 const roleColors = {
   doctor: "green", nurse: "green", psychologist: "green",

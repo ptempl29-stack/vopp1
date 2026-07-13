@@ -104,6 +104,11 @@ export const translations = {
     acceptInviteSubtitle: "Set your name and password to activate your account.",
     createAccount: "Create my account", inviteInvalid: "This invite link is invalid or has already been used.",
     invitedAs: "Invited as", inviteCreated: "Invite created ✓", accountCreated: "Account created — welcome!",
+    aiAssistant: "AI Assistant", assistantSubtitle: "Your clinical documentation helper",
+    newChat: "New chat", askAnything: "Ask anything — summaries, letters, codes…", thinking: "Thinking…",
+    assistantEmpty: "Start a conversation with your clinical assistant.",
+    assistantDisclaimer: "AI assistance only — not a substitute for professional medical judgment.",
+    deleteChat: "Delete chat", noChats: "No conversations yet.",
   },
   es: {
     appName: "Veteranos de Puerto Plata",
@@ -210,5 +215,10 @@ export const translations = {
     acceptInviteSubtitle: "Configure su nombre y contraseña para activar su cuenta.",
     createAccount: "Crear mi cuenta", inviteInvalid: "Este enlace de invitación no es válido o ya se usó.",
     invitedAs: "Invitado como", inviteCreated: "Invitación creada ✓", accountCreated: "Cuenta creada — ¡bienvenido!",
+    aiAssistant: "Asistente IA", assistantSubtitle: "Su asistente de documentación clínica",
+    newChat: "Nueva conversación", askAnything: "Pregunte lo que sea — resúmenes, cartas, códigos…", thinking: "Pensando…",
+    assistantEmpty: "Inicie una conversación con su asistente clínico.",
+    assistantDisclaimer: "Solo asistencia de IA — no sustituye el juicio médico profesional.",
+    deleteChat: "Eliminar conversación", noChats: "Aún no hay conversaciones.",
   },
 };
