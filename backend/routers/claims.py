@@ -12,29 +12,24 @@ from core.security import require_roles
 from core.audit import log_audit
 from core.storage import put_object, get_object, delete_object
 from routers.settings import get_settings_doc
+from core.pdf_utils import new_pdf, pdf_bytes, FONT
 
 router = APIRouter()
 
 
-def _s(x):
-    return str(x if x is not None else "").encode("latin-1", "replace").decode("latin-1")
-
-
 def _invoice_pdf(inv: dict, clinic: str) -> bytes:
-    from fpdf import FPDF
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(0, 12, _s(clinic)[:60], ln=True)
-    pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(0, 9, _s(f"Invoice {inv.get('invoice_number', '')}"), ln=True)
+    pdf = new_pdf()
+    pdf.set_font(FONT, "B", 18)
+    pdf.cell(0, 12, (clinic or "")[:60], ln=True)
+    pdf.set_font(FONT, "B", 13)
+    pdf.cell(0, 9, f"Invoice {inv.get('invoice_number', '')}", ln=True)
     pdf.ln(2)
-    pdf.set_font("Helvetica", size=11)
+    pdf.set_font(FONT, "", 11)
 
     def row(label, val):
         if val:
             pdf.cell(45, 7, label, border=0)
-            pdf.cell(0, 7, _s(val), ln=True)
+            pdf.cell(0, 7, str(val), ln=True)
 
     row("Patient:", inv.get("patient_name"))
     row("DOB:", inv.get("dob"))
@@ -44,27 +39,26 @@ def _invoice_pdf(inv: dict, clinic: str) -> bytes:
     row("ICD-10:", inv.get("icd10"))
     row("Status:", inv.get("status"))
     pdf.ln(3)
-    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_font(FONT, "B", 10)
     pdf.cell(28, 8, "CPT", border=1)
     pdf.cell(90, 8, "Description", border=1)
     pdf.cell(20, 8, "Qty", border=1, align="R")
     pdf.cell(0, 8, "Amount", border=1, ln=True, align="R")
-    pdf.set_font("Helvetica", size=10)
+    pdf.set_font(FONT, "", 10)
     for it in inv.get("items", []):
         qty = it.get("quantity", 1)
-        pdf.cell(28, 8, _s(it.get("cpt_code", ""))[:12], border=1)
-        pdf.cell(90, 8, _s(it.get("description", ""))[:55], border=1)
-        pdf.cell(20, 8, _s(qty), border=1, align="R")
+        pdf.cell(28, 8, str(it.get("cpt_code", ""))[:12], border=1)
+        pdf.cell(90, 8, str(it.get("description", ""))[:55], border=1)
+        pdf.cell(20, 8, str(qty), border=1, align="R")
         pdf.cell(0, 8, f"${it.get('amount', 0) * qty:.2f}", border=1, ln=True, align="R")
-    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_font(FONT, "B", 11)
     pdf.cell(138, 9, "Total", border=1)
     pdf.cell(0, 9, f"${inv.get('total', 0):.2f}", border=1, ln=True, align="R")
     if inv.get("notes"):
         pdf.ln(3)
-        pdf.set_font("Helvetica", size=10)
-        pdf.multi_cell(0, 6, _s(f"Notes: {inv['notes']}"))
-    out = pdf.output(dest="S")
-    return bytes(out) if isinstance(out, (bytes, bytearray)) else out.encode("latin-1")
+        pdf.set_font(FONT, "", 10)
+        pdf.multi_cell(0, 6, f"Notes: {inv['notes']}")
+    return pdf_bytes(pdf)
 
 CLAIM_STATUSES = {"draft", "submitted"}
 UPLOAD_EXTS = {"pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "txt", "xls", "xlsx"}

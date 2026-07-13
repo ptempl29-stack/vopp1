@@ -183,9 +183,13 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Tested: 10/10 backend pytest + 100% frontend (create→copy link→accept→login with assigned tabs, single-use, RBAC). No issues.
 - Note: invites allow multiple pending per email (no dedupe); acceptable.
 
+## Iteration 24 (2026-06) — Unicode PDF fonts (P2)
+- Bundled DejaVuSans + DejaVuSans-Bold TTFs in `/app/backend/assets/fonts/` and added `core/pdf_utils.py` (`new_pdf`/`pdf_bytes`, family "DejaVu"). Invoice PDFs (`claims._invoice_pdf`) and blank-template PDFs (`forms._build_pdf`) now render full Unicode — accents & ñ (e.g., "Muñoz", "José") no longer mangled to "?". Removed the latin-1 `_s` fallback.
+- Verified: accented text round-trips via pypdf text extraction; invoice + blank-template PDF endpoints return valid PDFs.
+
 ## Backlog / Next
+- P3: Real in-browser .docx/.xlsx editing (awaiting scope decision — client-side approach feasible; see notes).
 - P2: Stripe payment gateway for invoices.
-- P2: Unicode font for invoice/claim PDFs (accents/ñ support).
-- P3: Real in-browser .docx/.xlsx editing (OnlyOffice/Collabora) — deferred, container constraints.
+- P2: OpenAI Chat Models / staff AI assistant (proposed, not yet built).
 
 ## Earlier backlog

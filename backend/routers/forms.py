@@ -54,22 +54,20 @@ def _build_xlsx(clinic: str) -> bytes:
 
 
 def _build_pdf(clinic: str) -> bytes:
-    from fpdf import FPDF
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Helvetica", "B", 18)
+    from core.pdf_utils import new_pdf, pdf_bytes, FONT
+    pdf = new_pdf()
+    pdf.set_font(FONT, "B", 18)
     pdf.cell(0, 12, clinic, ln=True)
-    pdf.set_font("Helvetica", "B", 14)
+    pdf.set_font(FONT, "B", 14)
     pdf.cell(0, 10, "Patient Form", ln=True)
     pdf.ln(4)
-    pdf.set_font("Helvetica", size=12)
+    pdf.set_font(FONT, "", 12)
     for label in ["Patient Name: ______________________________", "Date of Birth: _____________________________",
                   "Date: ______________________________________", "Notes:"]:
         pdf.cell(0, 10, label, ln=True)
     for _ in range(10):
         pdf.cell(0, 10, "_" * 70, ln=True)
-    out = pdf.output(dest="S")
-    return bytes(out) if isinstance(out, (bytes, bytearray)) else out.encode("latin-1")
+    return pdf_bytes(pdf)
 
 
 @router.get("/forms/blank-template/{kind}")
