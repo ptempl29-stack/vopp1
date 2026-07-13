@@ -88,10 +88,22 @@ export default function AIAssistant() {
       {/* Conversations sidebar */}
       <div className="hidden md:flex flex-col w-64 shrink-0">
         <Btn onClick={newChat} data-testid="new-chat-btn" className="mb-3 w-full justify-center"><Plus className="w-4 h-4" />{t("newChat")}</Btn>
+        {convos.length > 0 && (
+          <label className="flex items-center gap-1.5 text-sm text-stone-600 cursor-pointer mb-2 px-1">
+            <input type="checkbox" data-testid="select-all-chats"
+              checked={sel.count >= convos.length && convos.length > 0}
+              onChange={() => sel.toggleAll(convos.map((c) => c.id))}
+              className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+            {t("selectAll")}
+          </label>
+        )}
         {sel.count > 0 && (
-          <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-chats" className="mb-3 w-full justify-center">
-            <Trash2 className="w-4 h-4" />{t("deleteSelected")} ({sel.count})
-          </Btn>
+          <div className="flex flex-col gap-2 mb-3">
+            <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-chats" className="w-full justify-center">
+              <Trash2 className="w-4 h-4" />{t("deleteSelected")} ({sel.count})
+            </Btn>
+            <Btn variant="outline" onClick={sel.clear} data-testid="deselect-chats" className="w-full justify-center">{t("deselectAll")}</Btn>
+          </div>
         )}
         <Card className="flex-1 overflow-y-auto custom-scroll p-2">
           {convos.length === 0 ? (

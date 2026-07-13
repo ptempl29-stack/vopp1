@@ -98,7 +98,20 @@ export default function Appointments() {
           <div className="ml-auto flex items-center gap-2">
             <span className="text-sm text-stone-500">{sel.count}</span>
             <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-appts"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
-            <Btn variant="ghost" onClick={sel.clear} data-testid="clear-appt-selection">{t("clearSelection")}</Btn>
+          </div>
+        )}
+        {allowed && filtered.length > 0 && (
+          <div className={`flex items-center gap-3 ${sel.count > 0 ? "" : "ml-auto"}`}>
+            <label className="flex items-center gap-1.5 text-sm text-stone-600 cursor-pointer">
+              <input type="checkbox" data-testid="select-all-appts"
+                checked={sel.count >= filtered.length && filtered.length > 0}
+                onChange={() => sel.toggleAll(filtered.map((a) => a.id))}
+                className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+              {t("selectAll")}
+            </label>
+            {sel.count > 0 && (
+              <Btn variant="outline" onClick={sel.clear} data-testid="deselect-appts">{t("deselectAll")}</Btn>
+            )}
           </div>
         )}
       </div>

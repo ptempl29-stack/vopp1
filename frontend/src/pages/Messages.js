@@ -45,11 +45,20 @@ export default function Messages() {
       <PageHeader title={t("messages")} subtitle={t("inbox")}
         action={<Btn onClick={() => setOpen(true)} data-testid="add-message-btn"><Plus className="w-4 h-4" />{t("newMessage")}</Btn>} />
 
-      {sel.count > 0 && (
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-sm text-stone-500">{sel.count}</span>
-          <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-messages"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
-          <Btn variant="ghost" onClick={sel.clear} data-testid="clear-message-selection">{t("clearSelection")}</Btn>
+      {messages.length > 0 && (
+        <div className="flex items-center gap-3 mb-4">
+          <label className="flex items-center gap-1.5 text-sm text-stone-600 cursor-pointer">
+            <input type="checkbox" data-testid="select-all-messages"
+              checked={sel.count >= messages.length && messages.length > 0}
+              onChange={() => sel.toggleAll(messages.map((m) => m.id))}
+              className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+            {t("selectAll")}
+          </label>
+          {sel.count > 0 && (<>
+            <span className="text-sm text-stone-500">{sel.count}</span>
+            <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-messages"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
+            <Btn variant="outline" onClick={sel.clear} data-testid="deselect-messages">{t("deselectAll")}</Btn>
+          </>)}
         </div>
       )}
 

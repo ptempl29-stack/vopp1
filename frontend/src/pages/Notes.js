@@ -115,11 +115,20 @@ export default function Notes() {
       <PageHeader title={t("notes")} subtitle={`${notes.length}`}
         action={allowed && <Btn onClick={openNew} data-testid="add-note-btn"><Plus className="w-4 h-4" />{t("newNote")}</Btn>} />
 
-      {allowed && sel.count > 0 && (
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-sm text-stone-500">{sel.count}</span>
-          <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-notes"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
-          <Btn variant="ghost" onClick={sel.clear} data-testid="clear-note-selection">{t("clearSelection")}</Btn>
+      {allowed && notes.length > 0 && (
+        <div className="flex items-center gap-3 mb-4">
+          <label className="flex items-center gap-1.5 text-sm text-stone-600 cursor-pointer">
+            <input type="checkbox" data-testid="select-all-notes"
+              checked={sel.count >= notes.length && notes.length > 0}
+              onChange={() => sel.toggleAll(notes.map((n) => n.id))}
+              className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+            {t("selectAll")}
+          </label>
+          {sel.count > 0 && (<>
+            <span className="text-sm text-stone-500">{sel.count}</span>
+            <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-notes"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
+            <Btn variant="outline" onClick={sel.clear} data-testid="deselect-notes">{t("deselectAll")}</Btn>
+          </>)}
         </div>
       )}
 

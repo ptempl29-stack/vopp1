@@ -164,7 +164,7 @@ export default function Forms() {
             <div className="ml-auto flex items-center gap-2">
               <span className="text-sm text-stone-500">{sel.count}</span>
               <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-forms"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
-              <Btn variant="ghost" onClick={sel.clear} data-testid="clear-form-selection">{t("clearSelection")}</Btn>
+              <Btn variant="outline" onClick={sel.clear} data-testid="deselect-forms">{t("deselectAll")}</Btn>
             </div>
           )}
         </div>
