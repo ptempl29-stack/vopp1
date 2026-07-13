@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from core.db import db, now_iso
 from core.security import get_current_user
-from models.schemas import MessageInput
+from models.schemas import MessageInput, IdList
 
 router = APIRouter()
 
@@ -32,5 +32,25 @@ async def send_message(data: MessageInput, user: dict = Depends(get_current_user
 async def mark_read(mid: str, user: dict = Depends(get_current_user)):
     res = await db.messages.update_one({"id": mid, "to_user_id": user["id"]}, {"$set": {"read": True}})
     if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return {"ok": True}
+
+
+@router.post("/messages/bulk-delete")
+async def bulk_delete_messages(data: IdList, user: dict = Depends(get_current_user)):
+    q = {"id": {"$in": data.ids}}
+    if user["role"] != "admin":
+        q["$or"] = [{"from_user_id": user["id"]}, {"to_user_id": user["id"]}]
+    res = await db.messages.delete_many(q)
+    return {"deleted": res.deleted_count, "skipped": len(data.ids) - res.deleted_count}
+
+
+@router.delete("/messages/{mid}")
+async def delete_message(mid: str, user: dict = Depends(get_current_user)):
+    q = {"id": mid}
+    if user["role"] != "admin":
+        q["$or"] = [{"from_user_id": user["id"]}, {"to_user_id": user["id"]}]
+    res = await db.messages.delete_one(q)
+    if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Message not found")
     return {"ok": True}

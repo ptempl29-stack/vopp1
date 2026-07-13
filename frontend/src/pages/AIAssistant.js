@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
+import { useSelection, bulkDelete } from "../lib/bulk";
 import { useLang } from "../context/LanguageContext";
 import { Btn, Card } from "../components/ui-kit";
 import { Sparkles, Plus, Send, Trash2, Loader2, MessageSquareText } from "lucide-react";
@@ -14,6 +15,7 @@ export default function AIAssistant() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const endRef = useRef(null);
+  const sel = useSelection();
 
   const loadConvos = useCallback(async () => {
     try { setConvos((await api.get("/assistant/conversations")).data); } catch (e) { toast.error(apiErr(e)); }
@@ -42,6 +44,16 @@ export default function AIAssistant() {
       await api.delete(`/assistant/conversations/${id}`);
       setConvos((prev) => prev.filter((c) => c.id !== id));
       if (activeId === id) { setActiveId(null); setMessages([]); }
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const removeSelected = async () => {
+    const ids = [...sel.selected];
+    try {
+      await bulkDelete("/assistant/conversations/bulk-delete", ids, t);
+      setConvos((prev) => prev.filter((c) => !sel.has(c.id)));
+      if (sel.has(activeId)) { setActiveId(null); setMessages([]); }
+      sel.clear();
     } catch (err) { toast.error(apiErr(err)); }
   };
 
@@ -76,12 +88,19 @@ export default function AIAssistant() {
       {/* Conversations sidebar */}
       <div className="hidden md:flex flex-col w-64 shrink-0">
         <Btn onClick={newChat} data-testid="new-chat-btn" className="mb-3 w-full justify-center"><Plus className="w-4 h-4" />{t("newChat")}</Btn>
+        {sel.count > 0 && (
+          <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-chats" className="mb-3 w-full justify-center">
+            <Trash2 className="w-4 h-4" />{t("deleteSelected")} ({sel.count})
+          </Btn>
+        )}
         <Card className="flex-1 overflow-y-auto custom-scroll p-2">
           {convos.length === 0 ? (
             <p className="text-xs text-stone-400 text-center py-8">{t("noChats")}</p>
           ) : convos.map((c) => (
             <div key={c.id} onClick={() => openConvo(c.id)} data-testid={`convo-${c.id}`}
-              className={`group flex items-center gap-2 px-3 py-2.5 rounded-md cursor-pointer transition-colors duration-200 ${activeId === c.id ? "bg-moneygreen-100 text-moneygreen-800" : "hover:bg-tan-100 text-stone-600"}`}>
+              className={`group flex items-center gap-2 px-3 py-2.5 rounded-md cursor-pointer transition-colors duration-200 ${activeId === c.id ? "bg-moneygreen-100 text-moneygreen-800" : sel.has(c.id) ? "bg-tan-100" : "hover:bg-tan-100 text-stone-600"}`}>
+              <input type="checkbox" checked={sel.has(c.id)} onClick={(e) => e.stopPropagation()} onChange={() => sel.toggle(c.id)}
+                data-testid={`select-chat-${c.id}`} className="w-4 h-4 accent-moneygreen-600 cursor-pointer shrink-0" />
               <MessageSquareText className="w-4 h-4 shrink-0 text-moneygreen-500" />
               <span className="text-sm truncate flex-1">{c.title}</span>
               <button onClick={(e) => deleteConvo(c.id, e)} data-testid={`delete-chat-${c.id}`}

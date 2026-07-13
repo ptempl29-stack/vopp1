@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { can } from "../lib/perms";
+import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
@@ -24,6 +25,7 @@ export default function Notes() {
   const { t } = useLang();
   const { user, refreshUser } = useAuth();
   const allowed = can(user?.role, "notes");
+  const sel = useSelection();
   const [notes, setNotes] = useState([]);
   const [patients, setPatients] = useState([]);
   const [providers, setProviders] = useState([]);
@@ -39,8 +41,11 @@ export default function Notes() {
   const load = () => api.get("/notes").then((r) => setNotes(r.data)).catch(() => {});
 
   const deleteNote = async (n) => {
-    if (!window.confirm(t("confirmDeleteNote"))) return;
     try { await api.delete(`/notes/${n.id}`); toast.success(t("delete") + " ✓"); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+  const removeSelected = async () => {
+    try { await bulkDelete("/notes/bulk-delete", [...sel.selected], t); sel.clear(); load(); }
     catch (err) { toast.error(apiErr(err)); }
   };
   useEffect(() => {
@@ -110,12 +115,24 @@ export default function Notes() {
       <PageHeader title={t("notes")} subtitle={`${notes.length}`}
         action={allowed && <Btn onClick={openNew} data-testid="add-note-btn"><Plus className="w-4 h-4" />{t("newNote")}</Btn>} />
 
+      {allowed && sel.count > 0 && (
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm text-stone-500">{sel.count}</span>
+          <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-notes"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
+          <Btn variant="ghost" onClick={sel.clear} data-testid="clear-note-selection">{t("clearSelection")}</Btn>
+        </div>
+      )}
+
       {notes.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {notes.map((n, i) => (
             <motion.div key={n.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
-              <Card className="p-5" data-testid={`note-card-${n.id}`}>
+              <Card className={`p-5 ${sel.has(n.id) ? "ring-2 ring-moneygreen-500" : ""}`} data-testid={`note-card-${n.id}`}>
                 <div className="flex items-start gap-3 mb-2">
+                  {allowed && (
+                    <input type="checkbox" checked={sel.has(n.id)} onChange={() => sel.toggle(n.id)}
+                      data-testid={`select-note-${n.id}`} className="mt-2.5 w-4 h-4 accent-moneygreen-600 cursor-pointer shrink-0" />
+                  )}
                   <div className="w-9 h-9 rounded-md bg-moneygreen-100 flex items-center justify-center shrink-0">
                     <FileText className="w-4 h-4 text-moneygreen-600" />
                   </div>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
@@ -16,13 +17,13 @@ export default function Dashboard() {
   useEffect(() => { api.get("/stats").then((r) => setStats(r.data)).catch(() => {}); }, []);
 
   const cards = [
-    { key: "totalPatients", value: stats?.patients, icon: Users, tone: "moneygreen-600" },
-    { key: "apptToday", value: stats?.appointments_today, icon: CalendarClock, tone: "moneygreen-500" },
-    { key: "totalAppointments", value: stats?.appointments_total, icon: CalendarDays, tone: "tan-400" },
-    { key: "unpaidInvoices", value: stats?.unpaid_invoices, icon: ReceiptText, tone: "stone-500" },
-    { key: "pendingNotes", value: stats?.pending_notes, icon: FileText, tone: "moneygreen-600" },
-    { key: "pendingForms", value: stats?.pending_forms, icon: ClipboardList, tone: "tan-400" },
-    { key: "unreadMessages", value: stats?.unread_messages, icon: MessageSquare, tone: "moneygreen-500" },
+    { key: "totalPatients", value: stats?.patients, icon: Users, tone: "moneygreen-600", to: "/patients" },
+    { key: "apptToday", value: stats?.appointments_today, icon: CalendarClock, tone: "moneygreen-500", to: "/appointments?date=today" },
+    { key: "totalAppointments", value: stats?.appointments_total, icon: CalendarDays, tone: "tan-400", to: "/appointments" },
+    { key: "unpaidInvoices", value: stats?.unpaid_invoices, icon: ReceiptText, tone: "stone-500", to: "/invoices?status=unpaid" },
+    { key: "pendingNotes", value: stats?.pending_notes, icon: FileText, tone: "moneygreen-600", to: "/notes" },
+    { key: "pendingForms", value: stats?.pending_forms, icon: ClipboardList, tone: "tan-400", to: "/forms?status=pending" },
+    { key: "unreadMessages", value: stats?.unread_messages, icon: MessageSquare, tone: "moneygreen-500", to: "/messages" },
   ];
 
   return (
@@ -39,19 +40,21 @@ export default function Dashboard() {
         {cards.map((c, i) => (
           <motion.div key={c.key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.05 }}>
-            <Card className="p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500">{t(c.key)}</p>
-                  <p className="font-heading text-4xl font-extrabold text-moneygreen-800 mt-2">
-                    {c.value ?? "—"}
-                  </p>
+            <Link to={c.to} data-testid={`stat-card-${c.key}`}>
+              <Card className="p-5 hover:border-moneygreen-400 hover:shadow-md transition-all duration-200 cursor-pointer">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500">{t(c.key)}</p>
+                    <p className="font-heading text-4xl font-extrabold text-moneygreen-800 mt-2">
+                      {c.value ?? "—"}
+                    </p>
+                  </div>
+                  <div className={`w-11 h-11 rounded-md bg-${c.tone} flex items-center justify-center`}>
+                    <c.icon className="w-5 h-5 text-white" />
+                  </div>
                 </div>
-                <div className={`w-11 h-11 rounded-md bg-${c.tone} flex items-center justify-center`}>
-                  <c.icon className="w-5 h-5 text-white" />
-                </div>
-              </div>
-            </Card>
+              </Card>
+            </Link>
           </motion.div>
         ))}
       </div>

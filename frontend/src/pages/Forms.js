@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
+import { useSelection, bulkDelete } from "../lib/bulk";
+import { useSearchParams } from "react-router-dom";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { Letterhead } from "../components/Letterhead";
-import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown, FileText, FileSpreadsheet, MessageCircle, Send } from "lucide-react";
+import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown, FileText, FileSpreadsheet, MessageCircle, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const types = ["Intake", "Consent", "Medical History", "Insurance", "Referral"];
@@ -15,6 +17,9 @@ const isSigned = (f) => !!f.responses && Object.values(f.responses).some(
 
 export default function Forms() {
   const { t } = useLang();
+  const sel = useSelection();
+  const [params, setParams] = useSearchParams();
+  const statusFilter = params.get("status");
   const [forms, setForms] = useState([]);
   const [patients, setPatients] = useState([]);
   const [open, setOpen] = useState(false);
@@ -123,6 +128,20 @@ export default function Forms() {
     catch (err) { toast.error(apiErr(err)); }
   };
 
+  const removeForm = async (id) => {
+    try { await api.delete(`/forms/${id}`); load(); } catch (err) { toast.error(apiErr(err)); }
+  };
+  const removeSelected = async () => {
+    try { await bulkDelete("/forms/bulk-delete", [...sel.selected], t); sel.clear(); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const filtered = forms.filter((f) => {
+    if (!statusFilter) return true;
+    if (statusFilter === "pending") return ["sent", "pending"].includes(f.status);
+    return f.status === statusFilter;
+  });
+
   return (
     <div>
       <PageHeader title={t("forms")} subtitle={`${forms.length}`}
@@ -134,12 +153,35 @@ export default function Forms() {
           <Btn onClick={() => setOpen(true)} data-testid="add-form-btn"><Plus className="w-4 h-4" />{t("newForm")}</Btn>
         </div>} />
 
+      {(sel.count > 0 || statusFilter) && (
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          {statusFilter && (
+            <Badge tone="amber" className="flex items-center gap-1">{t(statusFilter)}
+              <button onClick={() => { params.delete("status"); setParams(params); }} data-testid="clear-form-filter" className="ml-1 underline">{t("clearFilter")}</button>
+            </Badge>
+          )}
+          {sel.count > 0 && (
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-sm text-stone-500">{sel.count}</span>
+              <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-forms"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
+              <Btn variant="ghost" onClick={sel.clear} data-testid="clear-form-selection">{t("clearSelection")}</Btn>
+            </div>
+          )}
+        </div>
+      )}
+
       <Card className="overflow-hidden">
-        {forms.length === 0 ? <Empty text={t("noData")} /> : (
+        {filtered.length === 0 ? <Empty text={t("noData")} /> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
+                  <th className="px-4 py-3 w-8">
+                    <input type="checkbox" data-testid="select-all-forms"
+                      checked={filtered.length > 0 && sel.count >= filtered.length}
+                      onChange={() => sel.toggleAll(filtered.map((f) => f.id))}
+                      className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+                  </th>
                   <th className="px-5 py-3">{t("title")}</th>
                   <th className="px-5 py-3">{t("formType")}</th>
                   <th className="px-5 py-3 hidden md:table-cell">{t("patient")}</th>
@@ -148,10 +190,14 @@ export default function Forms() {
                 </tr>
               </thead>
               <tbody>
-                {forms.map((f, i) => (
+                {filtered.map((f, i) => (
                   <motion.tr key={f.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
                     data-testid={`form-row-${f.id}`}
-                    className={`border-b border-border/60 hover:bg-tan-50 transition-colors duration-200 ${i % 2 ? "bg-tan-50/40" : ""}`}>
+                    className={`border-b border-border/60 hover:bg-tan-50 transition-colors duration-200 ${sel.has(f.id) ? "bg-moneygreen-50" : i % 2 ? "bg-tan-50/40" : ""}`}>
+                    <td className="px-4 py-3">
+                      <input type="checkbox" checked={sel.has(f.id)} onChange={() => sel.toggle(f.id)}
+                        data-testid={`select-form-${f.id}`} className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+                    </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2.5">
                         <ClipboardList className="w-4 h-4 text-moneygreen-500" />
@@ -208,6 +254,9 @@ export default function Forms() {
                             <CheckCircle2 className="w-4 h-4" />{t("markReceived")}
                           </Btn>
                         )}
+                        <Btn variant="ghost" onClick={() => removeForm(f.id)} data-testid={`delete-form-${f.id}`} className="!px-2 !text-destructive" title={t("delete")}>
+                          <Trash2 className="w-4 h-4" />
+                        </Btn>
                       </div>
                     </td>
                   </motion.tr>

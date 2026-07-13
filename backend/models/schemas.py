@@ -147,3 +147,7 @@ class InviteInput(BaseModel):
 class InviteAccept(BaseModel):
     name: str
     password: str
+
+
+class IdList(BaseModel):
+    ids: List[str] = []

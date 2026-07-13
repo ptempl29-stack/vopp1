@@ -11,7 +11,7 @@ from core.audit import log_audit
 from core.storage import put_object, get_object
 from core.email_utils import send_email
 from core.sms_utils import send_sms, sms_configured
-from models.schemas import FormInput, FormSubmission
+from models.schemas import FormInput, FormSubmission, IdList
 from data.seed import FORM_TEMPLATES
 
 router = APIRouter()
@@ -198,6 +198,29 @@ async def update_form_status(fid: str, status: str, user: dict = Depends(require
 
 
 # ---------------- Public (unauthenticated) patient form ----------------
+@router.post("/forms/bulk-delete")
+async def bulk_delete_forms(data: IdList, user: dict = Depends(require_roles(*FORMS_ROLES))):
+    docs = await db.forms.find({"id": {"$in": data.ids}}, {"_id": 0, "id": 1, "created_by": 1}).to_list(1000)
+    deletable = [d["id"] for d in docs
+                 if user["role"] == "admin" or d.get("created_by") in (user["name"], None)]
+    if deletable:
+        await db.forms.delete_many({"id": {"$in": deletable}})
+    await log_audit("delete", "form", actor=user, detail=f"bulk ({len(deletable)})")
+    return {"deleted": len(deletable), "skipped": len(data.ids) - len(deletable)}
+
+
+@router.delete("/forms/{fid}")
+async def delete_form(fid: str, user: dict = Depends(require_roles(*FORMS_ROLES))):
+    existing = await db.forms.find_one({"id": fid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Form not found")
+    if user["role"] != "admin" and existing.get("created_by") not in (user["name"], None):
+        raise HTTPException(status_code=403, detail="You can only delete forms you created")
+    await db.forms.delete_one({"id": fid})
+    await log_audit("delete", "form", actor=user, resource_id=fid, detail=existing.get("title", ""))
+    return {"ok": True}
+
+
 @router.get("/public/forms/{token}")
 async def public_get_form(token: str):
     f = await db.forms.find_one({"public_token": token}, {"_id": 0, "created_by": 0})

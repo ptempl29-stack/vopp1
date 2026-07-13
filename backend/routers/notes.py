@@ -9,7 +9,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 from core.db import db, now_iso, logger
 from core.security import require_roles
 from core.audit import log_audit
-from models.schemas import NoteInput, SummarizeInput
+from models.schemas import NoteInput, SummarizeInput, IdList
 
 router = APIRouter()
 
@@ -81,6 +81,17 @@ async def delete_note(nid: str, user: dict = Depends(require_roles("doctor", "nu
     await log_audit("delete", "note", actor=user, resource_id=nid,
                     detail=f"{existing.get('note_type', 'free')}: {existing.get('title', '')}")
     return {"ok": True}
+
+
+@router.post("/notes/bulk-delete")
+async def bulk_delete_notes(data: IdList, user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "admin"))):
+    docs = await db.notes.find({"id": {"$in": data.ids}}, {"_id": 0, "id": 1, "author": 1}).to_list(1000)
+    deletable = [d["id"] for d in docs
+                 if user["role"] == "admin" or d.get("author") in (user["name"], None)]
+    if deletable:
+        await db.notes.delete_many({"id": {"$in": deletable}})
+    await log_audit("delete", "note", actor=user, detail=f"bulk ({len(deletable)})")
+    return {"deleted": len(deletable), "skipped": len(data.ids) - len(deletable)}
 
 
 @router.get("/notes/for-billing")

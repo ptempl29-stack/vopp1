@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
+import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
-import { Plus, Mail, MailOpen } from "lucide-react";
+import { Plus, Mail, MailOpen, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Messages() {
   const { t } = useLang();
   const { user } = useAuth();
+  const sel = useSelection();
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [open, setOpen] = useState(false);
@@ -30,10 +32,26 @@ export default function Messages() {
     if (m.to_user_id === user.id && !m.read) { await api.put(`/messages/${m.id}/read`); load(); }
   };
 
+  const removeMsg = async (id) => {
+    try { await api.delete(`/messages/${id}`); load(); } catch (err) { toast.error(apiErr(err)); }
+  };
+  const removeSelected = async () => {
+    try { await bulkDelete("/messages/bulk-delete", [...sel.selected], t); sel.clear(); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+
   return (
     <div>
       <PageHeader title={t("messages")} subtitle={t("inbox")}
         action={<Btn onClick={() => setOpen(true)} data-testid="add-message-btn"><Plus className="w-4 h-4" />{t("newMessage")}</Btn>} />
+
+      {sel.count > 0 && (
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm text-stone-500">{sel.count}</span>
+          <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-messages"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
+          <Btn variant="ghost" onClick={sel.clear} data-testid="clear-message-selection">{t("clearSelection")}</Btn>
+        </div>
+      )}
 
       {messages.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
         <div className="space-y-3">
@@ -42,13 +60,15 @@ export default function Messages() {
             const unread = incoming && !m.read;
             return (
               <motion.div key={m.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}
-                onClick={() => openMsg(m)} data-testid={`message-${m.id}`}>
-                <Card className={`p-4 cursor-pointer hover:border-moneygreen-300 transition-colors duration-200 ${unread ? "border-moneygreen-400 bg-moneygreen-50" : ""}`}>
+                data-testid={`message-${m.id}`}>
+                <Card className={`p-4 transition-colors duration-200 ${sel.has(m.id) ? "ring-2 ring-moneygreen-500" : ""} ${unread ? "border-moneygreen-400 bg-moneygreen-50" : ""}`}>
                   <div className="flex items-start gap-3">
+                    <input type="checkbox" checked={sel.has(m.id)} onChange={() => sel.toggle(m.id)}
+                      data-testid={`select-message-${m.id}`} className="mt-2.5 w-4 h-4 accent-moneygreen-600 cursor-pointer shrink-0" />
                     <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${unread ? "bg-moneygreen-600" : "bg-tan-200"}`}>
                       {unread ? <Mail className="w-4 h-4 text-white" /> : <MailOpen className="w-4 h-4 text-tan-900" />}
                     </div>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 cursor-pointer" onClick={() => openMsg(m)}>
                       <div className="flex items-center justify-between gap-2">
                         <p className="font-semibold text-moneygreen-800 text-sm">
                           {incoming ? `${t("from")}: ${m.from_name}` : `${t("to")}: ${m.to_name}`}
@@ -58,6 +78,10 @@ export default function Messages() {
                       {m.subject && <p className="text-sm font-medium text-stone-700">{m.subject}</p>}
                       <p className="text-sm text-stone-500 line-clamp-2">{m.body}</p>
                     </div>
+                    <button onClick={() => removeMsg(m.id)} data-testid={`delete-message-${m.id}`}
+                      className="text-stone-400 hover:text-destructive transition-colors shrink-0" title={t("delete")}>
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </Card>
               </motion.div>

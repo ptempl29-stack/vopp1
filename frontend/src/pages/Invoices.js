@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import api, { apiErr } from "../lib/api";
+import { useSearchParams } from "react-router-dom";
 import { useLang } from "../context/LanguageContext";
 import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
@@ -19,6 +20,8 @@ const cellCls = "w-full px-2 py-1.5 rounded-md bg-white border border-border foc
 
 export default function Invoices() {
   const { t } = useLang();
+  const [params, setParams] = useSearchParams();
+  const statusFilter = params.get("status");
   const [settings, setSettings] = useState(null);
   const [patients, setPatients] = useState([]);
   const [cpt, setCpt] = useState([]);
@@ -222,9 +225,17 @@ export default function Invoices() {
 
       {/* Saved invoices */}
       <div className="mt-8 no-print">
-        <h3 className="font-heading text-lg font-bold text-moneygreen-800 mb-3">{t("savedInvoices")}</h3>
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          <h3 className="font-heading text-lg font-bold text-moneygreen-800">{t("savedInvoices")}</h3>
+          {statusFilter && (
+            <Badge tone={statusFilter === "paid" ? "green" : "amber"} className="flex items-center gap-1" data-testid="invoice-status-filter">
+              {t(statusFilter)}
+              <button onClick={() => { params.delete("status"); setParams(params); }} data-testid="clear-invoice-filter" className="ml-1 underline">{t("clearFilter")}</button>
+            </Badge>
+          )}
+        </div>
         <Card className="overflow-hidden">
-          {invoices.length === 0 ? <p className="p-6 text-sm text-stone-400">{t("noData")}</p> : (
+          {(statusFilter ? invoices.filter((v) => v.status === statusFilter) : invoices).length === 0 ? <p className="p-6 text-sm text-stone-400">{t("noData")}</p> : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -238,7 +249,7 @@ export default function Invoices() {
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.map((v, i) => (
+                  {(statusFilter ? invoices.filter((v) => v.status === statusFilter) : invoices).map((v, i) => (
                     <tr key={v.id} data-testid={`invoice-row-${v.id}`} className={`border-b border-border/60 ${i % 2 ? "bg-tan-50/40" : ""}`}>
                       <td className="px-5 py-3 font-mono font-semibold text-moneygreen-700">{v.invoice_number || "—"}</td>
                       <td className="px-5 py-3 text-stone-700">{v.patient_name}</td>

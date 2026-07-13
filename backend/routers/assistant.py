@@ -10,6 +10,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 from core.db import db, now_iso, logger
 from core.security import get_current_user
 from core.audit import log_audit
+from models.schemas import IdList
 
 router = APIRouter()
 
@@ -61,6 +62,12 @@ async def create_conversation(user: dict = Depends(get_current_user)):
     await db.ai_conversations.insert_one(conv)
     conv.pop("_id", None)
     return conv
+
+
+@router.post("/assistant/conversations/bulk-delete")
+async def bulk_delete_conversations(data: IdList, user: dict = Depends(get_current_user)):
+    res = await db.ai_conversations.delete_many({"id": {"$in": data.ids}, "user_id": user["id"]})
+    return {"deleted": res.deleted_count, "skipped": len(data.ids) - res.deleted_count}
 
 
 @router.get("/assistant/conversations/{cid}")
