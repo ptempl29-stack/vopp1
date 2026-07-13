@@ -201,7 +201,16 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Also fixed ui-kit `Badge`/`Card` to forward props (`data-testid`) — improves testability app-wide.
 - Tested: 13/13 backend pytest + 100% frontend (suspend blocks login + kills sessions, safeguards, role template save/apply/inherit, RBAC, regression). No issues.
 
+## Iteration 27 (2026-06) — Admin login-access controls
+- **Admin password reset** (`PUT /api/users/{id}/password`): sets a new password, invalidates old password + all old sessions, optionally requires change on next login. Self-reset blocked.
+- **Force logout** (`POST /api/users/{id}/logout`): instantly invalidates a user's active sessions. Self blocked.
+- **Forced first-login password change**: admin-created users (Add User, default ON) and reset accounts get `must_change_password`; the `Protected` gate forces the `ChangePassword` screen until done. `POST /api/auth/change-password` verifies current pw, sets new, clears flag, bumps token_version, returns fresh token.
+- **Session invalidation**: per-user `token_version` embedded as `tv` claim; `get_current_user` rejects mismatches (401). Backward compatible with legacy tokens.
+- Admin UI: per-user Reset password + Force logout actions; Add User "require password change" checkbox.
+- Tested: 17/17 backend pytest + 100% frontend UI e2e (forced-change gate, reset/force-logout session kill, safeguards, RBAC, login regression all 6 roles). No issues.
+
 ## Backlog / Next
+- Refactor: split large `routers/auth.py` (~240 lines) into `routers/users.py` + `routers/roles.py`; add `ChangePasswordInput` schema.
 - P2: Stripe payment gateway for invoices.
 - Enhancement: markdown rendering + token streaming for AI assistant replies.
 - P3: In-browser .docx/.xlsx editing — DECIDED NOT building (keep download/upload-back flow).
