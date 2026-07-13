@@ -233,12 +233,20 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Lockout-prevention banner**: the Admin page shows an amber reminder ("Protect against lockout") with an "Enroll a second admin" button whenever fewer than 2 admins exist; it disappears once a second admin is added.
 - Verified: create-admin via enrollment → logs in as admin with 14 tabs → admin count = 2 (banner clears). Throwaway removed; only real admin remains.
 
+## Iteration 32 (2026-06) — 4-Phase feature drop (appointment types, clickable dashboard, bulk delete, patient deep-dive)
+- **Phase 1 — Appointment Types**: appointments now carry `appointment_type` (in_person/telehealth). Toggle in the create/edit modal, type badge on cards, `Join Video` only on telehealth, and a type/provider filter bar. Backend list accepts `patient_id`/`appointment_type`/`provider` query filters; new appts store `created_by`/`created_by_id`.
+- **Phase 2 — Clickable Dashboard stats**: each stat card is a Link. Unpaid Invoices → /invoices?status=unpaid (filtered list), Appointments Today → /appointments?date=today, Pending Forms → /forms?status=pending, etc.
+- **Phase 3 — Bulk/Single delete, NO confirmation**: checkbox selection + "Delete Selected" across Appointments, Progress Notes (removed old window.confirm), Forms (added single DELETE + bulk), Messages (added single DELETE + bulk), and AI Assistant conversations. New `POST /api/{resource}/bulk-delete` endpoints returning `{deleted, skipped}`. RBAC: admin deletes anything; staff delete only their own (owner = created_by_id for appts, author/created_by name for notes/forms, sender/recipient for messages, user_id for chats). Toast shown when items are skipped. Shared `lib/bulk.js` (useSelection + bulkDelete).
+- **Phase 4 — Patient deep-dive**: `View` button on each patient row opens a wide modal (patient-detail) showing that patient's Appointments, Progress Notes, and Forms, with provider + appointment-type filters.
+- Verified: testing agent iteration_25 — 10/10 backend PASS, 100% frontend e2e, zero browser confirm dialogs, RBAC skipped-toast path confirmed. No regressions.
+- Note (pre-existing, not a regression): some appointment cards show patient "Unknown" (orphan appts referencing deleted patients).
+
 ## In progress / Pending
 - **AI assistant markdown + streaming**: `react-markdown`+`remark-gfm` installed; SSE endpoint + rendering not yet wired.
 
 ## Backlog / Next
 - P2: Stripe payment gateway for invoices.
-- Optional: DELETE /api/invoices/{id} (admin) for cleanup; extract shared patient-name map helper (DRY).
+- Optional: migrate notes/forms ownership from name → id (rename-safe); backfill/hide orphan appointments; DELETE /api/invoices/{id} (admin); extract shared patient-name map helper (DRY).
 - P3: In-browser .docx/.xlsx editing — DECIDED NOT building.
 
 ## Earlier backlog
