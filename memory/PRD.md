@@ -170,11 +170,14 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Tested: 238/238 backend pytest + 100% frontend (CRUD, attach-invoice→PDF, upload, merged PDF, item download/remove, RBAC hide for non-admin). No critical issues.
 - Known limitation: invoice-PDF text uses latin-1 fallback (`_s`) — non-Latin chars (accents/ñ) replaced with `?`; acceptable for now, revisit with a Unicode TTF font.
 
+## Iteration 22 (2026-06) — Create Invoice from Note + SMS forms (Twilio)
+- **Create Invoice from Note**: Invoices page gains a "Create from Note" picker (biller/receptionist). New `GET /api/notes/for-billing?patient_id=` (roles biller/receptionist/admin; clinical roles 403) returns a patient's notes (header fields + 180-char content preview). Selecting a session pre-fills invoice patient, DOB, gender, SSN, service date (visit_date/created), visit reason, ICD-10, and provider; biller then adds CPT line items. Free-text reason injected into the reason dropdown if not preset.
+- **Send forms via SMS (Twilio)**: `POST /api/forms/{fid}/send-sms` (FORMS_ROLES) texts the patient the secure form link via `core/sms_utils.py` (twilio SDK). Env-gated (`TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_PHONE_NUMBER` — currently EMPTY) → returns `{sent:false, configured:false}` and the Forms SMS button (`sms-{id}`, next to WhatsApp) shows a friendly "SMS not configured" toast. ⚠️ SMS SENDING IS INACTIVE until the user adds Twilio credentials.
+- Tested: 15/15 backend pytest + 100% frontend (both flows, RBAC 403, graceful unconfigured SMS, regression). No issues.
+
 ## Backlog / Next
-- P1: "Create Invoice from Note" (convert a documented session into a billable claim).
-- P1: Send forms via SMS (Twilio — needs user API key).
 - P2: Stripe payment gateway for invoices.
 - P2: Unicode font for invoice/claim PDFs (accents/ñ support).
 - P3: Real in-browser .docx/.xlsx editing (OnlyOffice/Collabora) — deferred, container constraints.
 
-## Prior Backlog / Next (superseded)
+## Superseded backlog
