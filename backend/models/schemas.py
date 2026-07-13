@@ -68,6 +68,7 @@ class NoteInput(BaseModel):
     attending_provider: Optional[str] = None
     referring_provider: Optional[str] = None
     icd10: Optional[str] = None
+    ai_summarized: bool = False
 
 
 class SummarizeInput(BaseModel):

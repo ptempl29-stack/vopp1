@@ -16,7 +16,7 @@ const reasons = ["General Consultation", "Physical Therapy", "Therapeutic Massag
 const blank = { patient_id: "", title: "", content: "", note_type: "free",
   subjective: "", objective: "", assessment: "", plan: "", summary: "", signature: "",
   dob: "", gender: "", ssn: "", visit_date: new Date().toISOString().slice(0, 10),
-  reason_for_visit: "", attending_provider: "", referring_provider: "", icd10: "" };
+  reason_for_visit: "", attending_provider: "", referring_provider: "", icd10: "", ai_summarized: false };
 
 const soapText = (f) => [["S", f.subjective], ["O", f.objective], ["A", f.assessment], ["P", f.plan]]
   .filter(([, v]) => v && v.trim()).map(([k, v]) => `${k}: ${v}`).join("\n");
@@ -75,10 +75,10 @@ export default function Notes() {
       setForm((f) => {
         if (f.note_type === "soap") {
           const plan = f.plan && f.plan.trim() ? `${f.plan.trim()} ${s}` : s;
-          return { ...f, plan, summary: "" };
+          return { ...f, plan, summary: "", ai_summarized: true };
         }
         const content = f.content && f.content.trim() ? `${f.content.trim()} ${s}` : s;
-        return { ...f, content, summary: "" };
+        return { ...f, content, summary: "", ai_summarized: true };
       });
       toast.success(t("aiSummary") + " ✓");
     } catch (err) { toast.error(apiErr(err)); }
