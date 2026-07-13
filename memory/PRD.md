@@ -188,7 +188,7 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Verified: accented text round-trips via pypdf text extraction; invoice + blank-template PDF endpoints return valid PDFs.
 
 ## Backlog / Next
-- P3: Real in-browser .docx/.xlsx editing (awaiting scope decision — client-side approach feasible; see notes).
+- P3: In-browser .docx/.xlsx editing — DECIDED (2026-06): NOT building. Keeping the download → edit offline → upload-back flow (full-fidelity editing needs a document server this env can't host).
 - P2: Stripe payment gateway for invoices.
 - P2: OpenAI Chat Models / staff AI assistant (proposed, not yet built).
 
