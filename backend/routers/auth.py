@@ -45,12 +45,13 @@ async def login(data: LoginInput, request: Request):
     if user.get("active") is False:
         await log_audit("login_failed", "auth", detail=f"{email} (suspended)")
         raise HTTPException(status_code=403, detail="Your access has been suspended. Please contact an administrator.")
-    token = create_access_token(user["id"], user["email"], user["role"])
+    token = create_access_token(user["id"], user["email"], user["role"], user.get("token_version", 0))
     await log_audit("login_success", "auth", actor=user)
     return {"token": token, "user": {"id": user["id"], "email": user["email"],
             "name": user["name"], "role": user["role"], "allowed_tabs": effective_tabs(user),
             "default_signature": user.get("default_signature", ""),
-            "doxy_room": user.get("doxy_room", "")}}
+            "doxy_room": user.get("doxy_room", ""),
+            "must_change_password": bool(user.get("must_change_password"))}}
 
 
 @router.post("/auth/register")
@@ -65,10 +66,30 @@ async def register(data: RegisterInput, current: dict = Depends(require_roles("a
     tabs = [tt for tt in tabs if tt in ALL_TABS]
     user = {"id": str(uuid.uuid4()), "email": data.email.lower(),
             "password_hash": hash_password(data.password), "name": data.name,
-            "role": data.role, "allowed_tabs": tabs, "active": True, "created_at": now_iso()}
+            "role": data.role, "allowed_tabs": tabs, "active": True, "token_version": 0,
+            "must_change_password": bool(data.require_password_change), "created_at": now_iso()}
     await db.users.insert_one(user)
     return {"id": user["id"], "email": user["email"], "name": user["name"],
-            "role": user["role"], "allowed_tabs": tabs}
+            "role": user["role"], "allowed_tabs": tabs,
+            "must_change_password": user["must_change_password"]}
+
+
+@router.post("/auth/change-password")
+async def change_password(payload: dict, user: dict = Depends(get_current_user)):
+    current_pw = (payload or {}).get("current_password", "")
+    new_pw = (payload or {}).get("new_password", "")
+    if len(new_pw) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    full = await db.users.find_one({"id": user["id"]})
+    if not full or not verify_password(current_pw, full["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    await db.users.update_one({"id": user["id"]}, {
+        "$set": {"password_hash": hash_password(new_pw), "must_change_password": False},
+        "$inc": {"token_version": 1}})
+    refreshed = await db.users.find_one({"id": user["id"]})
+    await log_audit("update", "auth", actor=user, detail="password changed")
+    token = create_access_token(refreshed["id"], refreshed["email"], refreshed["role"], refreshed.get("token_version", 0))
+    return {"ok": True, "token": token}
 
 
 @router.get("/auth/me")
@@ -162,6 +183,36 @@ async def set_user_active(uid: str, payload: dict, current: dict = Depends(requi
     u = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
     u["allowed_tabs"] = effective_tabs(u)
     return u
+
+
+@router.put("/users/{uid}/password")
+async def admin_reset_password(uid: str, payload: dict, current: dict = Depends(require_roles("admin"))):
+    if uid == current["id"]:
+        raise HTTPException(status_code=400, detail="Use Change Password to update your own password")
+    target = await db.users.find_one({"id": uid})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    new_pw = (payload or {}).get("password", "")
+    if len(new_pw) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    require_change = payload.get("require_change", True)
+    await db.users.update_one({"id": uid}, {
+        "$set": {"password_hash": hash_password(new_pw), "must_change_password": bool(require_change)},
+        "$inc": {"token_version": 1}})
+    await log_audit("update", "user", actor=current, resource_id=uid, detail="password reset")
+    return {"ok": True}
+
+
+@router.post("/users/{uid}/logout")
+async def force_logout(uid: str, current: dict = Depends(require_roles("admin"))):
+    if uid == current["id"]:
+        raise HTTPException(status_code=400, detail="Cannot force-logout your own account")
+    target = await db.users.find_one({"id": uid})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.users.update_one({"id": uid}, {"$inc": {"token_version": 1}})
+    await log_audit("update", "user", actor=current, resource_id=uid, detail="force logout")
+    return {"ok": True}
 
 
 @router.get("/role-templates")

@@ -4,7 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
-import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, Copy, Link2, Send, Ban, RotateCcw, Users } from "lucide-react";
+import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
@@ -26,7 +26,9 @@ export default function Team() {
   const [editTabs, setEditTabs] = useState([]);
   const [infoUser, setInfoUser] = useState(null);
   const [infoForm, setInfoForm] = useState({ name: "", email: "", role: "", password: "" });
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "receptionist" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", role: "receptionist", require_password_change: true });
+  const [pwUser, setPwUser] = useState(null);
+  const [pwForm, setPwForm] = useState({ password: "", require_change: true });
   const [lhOpen, setLhOpen] = useState(false);
   const [lh, setLh] = useState({ clinic_name: "", tagline: "", address: "", phone: "", email: "", logo: "" });
   const [invites, setInvites] = useState([]);
@@ -122,7 +124,7 @@ export default function Team() {
     try {
       await api.post("/auth/register", form);
       toast.success(t("createUser") + " ✓");
-      setAddOpen(false); setForm({ name: "", email: "", password: "", role: "receptionist" }); load();
+      setAddOpen(false); setForm({ name: "", email: "", password: "", role: "receptionist", require_password_change: true }); load();
     } catch (err) { toast.error(apiErr(err)); }
   };
 
@@ -138,6 +140,21 @@ export default function Team() {
 
   const removeUser = async (id) => {
     try { await api.delete(`/users/${id}`); toast.success(t("deleteUser") + " ✓"); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const openReset = (u) => { setPwUser(u); setPwForm({ password: "", require_change: true }); };
+  const doReset = async (e) => {
+    e.preventDefault();
+    try {
+      await api.put(`/users/${pwUser.id}/password`, { password: pwForm.password, require_change: pwForm.require_change });
+      toast.success(t("passwordResetDone"));
+      setPwUser(null);
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+  const forceLogout = async (u) => {
+    if (!window.confirm(t("confirmForceLogout"))) return;
+    try { await api.post(`/users/${u.id}/logout`); toast.success(t("forceLogoutDone")); }
     catch (err) { toast.error(apiErr(err)); }
   };
 
@@ -205,6 +222,16 @@ export default function Team() {
                         <Btn variant="outline" onClick={() => openTabs(u)} data-testid={`edit-tabs-${u.id}`}>
                           <ShieldCheck className="w-4 h-4" />{t("tabAccess")}
                         </Btn>
+                        {u.id !== me.id && (
+                          <>
+                            <Btn variant="ghost" onClick={() => openReset(u)} data-testid={`reset-pw-${u.id}`} className="!px-2 !text-moneygreen-700" title={t("resetPassword")}>
+                              <KeyRound className="w-4 h-4" />
+                            </Btn>
+                            <Btn variant="ghost" onClick={() => forceLogout(u)} data-testid={`force-logout-${u.id}`} className="!px-2 !text-stone-500" title={t("forceLogout")}>
+                              <LogOut className="w-4 h-4" />
+                            </Btn>
+                          </>
+                        )}
                         {u.id !== me.id && u.role !== "admin" && (
                           <Btn variant="ghost" onClick={() => toggleActive(u)} data-testid={`toggle-active-${u.id}`}
                             className={`!px-2 ${u.active === false ? "!text-moneygreen-600" : "!text-amber-600"}`}
@@ -364,11 +391,36 @@ export default function Team() {
             </select>
           </Field>
           <p className="text-xs text-stone-500">Default tabs for this role: {(defaults[form.role] || []).join(", ")}</p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.require_password_change} onChange={(e) => setForm({ ...form, require_password_change: e.target.checked })}
+              data-testid="uf-require-change" className="w-4 h-4 accent-moneygreen-600" />
+            <span className="text-sm text-stone-600">{t("requirePwChangeCreate")}</span>
+          </label>
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="outline" type="button" onClick={() => setAddOpen(false)}>{t("cancel")}</Btn>
             <Btn type="submit" data-testid="save-user-btn">{t("createUser")}</Btn>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={!!pwUser} onClose={() => setPwUser(null)} title={pwUser ? `${t("resetPassword")} — ${pwUser.name}` : ""}>
+        {pwUser && (
+          <form onSubmit={doReset} className="space-y-4">
+            <Field label={t("newPassword")}>
+              <input type="password" required minLength={6} value={pwForm.password} onChange={(e) => setPwForm({ ...pwForm, password: e.target.value })} className={inputCls} data-testid="reset-pw-input" placeholder="••••••" />
+            </Field>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={pwForm.require_change} onChange={(e) => setPwForm({ ...pwForm, require_change: e.target.checked })}
+                data-testid="reset-require-change" className="w-4 h-4 accent-moneygreen-600" />
+              <span className="text-sm text-stone-600">{t("requirePwChange")}</span>
+            </label>
+            <p className="text-xs text-stone-400">{t("confirmForceLogout")}</p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Btn variant="outline" type="button" onClick={() => setPwUser(null)}>{t("cancel")}</Btn>
+              <Btn type="submit" data-testid="save-reset-pw-btn"><KeyRound className="w-4 h-4" />{t("setNewPassword")}</Btn>
+            </div>
+          </form>
+        )}
       </Modal>
 
       <Modal open={!!editUser} onClose={() => setEditUser(null)} title={`${t("tabAccess")} — ${editUser?.name || ""}`}>

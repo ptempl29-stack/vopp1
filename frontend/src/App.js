@@ -21,6 +21,7 @@ import AcceptInvite from "./pages/AcceptInvite";
 import AIAssistant from "./pages/AIAssistant";
 import AuditLog from "./pages/AuditLog";
 import Claims from "./pages/Claims";
+import ChangePassword from "./pages/ChangePassword";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children, tab }) {
@@ -28,6 +29,7 @@ function Protected({ children, tab }) {
   if (loading)
     return <div className="min-h-screen flex items-center justify-center bg-tan-100"><Loader2 className="w-8 h-8 animate-spin text-moneygreen-600" /></div>;
   if (!user) return <Navigate to="/login" replace />;
+  if (user.must_change_password) return <ChangePassword />;
   if (tab && user.allowed_tabs && !user.allowed_tabs.includes(tab))
     return <Layout><div className="py-20 text-center text-stone-500" data-testid="no-access">You don't have access to this section.</div></Layout>;
   return <Layout>{children}</Layout>;

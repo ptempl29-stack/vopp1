@@ -13,6 +13,7 @@ class RegisterInput(BaseModel):
     name: str
     role: str = "receptionist"
     allowed_tabs: Optional[List[str]] = None
+    require_password_change: bool = True
 
 
 class UpdateUserInput(BaseModel):
