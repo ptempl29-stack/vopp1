@@ -187,9 +187,16 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Bundled DejaVuSans + DejaVuSans-Bold TTFs in `/app/backend/assets/fonts/` and added `core/pdf_utils.py` (`new_pdf`/`pdf_bytes`, family "DejaVu"). Invoice PDFs (`claims._invoice_pdf`) and blank-template PDFs (`forms._build_pdf`) now render full Unicode — accents & ñ (e.g., "Muñoz", "José") no longer mangled to "?". Removed the latin-1 `_s` fallback.
 - Verified: accented text round-trips via pypdf text extraction; invoice + blank-template PDF endpoints return valid PDFs.
 
+## Iteration 25 (2026-06) — Staff Clinical AI Assistant (OpenAI gpt-5.4)
+- New **AI Assistant** sidebar tab (tab key `assistant`) — an in-app multi-turn chat that helps staff with documentation, summaries, letters, and CPT/ICD-10 questions. Bilingual (replies in the user's language). Powered by `emergentintegrations` LlmChat → OpenAI **gpt-5.4** via the Emergent LLM key.
+- Backend `routers/assistant.py`: per-user conversations in `ai_conversations` (`GET/POST /api/assistant/conversations`, `GET/DELETE /{cid}`, `POST /{cid}/message`). Ownership-isolated (404 across users). Multi-turn context preserved by embedding the last 20 stored messages into the system prompt each call (verified: recalls facts across turns). Auto-titles from first message; message validation (empty/≤8000).
+- RBAC: `assistant` added to `ALL_TABS` + default tabs for admin + clinical roles (doctor/nurse/psychologist); receptionist/biller excluded by default (admin can grant).
+- Frontend `AIAssistant.js`: conversation sidebar + chat thread + input (Enter to send, Shift+Enter newline), thinking indicator, "assistance only" disclaimer.
+- Tested: 11/11 backend pytest + 100% frontend (real LLM multi-turn recall, RBAC hide for biller, conversation CRUD, ownership isolation). No issues.
+
 ## Backlog / Next
-- P3: In-browser .docx/.xlsx editing — DECIDED (2026-06): NOT building. Keeping the download → edit offline → upload-back flow (full-fidelity editing needs a document server this env can't host).
 - P2: Stripe payment gateway for invoices.
-- P2: OpenAI Chat Models / staff AI assistant (proposed, not yet built).
+- Enhancement: render markdown in assistant replies (currently plain text); stream tokens (SSE) for faster perceived response.
+- P3: In-browser .docx/.xlsx editing — DECIDED NOT building (keep download/upload-back flow).
 
 ## Earlier backlog
