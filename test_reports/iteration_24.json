@@ -1,0 +1,34 @@
+{
+  "summary": "Regression tests for N+1 projection fix (appointments & invoices), auth.py/users.py/roles.py refactor, DELETE /api/notes/{id}, and account state. All 15 backend pytest tests PASS. UI verified: patient names resolve correctly on Appointments and Invoices pages; delete-note buttons render (215 found on Progress Notes page). Two 'Unknown' appointments observed are the expected pre-existing orphan appointments.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/invoices/{id}", "issue": "No invoice-delete endpoint exists. Test-created invoices (TEST_*) cannot be cleaned up via API — a few TEST_ invoices remain in DB from this run. Suggest adding admin-only DELETE for cleanup."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Login page (CUENTAS DE PRUEBA panel)", "issue": "Login page still hardcodes demo accounts (doctor@vpp.com, nurse@vpp.com, reception@vpp.com, biller@vpp.com) as clickable quick-login cards. These accounts were ERASED (SEED_DEMO_USERS=false). Clicking them results in 401. Remove or hide this section since demo accounts no longer exist.", "selector": "login page 'Cuentas de prueba' / 'Test accounts' section", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration_24.py", "/app/test_reports/pytest/iteration_24.xml"],
+  "action_items": [
+    "Hide/remove the demo test-account panel on the login page (or make it dynamic based on SEED_DEMO_USERS).",
+    "Optional: add DELETE /api/invoices/{id} (admin) to allow test data cleanup."
+  ],
+  "critical_code_review_comments": [
+    "Projection fix in appointments.py and billing.py is correct — only id/first_name/last_name are fetched, still returned as a dict keyed by id for O(1) lookup. Good pattern; consider extracting the `patients` dict builder into a shared helper in core/db.py for reuse (DRY).",
+    "notes.py delete correctly checks author or admin; audited via log_audit. LGTM.",
+    "auth.py/users.py/roles.py split is clean; all URLs preserved and admin gates intact.",
+    "billing.py list_invoices projection excludes ssn/policy_number — good defence-in-depth."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration_24.py"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% for scoped smoke"},
+  "test_credentials": "admin: usvopp@yahoo.com / Football2023?",
+  "seed_data_creation": "Tests create throwaway patients, appointments, invoices, users, and notes with TEST_ prefix and clean them up (except invoices — no delete endpoint). A few TEST_ invoices remain in DB.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite at /app/backend/tests/test_iteration_24.py — reuse for future N+1/auth-refactor checks. Note: emails ending in .local are rejected by pydantic email validator; use @example.com for test users. There are 2 legitimately orphan appointments returning 'Unknown' patient_name — not a bug."
+}

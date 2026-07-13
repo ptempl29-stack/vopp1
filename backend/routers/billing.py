@@ -49,7 +49,8 @@ async def delete_cpt(cid: str, user: dict = Depends(require_roles("biller"))):
 @router.get("/invoices")
 async def list_invoices(user: dict = Depends(require_roles("biller", "receptionist"))):
     invoices = await db.invoices.find({}, {"_id": 0, "ssn": 0, "policy_number": 0}).sort("created_at", -1).to_list(500)
-    patients = {p["id"]: f"{p['first_name']} {p['last_name']}" async for p in db.patients.find({}, {"_id": 0})}
+    patients = {p["id"]: f"{p['first_name']} {p['last_name']}"
+                async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1})}
     for inv in invoices:
         inv["patient_name"] = inv.get("patient_name") or patients.get(inv.get("patient_id"), "Unknown")
     await log_audit("view", "invoice", actor=user, detail=f"list ({len(invoices)})")
@@ -159,7 +160,8 @@ async def billing_export(start: Optional[str] = None, end: Optional[str] = None,
         invoices = [i for i in invoices if _inv_date(i) >= start]
     if end:
         invoices = [i for i in invoices if _inv_date(i) <= end]
-    patients = {p["id"]: f"{p['first_name']} {p['last_name']}" async for p in db.patients.find({}, {"_id": 0})}
+    patients = {p["id"]: f"{p['first_name']} {p['last_name']}"
+                async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1})}
 
     out = io.StringIO()
     w = csv.writer(out)
