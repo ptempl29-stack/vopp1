@@ -1884,3 +1884,108 @@ def test_my_room_empty_clears():
                     headers=h("nurse"), timeout=30)
     assert r.status_code == 200
     assert r.json()["doxy_room"] == ""
+
+
+# ================= NEW iter 16: Unified header persistence across ALL 4 note types =================
+UNIFIED_HEADER_TYPES = ["free", "soap", "daily", "daily_no_ai"]
+
+
+@pytest.mark.parametrize("note_type", UNIFIED_HEADER_TYPES)
+def test_unified_header_persists_for_all_note_types(note_type):
+    """POST /api/notes must persist dob/gender/ssn/visit_date/reason_for_visit/
+    attending_provider/referring_provider/icd10 for EVERY note_type, not just daily."""
+    p = requests.post(f"{API}/patients",
+                      json={"first_name": f"TEST_Uni_{note_type}", "last_name": "H",
+                            "dob": "1990-06-15", "gender": "Female"},
+                      headers=h("receptionist"), timeout=30).json()
+    payload = {
+        "patient_id": p["id"],
+        "title": f"Unified {note_type}",
+        "note_type": note_type,
+        "dob": "1990-06-15",
+        "gender": "Female",
+        "ssn": "111-22-3333",
+        "visit_date": "2026-01-20",
+        "reason_for_visit": "Follow-up",
+        "attending_provider": "Dr. Elena Rodriguez",
+        "referring_provider": "Dr. Test Ref",
+        "icd10": "F33.0",
+    }
+    if note_type == "soap":
+        payload.update({"subjective": "s", "objective": "o", "assessment": "a", "plan": "p"})
+    else:
+        payload["content"] = "Unified body content."
+    r = requests.post(f"{API}/notes", json=payload, headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["note_type"] == note_type
+    for k in ("dob", "gender", "ssn", "visit_date", "reason_for_visit",
+              "attending_provider", "referring_provider", "icd10"):
+        assert d.get(k) == payload[k], f"[{note_type}] {k} not persisted: got {d.get(k)!r}"
+    # verify via GET
+    lst = requests.get(f"{API}/notes", headers=h("doctor"), timeout=30).json()
+    match = [n for n in lst if n["id"] == d["id"]]
+    assert match, f"[{note_type}] note not in list"
+    for k in ("dob", "ssn", "icd10", "visit_date", "reason_for_visit"):
+        assert match[0].get(k) == payload[k], f"[{note_type}] {k} lost on GET"
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+@pytest.mark.parametrize("note_type", UNIFIED_HEADER_TYPES)
+def test_unified_header_persists_on_edit(note_type):
+    """PUT /api/notes/{id} must also persist unified header for every note_type."""
+    p = requests.post(f"{API}/patients",
+                      json={"first_name": f"TEST_UEdit_{note_type}", "last_name": "H"},
+                      headers=h("receptionist"), timeout=30).json()
+    create_payload = {"patient_id": p["id"], "title": "orig", "note_type": note_type,
+                      "content": "body"}
+    if note_type == "soap":
+        create_payload.update({"subjective": "s", "objective": "o", "assessment": "a", "plan": "p"})
+    created = requests.post(f"{API}/notes", json=create_payload, headers=h("doctor"), timeout=30).json()
+    # Update with header fields
+    update_payload = {**create_payload,
+                      "dob": "1975-01-01", "gender": "male", "ssn": "999-88-7777",
+                      "visit_date": "2026-02-02", "reason_for_visit": "Evaluation",
+                      "attending_provider": "Dr. Attend", "referring_provider": "Dr. Refer",
+                      "icd10": "Z00.00"}
+    r = requests.put(f"{API}/notes/{created['id']}", json=update_payload,
+                     headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    for k in ("dob", "gender", "ssn", "visit_date", "reason_for_visit",
+              "attending_provider", "referring_provider", "icd10"):
+        assert d.get(k) == update_payload[k], f"[{note_type}] edit lost {k}"
+    assert d.get("updated_by")
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_daily_no_ai_note_type_accepted():
+    """The 'daily_no_ai' note_type must be accepted (Progress Note sin AI)."""
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_NoAI", "last_name": "P"},
+                      headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/notes",
+                      json={"patient_id": p["id"], "title": "sin AI", "note_type": "daily_no_ai",
+                            "content": "Handwritten-style note without AI."},
+                      headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["note_type"] == "daily_no_ai"
+    assert d["content"] == "Handwritten-style note without AI."
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)
+
+
+def test_note_summary_merged_no_heading_preserved_on_save():
+    """Summary field should persist verbatim (no 'AI SUMMARY' heading injected server-side)."""
+    p = requests.post(f"{API}/patients", json={"first_name": "TEST_Sum", "last_name": "P"},
+                      headers=h("receptionist"), timeout=30).json()
+    r = requests.post(f"{API}/notes",
+                      json={"patient_id": p["id"], "title": "S", "note_type": "free",
+                            "content": "Body text.", "summary": "Concise summary here."},
+                      headers=h("doctor"), timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d.get("summary") == "Concise summary here."
+    # backend does NOT prepend any 'AI SUMMARY' label
+    assert "AI SUMMARY" not in (d.get("summary") or "")
+    assert "AI SUMMARY" not in (d.get("content") or "")
+    requests.delete(f"{API}/patients/{p['id']}", headers=h("receptionist"), timeout=30)

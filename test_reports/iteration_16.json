@@ -1,0 +1,24 @@
+{
+  "summary": "Iter 16: Unified Progress Note header across all 4 note types (free, soap, daily, daily_no_ai). Backend pytest 187/187 (added 10 new: unified header POST persists dob/gender/ssn/visit_date/reason/attending/referring/icd10 for EVERY note_type parametrized × 4; unified header PUT edit persists parametrized × 4; daily_no_ai note_type accepted; summary field persists verbatim with no server-side 'AI SUMMARY' heading injection). Frontend Playwright as doctor: opened New Note editor, cycled through all 4 type toggles and validated per-type contract — data-testid 'note-fields' always visible with edit-letterhead-btn + nf-patient/nf-dob/nf-gender/nf-ssn/nf-visit-date/nf-icd10/nf-reason/nf-attending/nf-referring; nf-title ABSENT; old nf-summary ABSENT; note-print-btn + note-save-pdf-btn + save-note-btn present for all types; ai-summarize-btn present on free/soap/daily and ABSENT on daily_no_ai; SOAP renders soap-fields with nf-subjective/objective/assessment/plan and no nf-content; free/daily/daily_no_ai render single nf-content and no soap-fields. Created one note of each type; auto-titles rendered as '<Type Label> — <patient> · <visit_date>' visible on cards ('Free Text — …', 'SOAP Note — …', 'Daily Progress Note — …', 'Progress Note sin AI — …'). Opened View modal (note-view) — Letterhead + header fields + body + view-print-btn present; no separate 'AI SUMMARY' heading in the DOM. All regressions preserved (invoices RBAC, forms RBAC, audit admin-only, signature save/insert, doxy telehealth).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iteration_16.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Notes.js is a single 341-line file that now handles 4 note types + editor + view + signature + letterhead + AI summarize. Consider extracting NoteEditor, NoteView, and NoteCard into separate components under /components/notes/ for maintainability.",
+    "backend/routers/notes.py accepts any free-form string for note_type — no allowlist. If the frontend ever ships a typo it will silently persist as an unknown category and break card labeling. Consider a Literal['free','soap','daily','daily_no_ai'] validator on NoteInput.note_type.",
+    "AI Summarize saves the raw LLM response into note.summary and the view merges content+summary with just two newlines. If the LLM returns markdown headings ('## Assessment'), those render as plain text — either strip markdown server-side or render summary as markdown for parity with the button's clinical intent.",
+    "save() auto-title uses patient name + visit_date but visit_date defaults to today only in blank; if a user clears visit_date manually the title becomes '<Type> — <patient>' with a trailing ' · '-less suffix — cosmetic but title uniqueness across same-day multi-visits relies on the timestamp being included. Consider appending the creation time when visit_date is blank."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (187/187)", "frontend": "100% (4/4 note types unified-header contract + create + view verified)"},
+  "test_credentials": "From /app/memory/test_credentials.md; used doctor@vpp.com/doctor123.",
+  "seed_data_creation": "Playwright created 4 test notes (one per type) under existing patient TEST_SOAP P68ca7c; visible in the notes list as 'Unified free', 'Unified soap', 'Unified daily', 'Unified daily_no_ai'. Backend pytest tests self-clean their created patients.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Notes editor is UNIFIED: data-testid 'note-fields' wraps letterhead + 9 shared header fields (nf-patient, nf-dob, nf-gender, nf-ssn, nf-visit-date, nf-icd10, nf-reason, nf-attending, nf-referring) for all 4 note types. Body is per-type: soap-fields (nf-subjective/objective/assessment/plan) for SOAP; nf-content textarea for free/daily/daily_no_ai. ai-summarize-btn absent on daily_no_ai only. nf-title and nf-summary testids have been REMOVED (title auto-generated, summary edited via AI Summarize button only). View modal testid 'note-view' shows Letterhead + header + content+summary merged with no 'AI SUMMARY' heading + view-print-btn + view-edit-btn. Backend NoteInput accepts all header fields for any note_type; POST /notes and PUT /notes/{id} persist them. AI summarize (/notes/summarize) tested live and returned real summary in <90s (LLM budget healthy).",
+  "rca of the issue": "N/A - no unresolved issues"
+}
