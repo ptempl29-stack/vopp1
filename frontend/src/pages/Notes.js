@@ -71,7 +71,15 @@ export default function Notes() {
     setSummarizing(true);
     try {
       const r = await api.post("/notes/summarize", { content: text });
-      setForm((f) => ({ ...f, summary: r.data.summary }));
+      const s = (r.data.summary || "").trim();
+      setForm((f) => {
+        if (f.note_type === "soap") {
+          const plan = f.plan && f.plan.trim() ? `${f.plan.trim()} ${s}` : s;
+          return { ...f, plan, summary: "" };
+        }
+        const content = f.content && f.content.trim() ? `${f.content.trim()} ${s}` : s;
+        return { ...f, content, summary: "" };
+      });
       toast.success(t("aiSummary") + " ✓");
     } catch (err) { toast.error(apiErr(err)); }
     finally { setSummarizing(false); }
