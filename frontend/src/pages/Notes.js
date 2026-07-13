@@ -69,10 +69,12 @@ export default function Notes() {
   const save = async (e) => {
     e.preventDefault();
     if (form.note_type === "soap" && !soapText(form).trim()) { toast.error(t("content")); return; }
-    if (form.note_type === "daily" && !form.content.trim()) { toast.error(t("content")); return; }
+    if (["daily", "daily_no_ai"].includes(form.note_type) && !form.content.trim()) { toast.error(t("content")); return; }
     const payload = { ...form };
-    if (form.note_type === "daily") {
-      payload.title = `${t("dailyNote")} — ${patientName(form.patient_id)}${form.visit_date ? ` · ${form.visit_date}` : ""}`;
+    if (form.note_type === "daily_no_ai") payload.summary = "";
+    if (["daily", "daily_no_ai"].includes(form.note_type)) {
+      const label = form.note_type === "daily_no_ai" ? t("dailyNoteNoAi") : t("dailyNote");
+      payload.title = `${label} — ${patientName(form.patient_id)}${form.visit_date ? ` · ${form.visit_date}` : ""}`;
     }
     try {
       if (editId) await api.put(`/notes/${editId}`, payload);
@@ -122,8 +124,11 @@ export default function Notes() {
                   {n.note_type === "daily" && (
                     <span className="ml-auto px-2 py-0.5 rounded-full text-xs font-semibold bg-moneygreen-100 text-moneygreen-700 flex items-center gap-1"><Stethoscope className="w-3 h-3" />{t("dailyNote")}</span>
                   )}
+                  {n.note_type === "daily_no_ai" && (
+                    <span className="ml-auto px-2 py-0.5 rounded-full text-xs font-semibold bg-tan-100 text-tan-900 flex items-center gap-1"><Stethoscope className="w-3 h-3" />{t("dailyNoteNoAi")}</span>
+                  )}
                 </div>
-                {n.note_type === "daily" && (
+                {["daily", "daily_no_ai"].includes(n.note_type) && (
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-500 mb-2" data-testid={`daily-meta-${n.id}`}>
                     {n.visit_date && <span><b className="text-stone-600">{t("visitDate")}:</b> {n.visit_date}</span>}
                     {n.reason_for_visit && <span><b className="text-stone-600">{t("reasonForVisit")}:</b> {n.reason_for_visit}</span>}
@@ -165,7 +170,7 @@ export default function Notes() {
 
       <Modal open={open} onClose={() => { setOpen(false); setEditId(null); }} title={editId ? t("editNote") : t("newNote")} wide>
         <form onSubmit={save} className="space-y-4">
-          {form.note_type !== "daily" && (
+          {!["daily", "daily_no_ai"].includes(form.note_type) && (
             <div className="grid grid-cols-2 gap-4">
               <Field label={t("patient")}>
                 <select required value={form.patient_id} onChange={onPatient} className={inputCls} data-testid="nf-patient">
@@ -178,7 +183,7 @@ export default function Notes() {
           )}
 
           <Field label={t("noteType")}>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button type="button" onClick={() => setForm({ ...form, note_type: "free" })} data-testid="note-type-free"
                 className={`py-2 rounded-md text-sm font-semibold border transition-colors duration-200 ${form.note_type === "free" ? "bg-moneygreen-600 text-white border-moneygreen-600" : "bg-white text-moneygreen-700 border-border hover:bg-moneygreen-50"}`}>
                 {t("freeText")}
@@ -190,6 +195,10 @@ export default function Notes() {
               <button type="button" onClick={() => setForm({ ...form, note_type: "daily" })} data-testid="note-type-daily"
                 className={`py-2 rounded-md text-sm font-semibold border transition-colors duration-200 ${form.note_type === "daily" ? "bg-moneygreen-600 text-white border-moneygreen-600" : "bg-white text-moneygreen-700 border-border hover:bg-moneygreen-50"}`}>
                 {t("dailyNote")}
+              </button>
+              <button type="button" onClick={() => setForm({ ...form, note_type: "daily_no_ai" })} data-testid="note-type-daily-no-ai"
+                className={`py-2 rounded-md text-sm font-semibold border transition-colors duration-200 ${form.note_type === "daily_no_ai" ? "bg-moneygreen-600 text-white border-moneygreen-600" : "bg-white text-moneygreen-700 border-border hover:bg-moneygreen-50"}`}>
+                {t("dailyNoteNoAi")}
               </button>
             </div>
           </Field>
@@ -208,7 +217,7 @@ export default function Notes() {
               <Field label={t("soapP")}><textarea value={form.plan} onChange={set("plan")} rows={4} className={inputCls} data-testid="nf-plan" placeholder={t("soapPHint")} /></Field>
             </div>
           )}
-          {form.note_type === "daily" && (
+          {["daily", "daily_no_ai"].includes(form.note_type) && (
             <div id="note-print" data-testid="daily-fields">
               <div className="rounded-lg border border-border p-4 mb-4">
                 <EditableLetterhead settings={settings} onSaved={setSettings} t={t}
@@ -267,26 +276,28 @@ export default function Notes() {
             </div>
           )}
 
-          {form.note_type === "daily" && (
+          {["daily", "daily_no_ai"].includes(form.note_type) && (
             <div className="flex justify-end gap-2 no-print">
               <Btn variant="outline" type="button" onClick={() => window.print()} data-testid="note-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
               <Btn variant="outline" type="button" onClick={() => window.print()} data-testid="note-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
             </div>
           )}
 
-          <div className="p-4 rounded-md bg-moneygreen-50 border border-moneygreen-100">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" /> {t("aiSummary")}
-              </p>
-              <Btn type="button" variant="outline" onClick={summarize} disabled={summarizing} data-testid="ai-summarize-btn">
-                {summarizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                {summarizing ? t("summarizing") : t("aiSummarize")}
-              </Btn>
+          {form.note_type !== "daily_no_ai" && (
+            <div className="p-4 rounded-md bg-moneygreen-50 border border-moneygreen-100">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" /> {t("aiSummary")}
+                </p>
+                <Btn type="button" variant="outline" onClick={summarize} disabled={summarizing} data-testid="ai-summarize-btn">
+                  {summarizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {summarizing ? t("summarizing") : t("aiSummarize")}
+                </Btn>
+              </div>
+              <textarea value={form.summary} onChange={set("summary")} rows={3} className={inputCls}
+                data-testid="nf-summary" placeholder={t("aiSummary")} />
             </div>
-            <textarea value={form.summary} onChange={set("summary")} rows={3} className={inputCls}
-              data-testid="nf-summary" placeholder={t("aiSummary")} />
-          </div>
+          )}
 
           <div className="p-4 rounded-md bg-tan-50 border border-tan-200">
             <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -318,11 +329,11 @@ export default function Notes() {
       <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing?.title || t("view")} wide>
         {viewing && (
           <div id="note-print" className="space-y-4" data-testid="note-view">
-            {viewing.note_type === "daily" && <Letterhead settings={settings} />}
+            {["daily", "daily_no_ai"].includes(viewing.note_type) && <Letterhead settings={settings} />}
             <p className="text-xs text-stone-500">{patientName(viewing.patient_id)} · {viewing.author}
               {viewing.updated_by && <span> · {t("edited")}: {viewing.updated_by}</span>}</p>
 
-            {viewing.note_type === "daily" && (
+            {["daily", "daily_no_ai"].includes(viewing.note_type) && (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5 text-sm">
                 {viewing.dob && <div><span className="text-xs font-semibold text-stone-500">{t("dob")}: </span>{viewing.dob}</div>}
                 {viewing.gender && <div><span className="text-xs font-semibold text-stone-500">{t("gender")}: </span>{viewing.gender}</div>}

@@ -129,6 +129,14 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **View & Edit saved notes**: note cards now have View + Edit actions. View modal shows the full note (free/soap/daily) with letterhead + "Edited by" attribution + Print. Edit opens the pre-filled editor; `PUT /api/notes/{id}` updates + writes an audit `update` row (sets updated_at/updated_by; re-signs if signature changes).
 - Verified: backend curl (note create→edit persists, updated_by set) + frontend screenshots (view modal, edit pre-fill, letterhead edit/save global persist).
 
+## Iteration 18 (2026-06) — Staff signature, Doxy.me telehealth, note-summary merge, "sin AI" note
+- **Staff signature**: SignaturePad now supports image **upload** (`allowUpload`) in addition to draw. Providers can save a reusable **default signature** to their profile (`PUT /api/auth/signature`; returned in login + `/auth/me` as `default_signature`), which auto-applies to new notes, plus "Insert my signature" / "Save as my default" controls.
+- **Doxy.me telehealth** (replaces public Jitsi): `routers/telehealth.py` — `PUT /api/telehealth/my-room` (validated slug, strips `doxy.me/` prefix, stored per-provider) and `POST /api/telehealth/doxy-invite` (builds `doxy.me/<room>?username=&autocheckin=true&pid=<HMAC>`, optional email; no PHI in link). Telehealth page: room config, "Open My Waiting Room", per-appointment "Copy Patient Link". No API key needed; BAA required before production (see DEPLOYMENT.md).
+- **Note summary merge**: saved-note view + card no longer show an "AI SUMMARY" label; content and AI summary render together in one box.
+- **New "Progress Note sin AI"** note type (`daily_no_ai`): identical to the Daily Progress Note layout (letterhead + structured fields + notes) but with NO AI Summary section.
+- **Prod hardening documented** in `/app/memory/DEPLOYMENT.md` (SEED_DEMO_USERS=false, explicit CORS_ORIGINS, Doxy.me BAA) — preview left as-is per user.
+- Tested: 177/177 backend + full frontend regression (iteration 15) for signature/telehealth/view-edit; iteration 18 note-merge + sin-AI verified via screenshots.
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.
