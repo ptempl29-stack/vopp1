@@ -4,7 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
-import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature } from "lucide-react";
+import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, Copy, Link2, Send } from "lucide-react";
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
@@ -29,6 +29,43 @@ export default function Team() {
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "receptionist" });
   const [lhOpen, setLhOpen] = useState(false);
   const [lh, setLh] = useState({ clinic_name: "", tagline: "", address: "", phone: "", email: "", logo: "" });
+  const [invites, setInvites] = useState([]);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ email: "", role: "receptionist", allowed_tabs: [] });
+  const [createdLink, setCreatedLink] = useState("");
+
+  const loadInvites = () => api.get("/invites").then((r) => setInvites(r.data)).catch(() => {});
+  const inviteUrl = (tok) => `${window.location.origin}/accept-invite/${tok}`;
+
+  const openInvite = () => {
+    setCreatedLink("");
+    setInviteForm({ email: "", role: "receptionist", allowed_tabs: [] });
+    setInviteOpen(true);
+  };
+  const onInviteRole = (e) => setInviteForm((f) => ({ ...f, role: e.target.value }));
+  const toggleInviteTab = (tab) => setInviteForm((f) => ({
+    ...f, allowed_tabs: f.allowed_tabs.includes(tab) ? f.allowed_tabs.filter((x) => x !== tab) : [...f.allowed_tabs, tab],
+  }));
+  const createInvite = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = { email: inviteForm.email, role: inviteForm.role,
+        allowed_tabs: inviteForm.allowed_tabs.length ? inviteForm.allowed_tabs : null };
+      const r = await api.post("/invites", payload);
+      setCreatedLink(inviteUrl(r.data.token));
+      toast.success(t("inviteCreated"));
+      loadInvites();
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+  const copyInvite = (tok) => {
+    navigator.clipboard.writeText(inviteUrl(tok))
+      .then(() => toast.success(t("inviteCopied")))
+      .catch(() => toast.error(inviteUrl(tok)));
+  };
+  const revokeInvite = async (id) => {
+    try { await api.delete(`/invites/${id}`); loadInvites(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
 
   const openLetterhead = () => {
     api.get("/settings").then((r) => { setLh(r.data); setLhOpen(true); }).catch((e) => toast.error(apiErr(e)));
@@ -51,6 +88,7 @@ export default function Team() {
   const load = () => api.get("/users").then((r) => setUsers(r.data)).catch(() => {});
   useEffect(() => {
     load();
+    loadInvites();
     api.get("/meta/tabs").then((r) => { setRoles(r.data.roles); setDefaults(r.data.defaults); }).catch(() => {});
   }, []);
 
@@ -95,12 +133,14 @@ export default function Team() {
 
   return (
     <div>
-      <PageHeader title={t("team")} subtitle={t("teamSubtitle")}
-        action={<div className="flex gap-2">
+      <PageHeader title={t("settings")} subtitle={t("settingsSubtitle")}
+        action={<div className="flex gap-2 flex-wrap">
           <Btn variant="outline" onClick={openLetterhead} data-testid="edit-letterhead-btn"><FileSignature className="w-4 h-4" />{t("letterhead")}</Btn>
+          <Btn variant="outline" onClick={openInvite} data-testid="invite-staff-btn"><Mail className="w-4 h-4" />{t("inviteStaff")}</Btn>
           <Btn onClick={() => setAddOpen(true)} data-testid="add-user-btn"><UserPlus className="w-4 h-4" />{t("addUser")}</Btn>
         </div>} />
 
+      <h3 className="font-heading text-lg font-bold text-moneygreen-800 mb-3">{t("staffMembers")}</h3>
       <Card className="overflow-hidden">
         {users.length === 0 ? <Empty text={t("noData")} /> : (
           <div className="overflow-x-auto">
@@ -146,6 +186,85 @@ export default function Team() {
           </div>
         )}
       </Card>
+
+      <div className="mt-8">
+        <h3 className="font-heading text-lg font-bold text-moneygreen-800 mb-3">{t("invites")}</h3>
+        <Card className="overflow-hidden">
+          {invites.length === 0 ? <Empty text={t("noData")} /> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
+                    <th className="px-5 py-3">{t("email")}</th>
+                    <th className="px-5 py-3">{t("role")}</th>
+                    <th className="px-5 py-3">{t("status")}</th>
+                    <th className="px-5 py-3 text-right">{t("actions")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invites.map((iv, i) => (
+                    <tr key={iv.id} data-testid={`invite-row-${iv.id}`} className={`border-b border-border/60 ${i % 2 ? "bg-tan-50/40" : ""}`}>
+                      <td className="px-5 py-3 text-moneygreen-800 font-medium">{iv.email}</td>
+                      <td className="px-5 py-3"><Badge tone="tan">{iv.role}</Badge></td>
+                      <td className="px-5 py-3"><Badge tone={iv.status === "accepted" ? "green" : "amber"}>{iv.status === "accepted" ? t("accepted") : t("pending")}</Badge></td>
+                      <td className="px-5 py-3">
+                        <div className="flex justify-end gap-1">
+                          {iv.status === "pending" && (
+                            <Btn variant="outline" onClick={() => copyInvite(iv.token)} data-testid={`copy-invite-${iv.id}`}><Copy className="w-4 h-4" />{t("copyInviteLink")}</Btn>
+                          )}
+                          <Btn variant="ghost" onClick={() => revokeInvite(iv.id)} data-testid={`revoke-invite-${iv.id}`} className="!px-2 !text-destructive" title={t("revoke")}><Trash2 className="w-4 h-4" /></Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      <Modal open={inviteOpen} onClose={() => setInviteOpen(false)} title={t("inviteStaff")}>
+        {createdLink ? (
+          <div className="space-y-4" data-testid="invite-link-box">
+            <p className="text-sm text-stone-600">{t("inviteHint")}</p>
+            <div className="flex items-center gap-2 p-3 rounded-md bg-tan-50 border border-border">
+              <Link2 className="w-4 h-4 text-moneygreen-600 shrink-0" />
+              <span className="text-xs font-mono text-moneygreen-800 truncate flex-1" data-testid="invite-link-value">{createdLink}</span>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Btn variant="outline" onClick={() => { navigator.clipboard.writeText(createdLink); toast.success(t("inviteCopied")); }} data-testid="copy-created-invite"><Copy className="w-4 h-4" />{t("copyInviteLink")}</Btn>
+              <Btn onClick={() => setInviteOpen(false)}>{t("cancel")}</Btn>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={createInvite} className="space-y-4">
+            <Field label={t("email")}><input type="email" required value={inviteForm.email} onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })} className={inputCls} data-testid="invite-email" placeholder="employee@email.com" /></Field>
+            <Field label={t("role")}>
+              <select value={inviteForm.role} onChange={onInviteRole} className={inputCls} data-testid="invite-role">
+                {(roles.length ? roles : ["doctor", "nurse", "psychologist", "receptionist", "biller"]).filter((r) => r !== "admin").map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </Field>
+            <div>
+              <label className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500">{t("tabAccess")}</label>
+              <p className="text-xs text-stone-400 mt-1">{`Default: ${(defaults[inviteForm.role] || []).join(", ")}`}</p>
+              <div className="grid grid-cols-2 gap-2 mt-2" data-testid="invite-tabs-checklist">
+                {ALL_TABS.map((tab) => (
+                  <label key={tab} className="flex items-center gap-2 px-3 py-2 rounded-md border border-border cursor-pointer hover:bg-tan-50 transition-colors duration-200">
+                    <input type="checkbox" checked={inviteForm.allowed_tabs.includes(tab)} onChange={() => toggleInviteTab(tab)} data-testid={`invite-tab-${tab}`} className="w-4 h-4 accent-moneygreen-600" />
+                    <span className="text-sm capitalize text-moneygreen-800">{tab}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-stone-400 mt-2">{t("inviteHint")}</p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Btn variant="outline" type="button" onClick={() => setInviteOpen(false)}>{t("cancel")}</Btn>
+              <Btn type="submit" data-testid="create-invite-btn"><Send className="w-4 h-4" />{t("sendInvite")}</Btn>
+            </div>
+          </form>
+        )}
+      </Modal>
 
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title={t("newUser")}>
         <form onSubmit={createUser} className="space-y-4">

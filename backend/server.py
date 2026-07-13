@@ -16,13 +16,13 @@ from core.audit import set_client_ip
 from data.seed import CPT_LIBRARY, DEMO_USERS
 
 from routers import (auth, settings, patients, appointments, notes,
-                     billing, messages, forms, dashboard, audit, telehealth, claims)
+                     billing, messages, forms, dashboard, audit, telehealth, claims, invites)
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 for module in (auth, settings, patients, appointments, notes,
-               billing, messages, forms, dashboard, audit, telehealth, claims):
+               billing, messages, forms, dashboard, audit, telehealth, claims, invites):
     api_router.include_router(module.router)
 
 
@@ -41,6 +41,7 @@ async def startup():
     await db.login_attempts.create_index("identifier", unique=True)
     await db.login_attempts.create_index("expires_at", expireAfterSeconds=0)
     await db.forms.create_index("public_token")
+    await db.invites.create_index("token", unique=True)
     await db.audit_logs.create_index("expires_at", expireAfterSeconds=0)
     await db.audit_logs.create_index([("created_at", -1)])
     await db.audit_logs.create_index("actor_id")

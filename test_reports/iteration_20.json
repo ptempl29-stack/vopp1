@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 20 — Invite Staff feature. Backend: 10/10 pytest tests passing (admin RBAC on /api/invites POST/GET/DELETE, public GET/POST accept, single-use enforcement, password length validation, role=admin rejection, existing-email rejection, non-admin 403). Frontend: full UI flow verified — Settings page loads (gear icon in sidebar), Invite Staff modal shows email/role (no admin option)/tab checklist (including claims + audit), creating invite reveals copyable link, invite appears in Invitations table. Accept-invite page in fresh context shows clinic + role, form accepts name+password, redirects to dashboard with token set, reusing token shows invite-invalid, bogus token shows invite-invalid, doctor login cannot access /settings (no-access shown, no sidebar link).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter20_invites.py",
+    "/app/test_reports/pytest/iteration_20.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AcceptInvite modal shows role badge but not the invited email prominently — the email is present in a small stone-500 span, admins/testers may miss it. Minor UX nit.",
+    "Invite creation on Team.js does not clear the Invitations empty-state cache locally on the fly; refresh via loadInvites is triggered which is fine.",
+    "invites collection lacks compound index; consider unique index on email+status='pending' to prevent duplicate pending invites (currently allowed)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter20_invites.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100%"},
+  "test_credentials": "admin@vpp.com / VPP-Adm1n!2026-Str0ng#Key (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Test invites/users were created during pytest + UI test and cleaned up post-run via admin API. No lingering TEST_ data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Invite lifecycle fully covered. If extending: consider negative tests for duplicate pending invite for same email, invite created for role='admin' path (already covered — 400), and expiry (currently NO expiry by design).",
+  "rca of the issue": "N/A — no issues"
+}

@@ -130,3 +130,14 @@ class SettingsInput(BaseModel):
 
 class FormSubmission(BaseModel):
     responses: dict
+
+
+class InviteInput(BaseModel):
+    email: EmailStr
+    role: str = "receptionist"
+    allowed_tabs: Optional[List[str]] = None
+
+
+class InviteAccept(BaseModel):
+    name: str
+    password: str

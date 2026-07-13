@@ -17,6 +17,7 @@ import Messages from "./pages/Messages";
 import PublicForm from "./pages/PublicForm";
 import BillingReports from "./pages/BillingReports";
 import Team from "./pages/Team";
+import AcceptInvite from "./pages/AcceptInvite";
 import AuditLog from "./pages/AuditLog";
 import Claims from "./pages/Claims";
 import { Loader2 } from "lucide-react";
@@ -41,6 +42,7 @@ function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/form/:token" element={<PublicForm />} />
+              <Route path="/accept-invite/:token" element={<AcceptInvite />} />
               <Route path="/" element={<Protected tab="dashboard"><Dashboard /></Protected>} />
               <Route path="/patients" element={<Protected tab="patients"><Patients /></Protected>} />
               <Route path="/appointments" element={<Protected tab="appointments"><Appointments /></Protected>} />
@@ -52,6 +54,7 @@ function App() {
               <Route path="/forms" element={<Protected tab="forms"><Forms /></Protected>} />
               <Route path="/messages" element={<Protected tab="messages"><Messages /></Protected>} />
               <Route path="/team" element={<Protected tab="team"><Team /></Protected>} />
+              <Route path="/settings" element={<Protected tab="team"><Team /></Protected>} />
               <Route path="/audit" element={<Protected tab="audit"><AuditLog /></Protected>} />
               <Route path="/claims" element={<Protected tab="claims"><Claims /></Protected>} />
             </Routes>
