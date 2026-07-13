@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from core.db import db, now_iso
 from core.config import INVOICE_STATUSES
 from core.security import get_current_user, require_roles
+from core.audit import log_audit
 from models.schemas import CptInput, InvoiceInput
 
 router = APIRouter()
@@ -51,6 +52,7 @@ async def list_invoices(user: dict = Depends(require_roles("biller", "receptioni
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}" async for p in db.patients.find({}, {"_id": 0})}
     for inv in invoices:
         inv["patient_name"] = inv.get("patient_name") or patients.get(inv.get("patient_id"), "Unknown")
+    await log_audit("view", "invoice", actor=user, detail=f"list ({len(invoices)})")
     return invoices
 
 
@@ -82,6 +84,8 @@ async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles(
            "created_at": now_iso(), "created_by": user["name"]}
     await db.invoices.insert_one(doc)
     doc.pop("_id", None)
+    await log_audit("create", "invoice", actor=user, resource_id=doc["id"],
+                    detail=f"{number} · {name or ''} · ${doc['total']}")
     return doc
 
 
@@ -92,6 +96,7 @@ async def update_invoice_status(iid: str, status: str, user: dict = Depends(requ
     res = await db.invoices.update_one({"id": iid}, {"$set": {"status": status}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    await log_audit("update", "invoice", actor=user, resource_id=iid, detail=f"status={status}")
     return await db.invoices.find_one({"id": iid}, {"_id": 0})
 
 

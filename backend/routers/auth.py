@@ -8,6 +8,7 @@ from core.db import db, now_iso
 from core.config import ROLES, ALL_TABS, DEFAULT_TABS, MAX_LOGIN_ATTEMPTS, LOCKOUT_MINUTES
 from core.security import (hash_password, verify_password, create_access_token,
                            get_current_user, require_roles, effective_tabs)
+from core.audit import log_audit
 from models.schemas import LoginInput, RegisterInput, UpdateUserInput
 
 router = APIRouter()
@@ -36,10 +37,12 @@ async def login(data: LoginInput, request: Request):
         if new_count >= MAX_LOGIN_ATTEMPTS:
             update["locked_until"] = (now + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
         await db.login_attempts.update_one({"identifier": identifier}, {"$set": update}, upsert=True)
+        await log_audit("login_failed", "auth", detail=email)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     await db.login_attempts.delete_one({"identifier": identifier})
     token = create_access_token(user["id"], user["email"], user["role"])
+    await log_audit("login_success", "auth", actor=user)
     return {"token": token, "user": {"id": user["id"], "email": user["email"],
             "name": user["name"], "role": user["role"], "allowed_tabs": effective_tabs(user)}}
 

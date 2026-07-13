@@ -8,6 +8,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 from core.db import db, now_iso, logger
 from core.security import require_roles
+from core.audit import log_audit
 from models.schemas import NoteInput, SummarizeInput
 
 router = APIRouter()
@@ -17,6 +18,8 @@ router = APIRouter()
 async def list_notes(patient_id: Optional[str] = None, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
     q = {"patient_id": patient_id} if patient_id else {}
     notes = await db.notes.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    await log_audit("view", "note", actor=user,
+                    detail=f"list ({len(notes)})" + (f" patient={patient_id}" if patient_id else ""))
     return notes
 
 
@@ -37,6 +40,8 @@ async def create_note(data: NoteInput, user: dict = Depends(require_roles("docto
         doc["signed_at"] = now_iso()
     await db.notes.insert_one(doc)
     doc.pop("_id", None)
+    await log_audit("create", "note", actor=user, resource_id=doc["id"],
+                    detail=f"{doc.get('note_type','free')}: {doc.get('title','')}")
     return doc
 
 

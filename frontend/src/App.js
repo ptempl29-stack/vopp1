@@ -17,6 +17,7 @@ import Messages from "./pages/Messages";
 import PublicForm from "./pages/PublicForm";
 import BillingReports from "./pages/BillingReports";
 import Team from "./pages/Team";
+import AuditLog from "./pages/AuditLog";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children, tab }) {
@@ -50,6 +51,7 @@ function App() {
               <Route path="/forms" element={<Protected tab="forms"><Forms /></Protected>} />
               <Route path="/messages" element={<Protected tab="messages"><Messages /></Protected>} />
               <Route path="/team" element={<Protected tab="team"><Team /></Protected>} />
+              <Route path="/audit" element={<Protected tab="audit"><AuditLog /></Protected>} />
             </Routes>
           </BrowserRouter>
         </AuthProvider>

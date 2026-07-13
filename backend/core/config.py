@@ -19,7 +19,7 @@ PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
 APP_NAME = "vpp-clinic"
 
 ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
-            "invoices", "cpt", "reports", "forms", "messages", "team"]
+            "invoices", "cpt", "reports", "forms", "messages", "team", "audit"]
 DEFAULT_TABS = {
     "admin": ALL_TABS,
     "doctor": ["dashboard", "patients", "appointments", "telehealth", "notes", "forms", "messages"],

@@ -66,7 +66,11 @@ export default function Notes() {
     e.preventDefault();
     if (form.note_type === "soap" && !soapText(form).trim()) { toast.error(t("content")); return; }
     if (form.note_type === "daily" && !form.content.trim()) { toast.error(t("content")); return; }
-    try { await api.post("/notes", form); toast.success(t("save") + " ✓"); setOpen(false); setForm(blank); load(); }
+    const payload = { ...form };
+    if (form.note_type === "daily") {
+      payload.title = `${t("dailyNote")} — ${patientName(form.patient_id)}${form.visit_date ? ` · ${form.visit_date}` : ""}`;
+    }
+    try { await api.post("/notes", payload); toast.success(t("save") + " ✓"); setOpen(false); setForm(blank); load(); }
     catch (err) { toast.error(apiErr(err)); }
   };
 
@@ -143,15 +147,17 @@ export default function Notes() {
 
       <Modal open={open} onClose={() => setOpen(false)} title={t("newNote")} wide>
         <form onSubmit={save} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Field label={t("patient")}>
-              <select required value={form.patient_id} onChange={onPatient} className={inputCls} data-testid="nf-patient">
-                <option value="">—</option>
-                {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-              </select>
-            </Field>
-            <Field label={t("title")}><input required value={form.title} onChange={set("title")} className={inputCls} data-testid="nf-title" /></Field>
-          </div>
+          {form.note_type !== "daily" && (
+            <div className="grid grid-cols-2 gap-4">
+              <Field label={t("patient")}>
+                <select required value={form.patient_id} onChange={onPatient} className={inputCls} data-testid="nf-patient">
+                  <option value="">—</option>
+                  {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+                </select>
+              </Field>
+              <Field label={t("title")}><input required value={form.title} onChange={set("title")} className={inputCls} data-testid="nf-title" /></Field>
+            </div>
+          )}
 
           <Field label={t("noteType")}>
             <div className="grid grid-cols-3 gap-2">
@@ -190,6 +196,12 @@ export default function Notes() {
                 <Letterhead settings={settings} />
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+                <Field label={t("patient")}>
+                  <select required value={form.patient_id} onChange={onPatient} className={inputCls} data-testid="nf-patient">
+                    <option value="">{t("selectPatient")}</option>
+                    {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+                  </select>
+                </Field>
                 <Field label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={inputCls} data-testid="nf-dob" /></Field>
                 <Field label={t("gender")}>
                   <select value={form.gender || ""} onChange={set("gender")} className={inputCls} data-testid="nf-gender">

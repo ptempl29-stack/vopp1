@@ -12,17 +12,26 @@ from starlette.middleware.cors import CORSMiddleware
 from core.db import db, now_iso, logger, client
 from core.security import hash_password, verify_password
 from core.storage import init_storage
+from core.audit import set_client_ip
 from data.seed import CPT_LIBRARY, DEMO_USERS
 
 from routers import (auth, settings, patients, appointments, notes,
-                     billing, messages, forms, dashboard)
+                     billing, messages, forms, dashboard, audit)
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 for module in (auth, settings, patients, appointments, notes,
-               billing, messages, forms, dashboard):
+               billing, messages, forms, dashboard, audit):
     api_router.include_router(module.router)
+
+
+@app.middleware("http")
+async def capture_client_ip(request, call_next):
+    xff = request.headers.get("x-forwarded-for", "")
+    ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+    set_client_ip(ip)
+    return await call_next(request)
 
 
 @app.on_event("startup")
@@ -32,6 +41,9 @@ async def startup():
     await db.login_attempts.create_index("identifier", unique=True)
     await db.login_attempts.create_index("expires_at", expireAfterSeconds=0)
     await db.forms.create_index("public_token")
+    await db.audit_logs.create_index("expires_at", expireAfterSeconds=0)
+    await db.audit_logs.create_index([("created_at", -1)])
+    await db.audit_logs.create_index("actor_id")
     if await db.cpt_codes.count_documents({}) == 0:
         await db.cpt_codes.insert_many([
             {"id": str(uuid.uuid4()), **c, "created_at": now_iso()} for c in CPT_LIBRARY])

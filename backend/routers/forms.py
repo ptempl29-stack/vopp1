@@ -6,6 +6,7 @@ from fastapi.responses import Response
 from core.db import db, now_iso, logger
 from core.config import FORMS_ROLES, FORM_STATUSES, EXT_CONTENT_TYPES, APP_NAME, PUBLIC_BASE_URL
 from core.security import require_roles
+from core.audit import log_audit
 from core.storage import put_object, get_object
 from core.email_utils import send_email
 from models.schemas import FormInput, FormSubmission
@@ -20,6 +21,7 @@ async def list_forms(user: dict = Depends(require_roles("doctor", "nurse", "rece
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}" async for p in db.patients.find({}, {"_id": 0})}
     for f in forms:
         f["patient_name"] = patients.get(f.get("patient_id"), "-")
+    await log_audit("view", "form", actor=user, detail=f"list ({len(forms)})")
     return forms
 
 
@@ -45,6 +47,8 @@ async def create_form(data: FormInput, user: dict = Depends(require_roles(*FORMS
         doc["recipient_email"] = recipient
     await db.forms.insert_one(doc)
     doc.pop("_id", None)
+    await log_audit("create", "form", actor=user, resource_id=doc["id"],
+                    detail=f"{data.form_type}: {data.title}")
     return doc
 
 
@@ -73,6 +77,8 @@ async def upload_form(file: UploadFile = File(...), title: str = Form(...),
            "created_at": now_iso(), "created_by": user["name"]}
     await db.forms.insert_one(doc)
     doc.pop("_id", None)
+    await log_audit("create", "form", actor=user, resource_id=doc["id"],
+                    detail=f"upload: {file.filename}")
     return doc
 
 
@@ -83,6 +89,7 @@ async def download_form(fid: str, user: dict = Depends(require_roles(*FORMS_ROLE
         raise HTTPException(status_code=404, detail="Attachment not found")
     data, ctype = get_object(f["attachment"]["storage_path"])
     fname = f["attachment"]["filename"].replace('"', "").replace("\n", "").replace("\r", "")
+    await log_audit("view", "form", actor=user, resource_id=fid, detail=f"download: {fname}")
     return Response(content=data, media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{fname}"',
                  "X-Content-Type-Options": "nosniff"})
@@ -95,6 +102,7 @@ async def update_form_status(fid: str, status: str, user: dict = Depends(require
     res = await db.forms.update_one({"id": fid}, {"$set": {"status": status}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Form not found")
+    await log_audit("update", "form", actor=user, resource_id=fid, detail=f"status={status}")
     return await db.forms.find_one({"id": fid}, {"_id": 0})
 
 
