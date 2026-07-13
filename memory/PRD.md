@@ -137,6 +137,13 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Prod hardening documented** in `/app/memory/DEPLOYMENT.md` (SEED_DEMO_USERS=false, explicit CORS_ORIGINS, Doxy.me BAA) — preview left as-is per user.
 - Tested: 177/177 backend + full frontend regression (iteration 15) for signature/telehealth/view-edit; iteration 18 note-merge + sin-AI verified via screenshots.
 
+## Iteration 19 (2026-06) — Unified Progress Note editor
+- ALL four note types (Free Text, SOAP, Daily, Progress Note sin AI) now share the SAME header as the Daily note: editable letterhead + Patient, DOB, Gender, SSN, Visit Date, ICD-10-CM, Reason for Visit, Attending & Referring Provider — in the editor, the saved View, AND print (`#note-print` / `note-fields`).
+- Per-type body: Free Text/Daily/sin AI → single Notes box (`nf-content`); SOAP → S/O/A/P boxes. Title field removed entirely (auto-title `<Type> — <patient> · <date>`), patient required for all.
+- AI: removed the labeled "AI SUMMARY" editing box; a small "AI Summarize" button remains on Free Text/SOAP/Daily (absent on Progress Note sin AI). Generated summary merges into the note (no heading) on save/view. `nf-title` and `nf-summary` testids removed; unified body testid is `nf-content`.
+- Backend `POST/PUT /api/notes` persist all header fields for any note_type.
+- Tested: 187/187 backend pytest + 100% frontend (all 4 types unified-header contract, create, view, print, regression). No issues.
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.
