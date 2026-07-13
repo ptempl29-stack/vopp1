@@ -77,7 +77,7 @@ async def me(user: dict = Depends(get_current_user)):
 async def update_signature(payload: dict, user: dict = Depends(get_current_user)):
     sig = (payload or {}).get("signature", "")
     if sig and len(sig) > 800000:
-        raise HTTPException(status_code=400, detail="Signature image too large (max ~600KB)")
+        raise HTTPException(status_code=400, detail="Signature image too large (max ~800KB)")
     await db.users.update_one({"id": user["id"]}, {"$set": {"default_signature": sig}})
     return {"ok": True, "default_signature": sig}
 

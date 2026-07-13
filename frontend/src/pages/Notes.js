@@ -140,16 +140,11 @@ export default function Notes() {
                           <span className="text-stone-600">{v}</span>
                         </div>
                       ))}
+                    {n.summary && <p className="text-sm text-stone-600 whitespace-pre-wrap mt-1.5 line-clamp-3">{n.summary}</p>}
                   </div>
                 ) : (
-                  <p className="text-sm text-stone-600 whitespace-pre-wrap line-clamp-4">{n.content}</p>
-                )}
-                {n.summary && (
-                  <div className="mt-3 p-3 rounded-md bg-moneygreen-50 border border-moneygreen-100">
-                    <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5 mb-1">
-                      <Sparkles className="w-3.5 h-3.5" /> {t("aiSummary")}
-                    </p>
-                    <p className="text-sm text-moneygreen-800">{n.summary}</p>
+                  <div className="text-sm text-stone-600 whitespace-pre-wrap line-clamp-4">
+                    {n.content}{n.summary ? `\n\n${n.summary}` : ""}
                   </div>
                 )}
                 {n.signature && (
@@ -346,17 +341,14 @@ export default function Notes() {
                   .filter(([, v]) => v).map(([k, v, label]) => (
                     <div key={k} className="text-sm"><span className="font-bold text-moneygreen-700">{label}: </span><span className="text-stone-700 whitespace-pre-wrap">{v}</span></div>
                   ))}
+                {viewing.summary && <p className="text-sm text-stone-700 whitespace-pre-wrap pt-1">{viewing.summary}</p>}
               </div>
             ) : (
-              <p className="text-sm text-stone-700 whitespace-pre-wrap">{viewing.content}</p>
+              <p className="text-sm text-stone-700 whitespace-pre-wrap">
+                {viewing.content}{viewing.summary ? `\n\n${viewing.summary}` : ""}
+              </p>
             )}
 
-            {viewing.summary && (
-              <div className="p-3 rounded-md bg-moneygreen-50 border border-moneygreen-100">
-                <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5 mb-1"><Sparkles className="w-3.5 h-3.5" /> {t("aiSummary")}</p>
-                <p className="text-sm text-moneygreen-800 whitespace-pre-wrap">{viewing.summary}</p>
-              </div>
-            )}
             {viewing.signature && (
               <div className="pt-3 border-t border-border flex items-end justify-between">
                 <img src={viewing.signature} alt="signature" className="h-14 object-contain" />
