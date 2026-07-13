@@ -194,9 +194,16 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Frontend `AIAssistant.js`: conversation sidebar + chat thread + input (Enter to send, Shift+Enter newline), thinking indicator, "assistance only" disclaimer.
 - Tested: 11/11 backend pytest + 100% frontend (real LLM multi-turn recall, RBAC hide for biller, conversation CRUD, ownership isolation). No issues.
 
+## Iteration 26 (2026-06) — Admin site control: Suspend access + Role templates
+- **Suspend / Activate access**: users get an `active` flag; admin toggles it (`PUT /api/users/{id}/active`). Suspended users are blocked at login (403) AND existing JWT sessions are cut immediately (enforced in `get_current_user`). Safeguards: can't suspend self or any admin (400). UI: Status column (Active/Suspended) + suspend/restore toggle with confirm dialog in the Admin page.
+- **Role access templates**: admin edits default tabs per role from the UI (`GET/PUT /api/role-templates/{role}`, stored in `role_templates` collection). Optional "apply to all existing users of this role" bulk-updates their `allowed_tabs`. New users (register + invite) inherit the template via `core/roles.resolve_role_tabs`. `GET /api/meta/tabs` is template-aware. UI: Role Access cards + edit modal.
+- **Rename**: "Settings" page → **"Admin"** (label only; route /settings unchanged). Houses Staff (+status/suspend), Role Access, Invitations, Clinic Letterhead.
+- Also fixed ui-kit `Badge`/`Card` to forward props (`data-testid`) — improves testability app-wide.
+- Tested: 13/13 backend pytest + 100% frontend (suspend blocks login + kills sessions, safeguards, role template save/apply/inherit, RBAC, regression). No issues.
+
 ## Backlog / Next
 - P2: Stripe payment gateway for invoices.
-- Enhancement: render markdown in assistant replies (currently plain text); stream tokens (SSE) for faster perceived response.
+- Enhancement: markdown rendering + token streaming for AI assistant replies.
 - P3: In-browser .docx/.xlsx editing — DECIDED NOT building (keep download/upload-back flow).
 
 ## Earlier backlog
