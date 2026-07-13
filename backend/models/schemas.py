@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class LoginInput(BaseModel):
@@ -122,7 +122,7 @@ class SettingsInput(BaseModel):
     address: Optional[str] = ""
     phone: Optional[str] = ""
     email: Optional[str] = ""
-    whatsapp: Optional[str] = ""
+    whatsapp: Optional[str] = Field(default="", max_length=40)
     mailing_address: Optional[str] = ""
     primary_insurance: Optional[str] = ""
     logo: Optional[str] = ""

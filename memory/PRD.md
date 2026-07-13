@@ -144,6 +144,14 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Backend `POST/PUT /api/notes` persist all header fields for any note_type.
 - Tested: 187/187 backend pytest + 100% frontend (all 4 types unified-header contract, create, view, print, regression). No issues.
 
+## Iteration 20 (2026-06) — WhatsApp header, blank templates, WhatsApp send, patient upload-back
+- **WhatsApp number** added to clinic letterhead (`settings.whatsapp`, max 40 chars): displayed in `Letterhead`, editable in `EditableLetterhead` (notes) + Team → Clinic Letterhead (`lh-whatsapp`).
+- **Blank downloadable templates**: `GET /api/forms/blank-template/{docx|xlsx|pdf}` (FORMS_ROLES) generate blank Word/Excel/PDF with the clinic name (python-docx / openpyxl / fpdf2). Forms header buttons `tpl-docx/xlsx/pdf-btn`.
+- **Send via WhatsApp**: Forms row button (`whatsapp-<id>`) opens `wa.me/<patientPhone>?text=<clinic + form link>`.
+- **Patient upload-back**: `POST /api/public/forms/{token}/upload` (no auth, allowed exts, 15MB cap, blocks re-upload after `received`); public form page shows an upload section (`pf-doc-file`, `pf-doc-upload-btn`). `GET /api/public/forms/{token}` now returns `has_template`/`has_attachment`. Staff view/download returned file via existing `GET /api/forms/{id}/download` (octet-stream + nosniff).
+- **KNOWN LIMITATION (not built)**: true in-app editing of Word/Excel/PDF *content* requires a document-editing server (OnlyOffice/Collabora) — not feasible in this container. Online form-field forms remain fully editable; documents are view/download/store/replace only.
+- Tested: 210/210 backend pytest + 100% frontend; plus re-upload guard (400) and whatsapp max-length (422) verified via curl.
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.

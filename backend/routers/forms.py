@@ -215,6 +215,8 @@ async def public_upload_back(token: str, file: UploadFile = File(...)):
     f = await db.forms.find_one({"public_token": token})
     if not f:
         raise HTTPException(status_code=404, detail="Form not found")
+    if f.get("status") == "received":
+        raise HTTPException(status_code=400, detail="This form has already been submitted")
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "bin"
     allowed = {"pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "txt", "xls", "xlsx"}
     if ext not in allowed:
