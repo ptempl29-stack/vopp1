@@ -175,9 +175,17 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Send forms via SMS (Twilio)**: `POST /api/forms/{fid}/send-sms` (FORMS_ROLES) texts the patient the secure form link via `core/sms_utils.py` (twilio SDK). Env-gated (`TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_PHONE_NUMBER` — currently EMPTY) → returns `{sent:false, configured:false}` and the Forms SMS button (`sms-{id}`, next to WhatsApp) shows a friendly "SMS not configured" toast. ⚠️ SMS SENDING IS INACTIVE until the user adds Twilio credentials.
 - Tested: 15/15 backend pytest + 100% frontend (both flows, RBAC 403, graceful unconfigured SMS, regression). No issues.
 
+## Iteration 23 (2026-06) — Admin Settings area + Staff Invite flow
+- **Settings** (gear) sidebar item (admin-only, `team` tab) — the former "Team" page relabeled and expanded to house Staff Members, Role/Tab access, Clinic Letterhead, and Invitations. Routes: `/settings` (and legacy `/team` still works).
+- **Invite Staff**: admin creates an invite (`POST /api/invites`) picking email + role (admin role rejected) + allowed tabs → generates a single-use, no-expiry copyable link `/accept-invite/{token}` (token via `secrets.token_urlsafe(32)`). Invitations table lists pending/accepted with copy-link + revoke (`GET`/`DELETE /api/invites`).
+- **Accept flow** (public, no auth): `GET /api/public/invites/{token}` shows invited email/role; `POST /api/public/invites/{token}/accept` (name + password) creates the user with the invite's role + tabs, marks the invite accepted (single-use), and returns a JWT so the new staffer is logged straight in. New public page `AcceptInvite.js`.
+- RBAC: non-admin 403 on invite endpoints; existing-email → 400; reused/invalid token → 400/404.
+- Tested: 10/10 backend pytest + 100% frontend (create→copy link→accept→login with assigned tabs, single-use, RBAC). No issues.
+- Note: invites allow multiple pending per email (no dedupe); acceptable.
+
 ## Backlog / Next
 - P2: Stripe payment gateway for invoices.
 - P2: Unicode font for invoice/claim PDFs (accents/ñ support).
 - P3: Real in-browser .docx/.xlsx editing (OnlyOffice/Collabora) — deferred, container constraints.
 
-## Superseded backlog
+## Earlier backlog
