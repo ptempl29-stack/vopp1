@@ -172,6 +172,19 @@ export default function Team() {
         </div>} />
 
       <h3 className="font-heading text-lg font-bold text-moneygreen-800 mb-3">{t("staffMembers")}</h3>
+
+      {users.filter((u) => u.role === "admin").length < 2 && (
+        <div data-testid="lockout-banner" className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+          <div className="flex items-start gap-3 flex-1">
+            <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-amber-800 text-sm">{t("lockoutTitle")}</p>
+              <p className="text-sm text-amber-700">{t("lockoutMsg")}</p>
+            </div>
+          </div>
+          <Btn onClick={() => navigate("/enroll")} data-testid="enroll-backup-admin-btn" className="shrink-0"><UserPlus className="w-4 h-4" />{t("enrollBackupAdmin")}</Btn>
+        </div>
+      )}
       <Card className="overflow-hidden">
         {users.length === 0 ? <Empty text={t("noData")} /> : (
           <div className="overflow-x-auto">

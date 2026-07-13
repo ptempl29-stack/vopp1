@@ -228,8 +228,13 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Cleaned leftover test data (52 test invoices, test users/patients). DB now: 1 real admin (usvopp@yahoo.com), 1 patient, 27 real invoices.
 - Verified: 15/15 backend regression tests pass (testing agent, iteration_24), real admin logs in, no demo panel.
 
+## Iteration 31 (2026-06) — Backup-admin / lockout prevention
+- **Enroll Staff** page now allows selecting the **admin** role, so an admin can create a second/backup administrator (full ALL_TABS access). Backend `/auth/register` already permits `admin`.
+- **Lockout-prevention banner**: the Admin page shows an amber reminder ("Protect against lockout") with an "Enroll a second admin" button whenever fewer than 2 admins exist; it disappears once a second admin is added.
+- Verified: create-admin via enrollment → logs in as admin with 14 tabs → admin count = 2 (banner clears). Throwaway removed; only real admin remains.
+
 ## In progress / Pending
-- **AI assistant markdown + streaming**: `react-markdown`+`remark-gfm` installed; SSE `stream_message` endpoint + markdown rendering NOT yet wired. Resume here.
+- **AI assistant markdown + streaming**: `react-markdown`+`remark-gfm` installed; SSE endpoint + rendering not yet wired.
 
 ## Backlog / Next
 - P2: Stripe payment gateway for invoices.

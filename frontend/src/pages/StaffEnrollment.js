@@ -80,7 +80,7 @@ export default function StaffEnrollment() {
     );
   }
 
-  const roleList = (roles.length ? roles : ["doctor", "nurse", "psychologist", "receptionist", "biller"]).filter((r) => r !== "admin");
+  const roleList = (roles.length ? roles : ["admin", "doctor", "nurse", "psychologist", "receptionist", "biller"]);
 
   return (
     <div data-testid="staff-enrollment-page">
