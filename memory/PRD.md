@@ -118,6 +118,17 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - P3 (error leak): `/api/notes/summarize` no longer returns the raw LLM exception; returns a generic message and logs server-side.
 - ACCEPTED for PREVIEW (production-config items, unchanged): SEC-002 demo seeding active (`SEED_DEMO_USERS=true`, weak demo passwords) for demo usability — MUST be `false` + strong passwords in production; wildcard CORS; XFF-based lockout (needs trusted proxy in prod); localStorage token; patient directory readable by all staff (small-clinic design); HIPAA data-at-rest + BAA video remain prod items.
 
+## Iteration 16 (2026-06) — HIPAA Audit Log
+- New `audit_logs` collection + `core/audit.py` (`log_audit`, IP via middleware contextvar, 2-year TTL) + `routers/audit.py` (`GET /api/audit`, admin-only, filters: resource/action/date-range + pagination).
+- Captures **views + changes** across Patients, Notes, Invoices, Forms + login success/failed. Admin-only "Audit Log" sidebar page (`AuditLog.js`) with filters, pagination, IP/actor columns. New `audit` tab in ALL_TABS.
+- Tested: 155/155 backend, frontend E2E (admin-only nav, filters, pagination).
+
+## Iteration 17 (2026-06) — Editable letterhead + Daily Note UI + View/Edit notes
+- **Editable letterhead**: `EditableLetterhead` component in the Daily Progress Note edits clinic info inline and saves GLOBALLY via `PUT /api/settings` (now allowed for admin+doctor+nurse+psychologist; 403 for receptionist/biller). Fields: clinic name, tagline, physical address, email, phone, mailing address, logo (no primary insurance). Reflects on forms/invoices.
+- **Daily Note UI**: patient dropdown moved beneath the letterhead (before DOB); Title field removed (auto-generated title `Daily Progress Note — <patient> · <date>`).
+- **View & Edit saved notes**: note cards now have View + Edit actions. View modal shows the full note (free/soap/daily) with letterhead + "Edited by" attribution + Print. Edit opens the pre-filled editor; `PUT /api/notes/{id}` updates + writes an audit `update` row (sets updated_at/updated_by; re-signs if signature changes).
+- Verified: backend curl (note create→edit persists, updated_by set) + frontend screenshots (view modal, edit pre-fill, letterhead edit/save global persist).
+
 ## Backlog / tech-debt notes
 - Split `server.py` (~780 lines) into per-resource routers.
 - Billing report aggregates in Python; move to Mongo aggregation pipeline past ~10k invoices.

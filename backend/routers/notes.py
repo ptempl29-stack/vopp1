@@ -45,6 +45,31 @@ async def create_note(data: NoteInput, user: dict = Depends(require_roles("docto
     return doc
 
 
+@router.put("/notes/{nid}")
+async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
+    existing = await db.notes.find_one({"id": nid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Note not found")
+    doc = data.model_dump()
+    if doc.get("signature") and len(doc["signature"]) > 600000:
+        raise HTTPException(status_code=400, detail="Signature too large")
+    if doc.get("note_type") == "soap" and not doc.get("content"):
+        parts = [("S", doc.get("subjective")), ("O", doc.get("objective")),
+                 ("A", doc.get("assessment")), ("P", doc.get("plan"))]
+        doc["content"] = "\n".join(f"{k}: {v}" for k, v in parts if v)
+    if not doc.get("content"):
+        raise HTTPException(status_code=400, detail="Note content is required")
+    doc["updated_at"] = now_iso()
+    doc["updated_by"] = user["name"]
+    if doc.get("signature") and doc.get("signature") != existing.get("signature"):
+        doc["signed_by"] = user["name"]
+        doc["signed_at"] = now_iso()
+    await db.notes.update_one({"id": nid}, {"$set": doc})
+    await log_audit("update", "note", actor=user, resource_id=nid,
+                    detail=f"{doc.get('note_type','free')}: {doc.get('title','')}")
+    return await db.notes.find_one({"id": nid}, {"_id": 0})
+
+
 @router.post("/notes/summarize")
 async def summarize_note(data: SummarizeInput, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
     if not data.content.strip():

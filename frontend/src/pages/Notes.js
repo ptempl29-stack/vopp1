@@ -7,7 +7,7 @@ import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Stethoscope } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Stethoscope, Eye, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 const reasons = ["General Consultation", "Physical Therapy", "Therapeutic Massage", "Relaxing Massage", "Evaluation", "Follow-up", "Re-evaluation", "Psychotherapy", "Group Therapy"];
@@ -30,6 +30,8 @@ export default function Notes() {
   const [settings, setSettings] = useState(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blank);
+  const [editId, setEditId] = useState(null);
+  const [viewing, setViewing] = useState(null);
   const [summarizing, setSummarizing] = useState(false);
 
   const load = () => api.get("/notes").then((r) => setNotes(r.data)).catch(() => {});
@@ -70,9 +72,15 @@ export default function Notes() {
     if (form.note_type === "daily") {
       payload.title = `${t("dailyNote")} — ${patientName(form.patient_id)}${form.visit_date ? ` · ${form.visit_date}` : ""}`;
     }
-    try { await api.post("/notes", payload); toast.success(t("save") + " ✓"); setOpen(false); setForm(blank); load(); }
-    catch (err) { toast.error(apiErr(err)); }
+    try {
+      if (editId) await api.put(`/notes/${editId}`, payload);
+      else await api.post("/notes", payload);
+      toast.success(t("save") + " ✓"); setOpen(false); setEditId(null); setForm(blank); load();
+    } catch (err) { toast.error(apiErr(err)); }
   };
+
+  const openNew = () => { setForm(blank); setEditId(null); setOpen(true); };
+  const openEdit = (n) => { setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setOpen(true); };
 
   const patientName = (id) => {
     const p = patients.find((x) => x.id === id);
@@ -82,7 +90,7 @@ export default function Notes() {
   return (
     <div>
       <PageHeader title={t("notes")} subtitle={`${notes.length}`}
-        action={allowed && <Btn onClick={() => { setForm(blank); setOpen(true); }} data-testid="add-note-btn"><Plus className="w-4 h-4" />{t("newNote")}</Btn>} />
+        action={allowed && <Btn onClick={openNew} data-testid="add-note-btn"><Plus className="w-4 h-4" />{t("newNote")}</Btn>} />
 
       {notes.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -139,13 +147,17 @@ export default function Notes() {
                     <p className="text-xs text-stone-500 text-right">{t("signedBy")}<br /><span className="font-semibold text-moneygreen-700">{n.signed_by}</span></p>
                   </div>
                 )}
+                <div className="mt-3 pt-3 border-t border-border flex justify-end gap-2">
+                  <Btn variant="outline" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`}><Eye className="w-4 h-4" />{t("view")}</Btn>
+                  {allowed && <Btn variant="outline" onClick={() => openEdit(n)} data-testid={`edit-note-${n.id}`}><Pencil className="w-4 h-4" />{t("edit")}</Btn>}
+                </div>
               </Card>
             </motion.div>
           ))}
         </div>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title={t("newNote")} wide>
+      <Modal open={open} onClose={() => { setOpen(false); setEditId(null); }} title={editId ? t("editNote") : t("newNote")} wide>
         <form onSubmit={save} className="space-y-4">
           {form.note_type !== "daily" && (
             <div className="grid grid-cols-2 gap-4">
@@ -278,10 +290,62 @@ export default function Notes() {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Btn variant="outline" type="button" onClick={() => setOpen(false)}>{t("cancel")}</Btn>
+            <Btn variant="outline" type="button" onClick={() => { setOpen(false); setEditId(null); }}>{t("cancel")}</Btn>
             <Btn type="submit" data-testid="save-note-btn">{t("save")}</Btn>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing?.title || t("view")} wide>
+        {viewing && (
+          <div id="note-print" className="space-y-4" data-testid="note-view">
+            {viewing.note_type === "daily" && <Letterhead settings={settings} />}
+            <p className="text-xs text-stone-500">{patientName(viewing.patient_id)} · {viewing.author}
+              {viewing.updated_by && <span> · {t("edited")}: {viewing.updated_by}</span>}</p>
+
+            {viewing.note_type === "daily" && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5 text-sm">
+                {viewing.dob && <div><span className="text-xs font-semibold text-stone-500">{t("dob")}: </span>{viewing.dob}</div>}
+                {viewing.gender && <div><span className="text-xs font-semibold text-stone-500">{t("gender")}: </span>{viewing.gender}</div>}
+                {viewing.ssn && <div><span className="text-xs font-semibold text-stone-500">SSN: </span>{viewing.ssn}</div>}
+                {viewing.visit_date && <div><span className="text-xs font-semibold text-stone-500">{t("visitDate")}: </span>{viewing.visit_date}</div>}
+                {viewing.icd10 && <div><span className="text-xs font-semibold text-stone-500">ICD-10-CM: </span>{viewing.icd10}</div>}
+                {viewing.reason_for_visit && <div><span className="text-xs font-semibold text-stone-500">{t("reasonForVisit")}: </span>{viewing.reason_for_visit}</div>}
+                {viewing.attending_provider && <div><span className="text-xs font-semibold text-stone-500">{t("attendingProvider")}: </span>{viewing.attending_provider}</div>}
+                {viewing.referring_provider && <div><span className="text-xs font-semibold text-stone-500">{t("referringProvider")}: </span>{viewing.referring_provider}</div>}
+              </div>
+            )}
+
+            {viewing.note_type === "soap" ? (
+              <div className="space-y-2">
+                {[["S", viewing.subjective, t("soapS")], ["O", viewing.objective, t("soapO")], ["A", viewing.assessment, t("soapA")], ["P", viewing.plan, t("soapP")]]
+                  .filter(([, v]) => v).map(([k, v, label]) => (
+                    <div key={k} className="text-sm"><span className="font-bold text-moneygreen-700">{label}: </span><span className="text-stone-700 whitespace-pre-wrap">{v}</span></div>
+                  ))}
+              </div>
+            ) : (
+              <p className="text-sm text-stone-700 whitespace-pre-wrap">{viewing.content}</p>
+            )}
+
+            {viewing.summary && (
+              <div className="p-3 rounded-md bg-moneygreen-50 border border-moneygreen-100">
+                <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5 mb-1"><Sparkles className="w-3.5 h-3.5" /> {t("aiSummary")}</p>
+                <p className="text-sm text-moneygreen-800 whitespace-pre-wrap">{viewing.summary}</p>
+              </div>
+            )}
+            {viewing.signature && (
+              <div className="pt-3 border-t border-border flex items-end justify-between">
+                <img src={viewing.signature} alt="signature" className="h-14 object-contain" />
+                <p className="text-xs text-stone-500 text-right">{t("signedBy")}<br /><span className="font-semibold text-moneygreen-700">{viewing.signed_by}</span></p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 no-print">
+              <Btn variant="outline" onClick={() => window.print()} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
+              {allowed && <Btn onClick={() => openEdit(viewing)} data-testid="view-edit-btn"><Pencil className="w-4 h-4" />{t("edit")}</Btn>}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
