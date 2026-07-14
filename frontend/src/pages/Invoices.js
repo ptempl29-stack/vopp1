@@ -17,8 +17,8 @@ const emptyInvoice = {
 };
 const reasons = ["General Consultation", "Physical Therapy", "Therapeutic Massage", "Relaxing Massage", "Evaluation", "Follow-up", "Re-evaluation", "Psychotherapy", "Group Therapy"];
 const STATUSES = ["in_transit", "paid", "denied"];
-const statusTone = { paid: "green", in_transit: "amber", denied: "red", unpaid: "amber", void: "gray" };
-const statusKey = { in_transit: "inTransit", paid: "paid", denied: "denied", unpaid: "unpaid", void: "draft" };
+const statusTone = { paid: "green", in_transit: "amber", denied: "red", unpaid: "amber", void: "gray", outstanding: "amber" };
+const statusKey = { in_transit: "inTransit", paid: "paid", denied: "denied", unpaid: "unpaid", void: "draft", outstanding: "outstanding" };
 
 const cellCls = "w-full px-2 py-1.5 rounded-md bg-white border border-border focus:outline-none focus:ring-2 focus:ring-moneygreen-500 text-sm";
 
@@ -54,7 +54,9 @@ export default function Invoices() {
     loadNumber();
   }, []);
 
-  const shownInvoices = statusFilter ? invoices.filter((v) => v.status === statusFilter) : invoices;
+  const shownInvoices = statusFilter
+    ? invoices.filter((v) => (statusFilter === "outstanding" ? v.status !== "paid" : v.status === statusFilter))
+    : invoices;
 
   const onPatient = (e) => {
     const p = patients.find((x) => x.id === e.target.value);

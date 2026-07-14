@@ -20,7 +20,7 @@ async def stats(user: dict = Depends(get_current_user)):
             "summary": {"$in": [None, ""]},
             "note_type": {"$ne": "daily_no_ai"},
         }),
-        "unpaid_invoices": await db.invoices.count_documents({"status": "unpaid"}),
+        "unpaid_invoices": await db.invoices.count_documents({"status": {"$ne": "paid"}}),
         "pending_forms": await db.forms.count_documents({"status": {"$in": ["sent", "pending"]}}),
         "unread_messages": await db.messages.count_documents({"to_user_id": user["id"], "read": False}),
     }

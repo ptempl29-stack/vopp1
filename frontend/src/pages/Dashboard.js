@@ -20,7 +20,7 @@ export default function Dashboard() {
     { key: "totalPatients", value: stats?.patients, icon: Users, tone: "moneygreen-600", to: "/patients" },
     { key: "apptToday", value: stats?.appointments_today, icon: CalendarClock, tone: "moneygreen-500", to: "/appointments?date=today" },
     { key: "totalAppointments", value: stats?.appointments_total, icon: CalendarDays, tone: "tan-400", to: "/appointments" },
-    { key: "unpaidInvoices", value: stats?.unpaid_invoices, icon: ReceiptText, tone: "stone-500", to: "/invoices?status=unpaid" },
+    { key: "unpaidInvoices", value: stats?.unpaid_invoices, icon: ReceiptText, tone: "stone-500", to: "/invoices?status=outstanding" },
     { key: "pendingNotes", value: stats?.pending_notes, icon: FileText, tone: "moneygreen-600", to: "/notes" },
     { key: "pendingForms", value: stats?.pending_forms, icon: ClipboardList, tone: "tan-400", to: "/forms?status=pending" },
     { key: "unreadMessages", value: stats?.unread_messages, icon: MessageSquare, tone: "moneygreen-500", to: "/messages" },

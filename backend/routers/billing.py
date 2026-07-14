@@ -178,7 +178,7 @@ async def billing_report(start: Optional[str] = None, end: Optional[str] = None,
 
     total_billed = sum(i.get("total", 0) for i in invoices)
     collected = sum(i.get("total", 0) for i in invoices if i.get("status") == "paid")
-    outstanding = sum(i.get("total", 0) for i in invoices if i.get("status") == "unpaid")
+    outstanding = sum(i.get("total", 0) for i in invoices if i.get("status") != "paid")
 
     by_day = {}
     for i in invoices:
