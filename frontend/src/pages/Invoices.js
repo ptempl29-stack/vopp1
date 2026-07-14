@@ -50,7 +50,7 @@ export default function Invoices() {
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
     api.get("/cpt-codes").then((r) => setCpt(r.data)).catch(() => {});
-    api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "psychologist", "nurse"].includes(u.role)))).catch(() => {});
+    api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "psychologist", "nurse", "admin"].includes(u.role)))).catch(() => {});
     loadInvoices();
     loadNumber();
   }, []);

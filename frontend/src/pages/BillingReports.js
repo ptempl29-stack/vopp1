@@ -41,7 +41,7 @@ export default function BillingReports() {
   useEffect(() => {
     load();
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
-    api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "psychologist", "nurse"].includes(u.role)))).catch(() => {});
+    api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "psychologist", "nurse", "admin"].includes(u.role)))).catch(() => {});
   }, []);
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [patientId, provider, apptType]);
 

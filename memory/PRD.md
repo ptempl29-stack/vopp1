@@ -241,8 +241,19 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Verified: testing agent iteration_25 — 10/10 backend PASS, 100% frontend e2e, zero browser confirm dialogs, RBAC skipped-toast path confirmed. No regressions.
 - Note (pre-existing, not a regression): some appointment cards show patient "Unknown" (orphan appts referencing deleted patients).
 
+## Iteration 33 (2026-06) — Progress Notes redesign, Privacy mode, Patient SSN, Billing Reports upgrade, ICD memory, Invoice status realignment
+- **Invoice status model**: replaced unpaid/paid/void with **In Transit / Paid / Denied** (+legacy kept). Dashboard "Unpaid Invoices" and Billing "Outstanding" now = everything NOT Paid; dashboard card links to `/invoices?status=outstanding`.
+- **Invoice tab (prior iter 32 base)**: view/edit/delete, select-all + bulk delete (no confirm), inline status change, auto-increment invoice number after save, single-invoice print (one #invoice-print at a time).
+- **Progress Notes redesign**: editable stacked header (Patient Name, DOB, Social Security, Date of Session, ICD-10, CPT, Risk Assessment dropdown [Low/Moderate/High/Imminent], Provider) + full-width **blank writing page** (old boxed textarea removed). Note renders identically on screen / save / PDF. **PDF fix**: textarea is `.no-print` with a `.print-only` body sibling; print CSS strips input borders → clean single-note PDF. NoteInput +cpt_code +risk_level.
+- **ICD-10 / CPT memory**: `GET /api/notes/patient-code-history` returns codes previously used for a patient; Notes editor shows clickable suggestion chips on patient select.
+- **Patients SSN**: PatientInput +ssn; SSN field in form + detail. Name/DOB/SSN auto-flow into Invoices & Notes on patient select.
+- **Privacy mode**: `PrivacyContext` + `<Private>` component + header toggle (next to EN/ES). Masks patient Name/SSN/DOB across Patients, Notes, Invoices, Billing Reports; click-to-reveal, click-again-to-hide. (In-memory; resets on hard reload.)
+- **Billing Reports upgrade**: lookup dropdowns By Patient / By Doctor / By Appointment Type; Revenue-by-Patient bar chart; invoice list with select-all + bulk delete + inline status edit + single delete; CSV export retained. `GET /api/reports/billing` accepts patient_id/provider/appointment_type and returns patient_breakdown + invoices[].
+- **Provider dropdowns** now include admin (sole clinical user selectable).
+- Verified: testing_agent iteration_28 — 100% frontend, backend curl-verified, zero bugs, no-confirm deletes, no regressions.
+
 ## In progress / Pending
-- **AI assistant markdown + streaming**: `react-markdown`+`remark-gfm` installed; SSE endpoint + rendering not yet wired.
+- (none active)
 
 ## Backlog / Next
 - P2: Stripe payment gateway for invoices.
