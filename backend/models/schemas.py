@@ -102,7 +102,7 @@ class InvoiceInput(BaseModel):
     icd10: Optional[str] = None
     provider: Optional[str] = None
     items: List[InvoiceItem]
-    status: str = "unpaid"
+    status: str = "in_transit"
     notes: Optional[str] = None
 
 

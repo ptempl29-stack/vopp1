@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 27 — Invoice tab overhaul end-to-end test. Backend (billing.py) previously curl-verified by main agent; this pass focused on frontend. All 8 acceptance criteria pass: single '#invoice-print' rule, auto-increment invoice number, status dropdown (In Transit/Paid/Denied) both in editor and inline row, view modal single-invoice render, edit from view modal, edit save resets editor to next number, single + bulk delete without confirm dialog, dashboard filter regression.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Saved Invoices table", "issues": ["Some legacy rows show blank Invoice Number '—' and Patient 'Unknown' — likely pre-existing invoices missing invoice_number/patient_id; cosmetic only. Not part of this task."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration_25.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Invoices.js is 460 lines — approaching split threshold; consider extracting the view-modal, editor, saved-list, and note-modal into subcomponents to improve maintainability.",
+    "Row status <select> re-derives value with `STATUSES.includes(v.status) ? v.status : 'in_transit'` which silently masks legacy statuses like 'unpaid'/'void' in the UI — user cannot see or restore them from the row select. If that is intentional (only 3 choices going forward) it's fine; otherwise flag legacy statuses (e.g. show them read-only)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (main-agent verified)", "frontend": "100% (10/10 flows)"},
+  "test_credentials": "Admin usvopp@yahoo.com / Football2023? (worked)",
+  "seed_data_creation": "Created ~4 throwaway invoices during test — ALL deleted at end (verified via bulk_deleted_all=True and delete_removed=True). Pre-existing real invoices preserved.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "verified_flows": {
+    "invoice_print_editor_only_state": "exactly 1 #invoice-print (in editor)",
+    "invoice_print_when_viewing": "exactly 1 #invoice-print (inside modal[data-testid=invoice-view]); editor container renamed to #editor-doc — single-invoice print rule satisfied",
+    "invoice_print_edit_mode_from_modal": "exactly 1 #invoice-print (back to editor after view-edit-btn closes modal)",
+    "auto_increment": "MB-0028 → MB-0029 after save; another increment after edit-save",
+    "status_editor_default": "in_transit",
+    "status_editor_options": "['in_transit','paid','denied']",
+    "status_row_options": "['in_transit','paid','denied']",
+    "status_change_persist": "paid → persisted across reload",
+    "edit_from_view_modal": "loads invoice into editor with correct number MB-0028 (matches originally-viewed invoice)",
+    "edit_save_updates_total": "2 units × $75 = $150 shown in row",
+    "editor_reset_after_edit_save": "editor advanced to next number (was MB-0028, becomes MB-0029)",
+    "single_delete_no_confirm": "no native dialog fired (verified via page.on('dialog'))",
+    "bulk_delete_no_confirm": "no native dialog fired (verified via page.on('dialog'))",
+    "bulk_delete_removes_all_selected": true,
+    "dashboard_filter_regression": "/invoices?status=in_transit shows invoice-status-filter badge; filter works",
+    "no_console_errors": "none observed"
+  },
+  "context_for_next_testing_agent": "Frontend Invoices tab is fully verified. Test used dialog listener (page.on('dialog')) — that is the reliable way to detect native confirms; overriding window.confirm inside page.evaluate is flaky in this app. The saved list contains legacy rows with missing invoice_number/patient_name shown as '—'/'Unknown' — pre-existing data, not a regression."
+}

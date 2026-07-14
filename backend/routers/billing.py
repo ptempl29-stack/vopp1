@@ -10,7 +10,7 @@ from core.db import db, now_iso
 from core.config import INVOICE_STATUSES
 from core.security import get_current_user, require_roles
 from core.audit import log_audit
-from models.schemas import CptInput, InvoiceInput
+from models.schemas import CptInput, InvoiceInput, IdList
 
 router = APIRouter()
 
@@ -99,6 +99,67 @@ async def update_invoice_status(iid: str, status: str, user: dict = Depends(requ
         raise HTTPException(status_code=404, detail="Invoice not found")
     await log_audit("update", "invoice", actor=user, resource_id=iid, detail=f"status={status}")
     return await db.invoices.find_one({"id": iid}, {"_id": 0})
+
+
+@router.get("/invoices/{iid}")
+async def get_invoice(iid: str, user: dict = Depends(require_roles("biller", "receptionist"))):
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if not inv.get("patient_name") and inv.get("patient_id"):
+        p = await db.patients.find_one({"id": inv["patient_id"]}, {"_id": 0})
+        if p:
+            inv["patient_name"] = f"{p['first_name']} {p['last_name']}"
+    await log_audit("view", "invoice", actor=user, resource_id=iid, detail=inv.get("invoice_number", ""))
+    return inv
+
+
+@router.put("/invoices/{iid}")
+async def update_invoice(iid: str, data: InvoiceInput, user: dict = Depends(require_roles("biller", "receptionist"))):
+    existing = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    items = [i.model_dump() for i in data.items]
+    total = sum(i["amount"] * i["quantity"] for i in items)
+    name = data.patient_name
+    if not name and data.patient_id:
+        p = await db.patients.find_one({"id": data.patient_id}, {"_id": 0})
+        if p:
+            name = f"{p['first_name']} {p['last_name']}"
+    upd = {"invoice_number": data.invoice_number or existing.get("invoice_number"),
+           "patient_id": data.patient_id, "patient_name": name,
+           "dob": data.dob, "ssn": data.ssn, "policy_number": data.policy_number, "gender": data.gender,
+           "service_date": data.service_date, "visit_reason": data.visit_reason,
+           "icd10": data.icd10, "provider": data.provider,
+           "items": items, "total": round(total, 2), "status": data.status, "notes": data.notes,
+           "updated_at": now_iso(), "updated_by": user["name"]}
+    await db.invoices.update_one({"id": iid}, {"$set": upd})
+    await log_audit("update", "invoice", actor=user, resource_id=iid,
+                    detail=f"{upd['invoice_number']} · {name or ''} · ${upd['total']}")
+    return await db.invoices.find_one({"id": iid}, {"_id": 0})
+
+
+@router.post("/invoices/bulk-delete")
+async def bulk_delete_invoices(data: IdList, user: dict = Depends(require_roles("biller", "receptionist", "admin"))):
+    docs = await db.invoices.find({"id": {"$in": data.ids}}, {"_id": 0, "id": 1, "created_by": 1}).to_list(1000)
+    deletable = [d["id"] for d in docs
+                 if user["role"] == "admin" or d.get("created_by") in (user["name"], None)]
+    if deletable:
+        await db.invoices.delete_many({"id": {"$in": deletable}})
+    await log_audit("delete", "invoice", actor=user, detail=f"bulk ({len(deletable)})")
+    return {"deleted": len(deletable), "skipped": len(data.ids) - len(deletable)}
+
+
+@router.delete("/invoices/{iid}")
+async def delete_invoice(iid: str, user: dict = Depends(require_roles("biller", "receptionist", "admin"))):
+    existing = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if user["role"] != "admin" and existing.get("created_by") not in (user["name"], None):
+        raise HTTPException(status_code=403, detail="You can only delete invoices you created")
+    await db.invoices.delete_one({"id": iid})
+    await log_audit("delete", "invoice", actor=user, resource_id=iid, detail=existing.get("invoice_number", ""))
+    return {"ok": True}
 
 
 # ---------------- Billing reports ----------------
