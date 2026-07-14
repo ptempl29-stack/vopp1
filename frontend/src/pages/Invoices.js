@@ -178,50 +178,52 @@ export default function Invoices() {
         <div id={editorPrintId}>
           <Letterhead settings={settings} />
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
             <div>
               <h3 className="font-heading text-xs font-bold uppercase tracking-[0.2em] text-moneygreen-600 border-b border-border pb-2 mb-3">{t("patientInformation")}</h3>
-              <div className="space-y-2.5">
-                <Row label={t("fullName")}>
-                  <select value={inv.patient_id} onChange={onPatient} className={cellCls} data-testid="inv-patient">
-                    <option value="">{t("selectPatient")}</option>
-                    {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-                  </select>
-                </Row>
-                <Row label={t("dob")}><input type="date" value={inv.dob || ""} onChange={setF("dob")} className={cellCls} data-testid="inv-dob" /></Row>
-                <Row label="SSN"><input value={inv.ssn || ""} onChange={setF("ssn")} className={cellCls} data-testid="inv-ssn" placeholder="XXX-XX-XXXX" /></Row>
-                <Row label={t("policyNumber")}><input value={inv.policy_number || ""} onChange={setF("policy_number")} className={cellCls} data-testid="inv-policy" /></Row>
-                <Row label={t("gender")}>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                <div className="col-span-2">
+                  <CField label={t("fullName")}>
+                    <select value={inv.patient_id} onChange={onPatient} className={cellCls} data-testid="inv-patient">
+                      <option value="">{t("selectPatient")}</option>
+                      {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+                    </select>
+                  </CField>
+                </div>
+                <CField label={t("dob")}><input type="date" value={inv.dob || ""} onChange={setF("dob")} className={cellCls} data-testid="inv-dob" /></CField>
+                <CField label="SSN"><input value={inv.ssn || ""} onChange={setF("ssn")} className={cellCls} data-testid="inv-ssn" placeholder="XXX-XX-XXXX" /></CField>
+                <CField label={t("policyNumber")}><input value={inv.policy_number || ""} onChange={setF("policy_number")} className={cellCls} data-testid="inv-policy" /></CField>
+                <CField label={t("gender")}>
                   <select value={inv.gender || ""} onChange={setF("gender")} className={cellCls}>
                     <option value="">—</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option>
                   </select>
-                </Row>
+                </CField>
               </div>
             </div>
 
             <div>
               <h3 className="font-heading text-xs font-bold uppercase tracking-[0.2em] text-moneygreen-600 border-b border-border pb-2 mb-3">{t("invoiceInformation")}</h3>
-              <div className="space-y-2.5">
-                <Row label={t("invoiceNumber")}><input value={inv.invoice_number} onChange={setF("invoice_number")} className={cellCls} data-testid="inv-number" /></Row>
-                <Row label={t("serviceDate")}><input type="date" value={inv.service_date} onChange={setF("service_date")} className={cellCls} data-testid="inv-service-date" /></Row>
-                <Row label={t("status")}>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                <CField label={t("invoiceNumber")}><input value={inv.invoice_number} onChange={setF("invoice_number")} className={cellCls} data-testid="inv-number" /></CField>
+                <CField label={t("serviceDate")}><input type="date" value={inv.service_date} onChange={setF("service_date")} className={cellCls} data-testid="inv-service-date" /></CField>
+                <CField label={t("status")}>
                   <select value={inv.status} onChange={setF("status")} className={cellCls} data-testid="inv-status">
                     {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
                   </select>
-                </Row>
-                <Row label={t("visitReason")}>
+                </CField>
+                <CField label={t("visitReason")}>
                   <select value={inv.visit_reason || ""} onChange={setF("visit_reason")} className={cellCls} data-testid="inv-reason">
                     <option value="">—</option>
                     {reasonOptions.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
-                </Row>
-                <Row label="ICD-10-CM"><input value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" /></Row>
-                <Row label={t("attendingProvider")}>
+                </CField>
+                <CField label="ICD-10-CM"><input value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" /></CField>
+                <CField label={t("attendingProvider")}>
                   <select value={inv.provider || ""} onChange={setF("provider")} className={cellCls} data-testid="inv-provider">
                     <option value="">—</option>
                     {providers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
                   </select>
-                </Row>
+                </CField>
               </div>
             </div>
           </div>
@@ -456,9 +458,9 @@ export default function Invoices() {
   );
 }
 
-const Row = ({ label, children }) => (
-  <div className="grid grid-cols-3 items-center gap-2">
-    <span className="text-xs font-semibold text-stone-500">{label}</span>
-    <div className="col-span-2">{children}</div>
+const CField = ({ label, children }) => (
+  <div>
+    <label className="block text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-0.5">{label}</label>
+    {children}
   </div>
 );
