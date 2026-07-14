@@ -94,6 +94,14 @@ async def bulk_delete_notes(data: IdList, user: dict = Depends(require_roles("do
     return {"deleted": len(deletable), "skipped": len(data.ids) - len(deletable)}
 
 
+@router.get("/notes/patient-code-history")
+async def patient_code_history(patient_id: str, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
+    icd = await db.notes.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})
+    icd_inv = await db.invoices.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})
+    cpt = await db.notes.distinct("cpt_code", {"patient_id": patient_id, "cpt_code": {"$nin": [None, ""]}})
+    return {"icd10": sorted(set(icd) | set(icd_inv)), "cpt": sorted(c for c in cpt if c)}
+
+
 @router.get("/notes/for-billing")
 async def notes_for_billing(patient_id: str,
                             user: dict = Depends(require_roles("biller", "receptionist", "admin"))):

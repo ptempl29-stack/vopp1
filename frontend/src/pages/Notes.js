@@ -4,22 +4,25 @@ import api, { apiErr } from "../lib/api";
 import { can } from "../lib/perms";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
+import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
-import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
+import { PageHeader, Modal, Btn, Empty, Card } from "../components/ui-kit";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Stethoscope, Eye, Pencil, Stamp, Save, Trash2 } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-const reasons = ["General Consultation", "Physical Therapy", "Therapeutic Massage", "Relaxing Massage", "Evaluation", "Follow-up", "Re-evaluation", "Psychotherapy", "Group Therapy"];
+const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
+const riskKey = { Low: "riskLow", Moderate: "riskModerate", High: "riskHigh", Imminent: "riskImminent" };
 
-const blank = { patient_id: "", title: "", content: "", note_type: "free",
-  subjective: "", objective: "", assessment: "", plan: "", summary: "", signature: "",
+const blank = {
+  patient_id: "", title: "", content: "", note_type: "free",
   dob: "", gender: "", ssn: "", visit_date: new Date().toISOString().slice(0, 10),
-  reason_for_visit: "", attending_provider: "", referring_provider: "", icd10: "", ai_summarized: false };
+  icd10: "", cpt_code: "", risk_level: "", attending_provider: "", signature: "",
+  summary: "", ai_summarized: false,
+};
 
-const soapText = (f) => [["S", f.subjective], ["O", f.objective], ["A", f.assessment], ["P", f.plan]]
-  .filter(([, v]) => v && v.trim()).map(([k, v]) => `${k}: ${v}`).join("\n");
+const headerInputCls = "w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-border focus:border-moneygreen-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-moneygreen-500 text-sm text-moneygreen-800 font-medium";
 
 export default function Notes() {
   const { t } = useLang();
@@ -29,6 +32,7 @@ export default function Notes() {
   const [notes, setNotes] = useState([]);
   const [patients, setPatients] = useState([]);
   const [providers, setProviders] = useState([]);
+  const [cpt, setCpt] = useState([]);
   const [settings, setSettings] = useState(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blank);
@@ -37,49 +41,43 @@ export default function Notes() {
   const [summarizing, setSummarizing] = useState(false);
   const [sigKey, setSigKey] = useState(0);
   const [savingSig, setSavingSig] = useState(false);
+  const [codeHistory, setCodeHistory] = useState({ icd10: [], cpt: [] });
 
   const load = () => api.get("/notes").then((r) => setNotes(r.data)).catch(() => {});
-
-  const deleteNote = async (n) => {
-    try { await api.delete(`/notes/${n.id}`); toast.success(t("delete") + " ✓"); load(); }
-    catch (err) { toast.error(apiErr(err)); }
-  };
-  const removeSelected = async () => {
-    try { await bulkDelete("/notes/bulk-delete", [...sel.selected], t); sel.clear(); load(); }
-    catch (err) { toast.error(apiErr(err)); }
-  };
   useEffect(() => {
     load();
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
+    api.get("/cpt-codes").then((r) => setCpt(r.data)).catch(() => {});
     api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "nurse", "psychologist"].includes(u.role)))).catch(() => {});
   }, []);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const patientName = (id) => {
+    const p = patients.find((x) => x.id === id);
+    return p ? `${p.first_name} ${p.last_name}` : "—";
+  };
+  const providerName = (n) => n.attending_provider || n.author || "—";
+  const riskLabel = (r) => (r ? t(riskKey[r] || r) : "—");
 
   const onPatient = (e) => {
-    const p = patients.find((x) => x.id === e.target.value);
-    setForm((f) => ({ ...f, patient_id: e.target.value,
-      dob: p?.dob || f.dob, gender: p?.gender || f.gender }));
+    const pid = e.target.value;
+    const p = patients.find((x) => x.id === pid);
+    setForm((f) => ({ ...f, patient_id: pid,
+      dob: p?.dob || f.dob, gender: p?.gender || f.gender, ssn: p?.ssn || f.ssn }));
+    setCodeHistory({ icd10: [], cpt: [] });
+    if (pid) api.get("/notes/patient-code-history", { params: { patient_id: pid } })
+      .then((r) => setCodeHistory(r.data)).catch(() => {});
   };
 
-  const noteText = () => (form.note_type === "soap" ? soapText(form) : form.content);
-
   const summarize = async () => {
-    const text = noteText();
-    if (!text.trim()) { toast.error(t("content")); return; }
+    const text = (form.content || "").trim();
+    if (!text) { toast.error(t("content")); return; }
     setSummarizing(true);
     try {
       const r = await api.post("/notes/summarize", { content: text });
       const s = (r.data.summary || "").trim();
-      setForm((f) => {
-        if (f.note_type === "soap") {
-          const plan = f.plan && f.plan.trim() ? `${f.plan.trim()} ${s}` : s;
-          return { ...f, plan, summary: "", ai_summarized: true };
-        }
-        const content = f.content && f.content.trim() ? `${f.content.trim()} ${s}` : s;
-        return { ...f, content, summary: "", ai_summarized: true };
-      });
+      setForm((f) => ({ ...f, content: f.content.trim() ? `${f.content.trim()} ${s}` : s, summary: "", ai_summarized: true }));
       toast.success(t("aiSummary") + " ✓");
     } catch (err) { toast.error(apiErr(err)); }
     finally { setSummarizing(false); }
@@ -88,12 +86,9 @@ export default function Notes() {
   const save = async (e) => {
     e.preventDefault();
     if (!form.patient_id) { toast.error(t("selectPatient")); return; }
-    if (form.note_type === "soap" && !soapText(form).trim()) { toast.error(t("content")); return; }
-    if (form.note_type !== "soap" && !form.content.trim()) { toast.error(t("content")); return; }
-    const payload = { ...form };
-    if (form.note_type === "daily_no_ai") payload.summary = "";
-    const labels = { free: t("freeText"), soap: t("soapNote"), daily: t("dailyNote"), daily_no_ai: t("dailyNoteNoAi") };
-    payload.title = `${labels[form.note_type] || t("dailyNote")} — ${patientName(form.patient_id)}${form.visit_date ? ` · ${form.visit_date}` : ""}`;
+    if (!form.content.trim()) { toast.error(t("content")); return; }
+    const payload = { ...form, note_type: "free" };
+    payload.title = `${t("notes")} — ${patientName(form.patient_id)}${form.visit_date ? ` · ${form.visit_date}` : ""}`;
     try {
       if (editId) await api.put(`/notes/${editId}`, payload);
       else await api.post("/notes", payload);
@@ -104,6 +99,15 @@ export default function Notes() {
   const openNew = () => { setForm({ ...blank, signature: user?.default_signature || "" }); setEditId(null); setSigKey((k) => k + 1); setOpen(true); };
   const openEdit = (n) => { setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setSigKey((k) => k + 1); setOpen(true); };
 
+  const deleteNote = async (n) => {
+    try { await api.delete(`/notes/${n.id}`); toast.success(t("delete") + " ✓"); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+  const removeSelected = async () => {
+    try { await bulkDelete("/notes/bulk-delete", [...sel.selected], t); sel.clear(); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+
   const insertSavedSig = () => { setForm((f) => ({ ...f, signature: user.default_signature })); setSigKey((k) => k + 1); };
   const saveDefaultSig = async () => {
     if (!form.signature) { toast.error(t("providerSignature")); return; }
@@ -113,10 +117,81 @@ export default function Notes() {
     finally { setSavingSig(false); }
   };
 
-  const patientName = (id) => {
-    const p = patients.find((x) => x.id === id);
-    return p ? `${p.first_name} ${p.last_name}` : "—";
-  };
+  // Editable header block matching the requested format
+  const EditableHeader = () => (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500 mb-2">{t("notesLabel")}</p>
+      <div className="rounded-lg border border-border border-l-4 border-l-moneygreen-600 bg-white p-5">
+        <div className="space-y-1.5 max-w-md">
+          <HRow label={t("patientName")}>
+            <select required value={form.patient_id} onChange={onPatient} className={headerInputCls} data-testid="nf-patient">
+              <option value="">{t("selectPatient")}</option>
+              {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+            </select>
+          </HRow>
+          <HRow label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={headerInputCls} data-testid="nf-dob" /></HRow>
+          <HRow label={t("socialSecurity")}><input value={form.ssn || ""} onChange={set("ssn")} className={headerInputCls} data-testid="nf-ssn" placeholder="XXX-XX-XXXX" /></HRow>
+          <HRow label={t("dateOfSession")}><input type="date" value={form.visit_date || ""} onChange={set("visit_date")} className={headerInputCls} data-testid="nf-visit-date" /></HRow>
+          <HRow label={t("icd10Code")}><input value={form.icd10 || ""} onChange={set("icd10")} className={headerInputCls} data-testid="nf-icd10" placeholder="e.g. F33.0" /></HRow>
+          {codeHistory.icd10.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5" data-testid="icd-suggestions">
+              <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
+              {codeHistory.icd10.map((c) => (
+                <button key={c} type="button" onClick={() => setForm((f) => ({ ...f, icd10: c }))}
+                  data-testid={`icd-chip-${c}`}
+                  className="text-xs px-2 py-0.5 rounded-full bg-moneygreen-100 text-moneygreen-700 hover:bg-moneygreen-200 font-mono font-semibold transition-colors">{c}</button>
+              ))}
+            </div>
+          )}
+          <HRow label={t("cptCode")}>
+            <input list="cpt-list" value={form.cpt_code || ""} onChange={set("cpt_code")} className={headerInputCls} data-testid="nf-cpt" placeholder="e.g. 90837" />
+            <datalist id="cpt-list">{cpt.map((c) => <option key={c.code} value={c.code}>{c.description}</option>)}</datalist>
+          </HRow>
+          {codeHistory.cpt.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5" data-testid="cpt-suggestions">
+              <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
+              {codeHistory.cpt.map((c) => (
+                <button key={c} type="button" onClick={() => setForm((f) => ({ ...f, cpt_code: c }))}
+                  data-testid={`cpt-chip-${c}`}
+                  className="text-xs px-2 py-0.5 rounded-full bg-tan-100 text-tan-900 hover:bg-tan-200 font-mono font-semibold transition-colors">{c}</button>
+              ))}
+            </div>
+          )}
+          <HRow label={t("riskAssessment")}>
+            <select value={form.risk_level || ""} onChange={set("risk_level")} className={headerInputCls} data-testid="nf-risk">
+              <option value="">{t("selectRisk")}</option>
+              {RISK_LEVELS.map((r) => <option key={r} value={r}>{t(riskKey[r])}</option>)}
+            </select>
+          </HRow>
+          <HRow label={t("provider")}>
+            <select value={form.attending_provider || ""} onChange={set("attending_provider")} className={headerInputCls} data-testid="nf-provider">
+              <option value="">{t("selectProvider")}</option>
+              {providers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
+            </select>
+          </HRow>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Read-only header (view modal & PDF for saved notes)
+  const ReadHeader = ({ n }) => (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500 mb-2">{t("notesLabel")}</p>
+      <div className="rounded-lg border border-border border-l-4 border-l-moneygreen-600 bg-white p-5">
+        <div className="space-y-1 max-w-md text-sm">
+          <ReadRow label={t("patientName")} value={<Private value={patientName(n.patient_id)} />} />
+          <ReadRow label={t("dob")} value={<Private value={n.dob} />} />
+          <ReadRow label={t("socialSecurity")} value={<Private value={n.ssn} />} />
+          <ReadRow label={t("dateOfSession")} value={n.visit_date} />
+          <ReadRow label={t("icd10Code")} value={n.icd10} />
+          <ReadRow label={t("cptCode")} value={n.cpt_code} />
+          <ReadRow label={t("riskAssessment")} value={n.risk_level ? riskLabel(n.risk_level) : ""} />
+          <ReadRow label={t("provider")} value={providerName(n)} />
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div>
@@ -148,49 +223,22 @@ export default function Notes() {
                 <div className="flex items-start gap-3 mb-2">
                   {allowed && (
                     <input type="checkbox" checked={sel.has(n.id)} onChange={() => sel.toggle(n.id)}
-                      data-testid={`select-note-${n.id}`} className="mt-2.5 w-4 h-4 accent-moneygreen-600 cursor-pointer shrink-0" />
+                      data-testid={`select-note-${n.id}`} className="mt-1 w-4 h-4 accent-moneygreen-600 cursor-pointer shrink-0" />
                   )}
                   <div className="w-9 h-9 rounded-md bg-moneygreen-100 flex items-center justify-center shrink-0">
                     <FileText className="w-4 h-4 text-moneygreen-600" />
                   </div>
-                  <div>
-                    <p className="font-heading font-bold text-moneygreen-800">{n.title}</p>
-                    <p className="text-xs text-stone-500">{patientName(n.patient_id)} · {n.author}</p>
+                  <div className="min-w-0">
+                    <p className="font-heading font-bold text-moneygreen-800 truncate"><Private value={patientName(n.patient_id)} /></p>
+                    <p className="text-xs text-stone-500">{n.visit_date || (n.created_at || "").slice(0, 10)} · {providerName(n)}</p>
                   </div>
-                  {n.note_type === "soap" && (
-                    <span className="ml-auto px-2 py-0.5 rounded-full text-xs font-semibold bg-tan-200 text-tan-900">SOAP</span>
-                  )}
-                  {n.note_type === "daily" && (
-                    <span className="ml-auto px-2 py-0.5 rounded-full text-xs font-semibold bg-moneygreen-100 text-moneygreen-700 flex items-center gap-1"><Stethoscope className="w-3 h-3" />{t("dailyNote")}</span>
-                  )}
-                  {n.note_type === "daily_no_ai" && (
-                    <span className="ml-auto px-2 py-0.5 rounded-full text-xs font-semibold bg-tan-100 text-tan-900 flex items-center gap-1"><Stethoscope className="w-3 h-3" />{t("dailyNoteNoAi")}</span>
-                  )}
                 </div>
-                {["daily", "daily_no_ai"].includes(n.note_type) && (
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-500 mb-2" data-testid={`daily-meta-${n.id}`}>
-                    {n.visit_date && <span><b className="text-stone-600">{t("visitDate")}:</b> {n.visit_date}</span>}
-                    {n.reason_for_visit && <span><b className="text-stone-600">{t("reasonForVisit")}:</b> {n.reason_for_visit}</span>}
-                    {n.attending_provider && <span><b className="text-stone-600">{t("attendingProvider")}:</b> {n.attending_provider}</span>}
-                    {n.icd10 && <span><b className="text-stone-600">ICD-10:</b> {n.icd10}</span>}
-                  </div>
-                )}
-                {n.note_type === "soap" ? (
-                  <div className="space-y-1.5" data-testid={`soap-view-${n.id}`}>
-                    {[["S", n.subjective, t("soapS")], ["O", n.objective, t("soapO")], ["A", n.assessment, t("soapA")], ["P", n.plan, t("soapP")]]
-                      .filter(([, v]) => v).map(([k, v, label]) => (
-                        <div key={k} className="text-sm">
-                          <span className="font-bold text-moneygreen-700">{label}: </span>
-                          <span className="text-stone-600">{v}</span>
-                        </div>
-                      ))}
-                    {n.summary && <p className="text-sm text-stone-600 whitespace-pre-wrap mt-1.5 line-clamp-3">{n.summary}</p>}
-                  </div>
-                ) : (
-                  <div className="text-sm text-stone-600 whitespace-pre-wrap line-clamp-4">
-                    {n.content}{n.summary ? `\n\n${n.summary}` : ""}
-                  </div>
-                )}
+                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-stone-500 mb-2">
+                  {n.icd10 && <span><b className="text-stone-600">ICD-10:</b> {n.icd10}</span>}
+                  {n.cpt_code && <span><b className="text-stone-600">CPT:</b> {n.cpt_code}</span>}
+                  {n.risk_level && <span><b className="text-stone-600">{t("riskAssessment")}:</b> {riskLabel(n.risk_level)}</span>}
+                </div>
+                <div className="text-sm text-stone-600 whitespace-pre-wrap line-clamp-4">{n.content}</div>
                 {n.signature && (
                   <div className="mt-3 pt-3 border-t border-border flex items-end justify-between">
                     <img src={n.signature} alt="signature" className="h-12 object-contain" data-testid={`note-sig-${n.id}`} />
@@ -208,85 +256,22 @@ export default function Notes() {
         </div>
       )}
 
+      {/* New / Edit note */}
       <Modal open={open} onClose={() => { setOpen(false); setEditId(null); }} title={editId ? t("editNote") : t("newNote")} wide>
         <form onSubmit={save} className="space-y-4">
-          <Field label={t("noteType")}>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <button type="button" onClick={() => setForm({ ...form, note_type: "free" })} data-testid="note-type-free"
-                className={`py-2 rounded-md text-sm font-semibold border transition-colors duration-200 ${form.note_type === "free" ? "bg-moneygreen-600 text-white border-moneygreen-600" : "bg-white text-moneygreen-700 border-border hover:bg-moneygreen-50"}`}>
-                {t("freeText")}
-              </button>
-              <button type="button" onClick={() => setForm({ ...form, note_type: "soap" })} data-testid="note-type-soap"
-                className={`py-2 rounded-md text-sm font-semibold border transition-colors duration-200 ${form.note_type === "soap" ? "bg-moneygreen-600 text-white border-moneygreen-600" : "bg-white text-moneygreen-700 border-border hover:bg-moneygreen-50"}`}>
-                {t("soapNote")}
-              </button>
-              <button type="button" onClick={() => setForm({ ...form, note_type: "daily" })} data-testid="note-type-daily"
-                className={`py-2 rounded-md text-sm font-semibold border transition-colors duration-200 ${form.note_type === "daily" ? "bg-moneygreen-600 text-white border-moneygreen-600" : "bg-white text-moneygreen-700 border-border hover:bg-moneygreen-50"}`}>
-                {t("dailyNote")}
-              </button>
-              <button type="button" onClick={() => setForm({ ...form, note_type: "daily_no_ai" })} data-testid="note-type-daily-no-ai"
-                className={`py-2 rounded-md text-sm font-semibold border transition-colors duration-200 ${form.note_type === "daily_no_ai" ? "bg-moneygreen-600 text-white border-moneygreen-600" : "bg-white text-moneygreen-700 border-border hover:bg-moneygreen-50"}`}>
-                {t("dailyNoteNoAi")}
-              </button>
-            </div>
-          </Field>
-
-          <div id="note-print" data-testid="note-fields">
-            <div className="rounded-lg border border-border p-4 mb-4">
+          <div id="note-print" className="space-y-4">
+            <div className="rounded-lg border border-border p-4">
               <EditableLetterhead settings={settings} onSaved={setSettings} t={t}
                 canEdit={["admin", "doctor", "nurse", "psychologist"].includes(user?.role)} />
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
-              <Field label={t("patient")}>
-                <select required value={form.patient_id} onChange={onPatient} className={inputCls} data-testid="nf-patient">
-                  <option value="">{t("selectPatient")}</option>
-                  {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-                </select>
-              </Field>
-              <Field label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={inputCls} data-testid="nf-dob" /></Field>
-              <Field label={t("gender")}>
-                <select value={form.gender || ""} onChange={set("gender")} className={inputCls} data-testid="nf-gender">
-                  <option value="">—</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option>
-                </select>
-              </Field>
-              <Field label="SSN"><input value={form.ssn || ""} onChange={set("ssn")} className={inputCls} data-testid="nf-ssn" placeholder="XXX-XX-XXXX" /></Field>
-              <Field label={t("visitDate")}><input type="date" value={form.visit_date || ""} onChange={set("visit_date")} className={inputCls} data-testid="nf-visit-date" /></Field>
-              <Field label="ICD-10-CM"><input value={form.icd10 || ""} onChange={set("icd10")} className={inputCls} data-testid="nf-icd10" placeholder="e.g. F33.0" /></Field>
-              <Field label={t("reasonForVisit")}>
-                <select value={form.reason_for_visit || ""} onChange={set("reason_for_visit")} className={inputCls} data-testid="nf-reason">
-                  <option value="">—</option>
-                  {reasons.map((r) => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </Field>
-              <Field label={t("attendingProvider")}>
-                <select value={form.attending_provider || ""} onChange={set("attending_provider")} className={inputCls} data-testid="nf-attending">
-                  <option value="">{t("selectProvider")}</option>
-                  {providers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
-                </select>
-              </Field>
-              <Field label={t("referringProvider")}>
-                <select value={form.referring_provider || ""} onChange={set("referring_provider")} className={inputCls} data-testid="nf-referring">
-                  <option value="">{t("selectReferring")}</option>
-                  {providers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
-                </select>
-              </Field>
-            </div>
-
-            {form.note_type === "soap" ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="soap-fields">
-                <Field label={t("soapS")}><textarea value={form.subjective} onChange={set("subjective")} rows={4} className={inputCls} data-testid="nf-subjective" placeholder={t("soapSHint")} /></Field>
-                <Field label={t("soapO")}><textarea value={form.objective} onChange={set("objective")} rows={4} className={inputCls} data-testid="nf-objective" placeholder={t("soapOHint")} /></Field>
-                <Field label={t("soapA")}><textarea value={form.assessment} onChange={set("assessment")} rows={4} className={inputCls} data-testid="nf-assessment" placeholder={t("soapAHint")} /></Field>
-                <Field label={t("soapP")}><textarea value={form.plan} onChange={set("plan")} rows={4} className={inputCls} data-testid="nf-plan" placeholder={t("soapPHint")} /></Field>
-              </div>
-            ) : (
-              <Field label={t("notesLabel")}>
-                <textarea value={form.content} onChange={set("content")} rows={8} className={inputCls} data-testid="nf-content" placeholder="Progress note..." />
-              </Field>
-            )}
-
+            <EditableHeader />
+            {/* Blank writing page */}
+            <textarea value={form.content} onChange={set("content")} data-testid="nf-content"
+              className="w-full min-h-[420px] p-6 bg-white border border-border rounded-lg text-base leading-relaxed text-stone-800 focus:outline-none focus:ring-2 focus:ring-moneygreen-500 no-print"
+              placeholder={t("noteBodyPlaceholder")} />
+            <div className="print-only whitespace-pre-wrap text-base leading-relaxed text-stone-800 p-6 min-h-[300px]">{form.content}</div>
             {form.signature && (
-              <div className="mt-3 pt-3 border-t border-border">
+              <div className="pt-3 border-t border-border">
                 <p className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">{t("providerSignature")}</p>
                 <img src={form.signature} alt="signature" className="h-14 object-contain" />
               </div>
@@ -294,17 +279,15 @@ export default function Notes() {
           </div>
 
           <div className="flex justify-end gap-2 no-print flex-wrap">
-            {form.note_type !== "daily_no_ai" && (
-              <Btn type="button" variant="outline" onClick={summarize} disabled={summarizing} data-testid="ai-summarize-btn">
-                {summarizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                {summarizing ? t("summarizing") : t("aiSummarize")}
-              </Btn>
-            )}
+            <Btn type="button" variant="outline" onClick={summarize} disabled={summarizing} data-testid="ai-summarize-btn">
+              {summarizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {summarizing ? t("summarizing") : t("aiSummarize")}
+            </Btn>
             <Btn variant="outline" type="button" onClick={() => window.print()} data-testid="note-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
             <Btn variant="outline" type="button" onClick={() => window.print()} data-testid="note-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
           </div>
 
-          <div className="p-4 rounded-md bg-tan-50 border border-tan-200">
+          <div className="p-4 rounded-md bg-tan-50 border border-tan-200 no-print">
             <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5">
                 <PenLine className="w-3.5 h-3.5" /> {t("providerSignature")}
@@ -324,53 +307,31 @@ export default function Notes() {
               onChange={(v) => setForm((f) => ({ ...f, signature: v }))} testid="note-signature" />
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex justify-end gap-2 pt-2 no-print">
             <Btn variant="outline" type="button" onClick={() => { setOpen(false); setEditId(null); }}>{t("cancel")}</Btn>
             <Btn type="submit" data-testid="save-note-btn">{t("save")}</Btn>
           </div>
         </form>
       </Modal>
 
-      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing?.title || t("view")} wide>
+      {/* View note */}
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing ? patientName(viewing.patient_id) : t("view")} wide>
         {viewing && (
-          <div id="note-print" className="space-y-4" data-testid="note-view">
-            <Letterhead settings={settings} />
-            <p className="text-xs text-stone-500">{patientName(viewing.patient_id)} · {viewing.author}
-              {viewing.updated_by && <span> · {t("edited")}: {viewing.updated_by}</span>}</p>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5 text-sm">
-              {viewing.dob && <div><span className="text-xs font-semibold text-stone-500">{t("dob")}: </span>{viewing.dob}</div>}
-              {viewing.gender && <div><span className="text-xs font-semibold text-stone-500">{t("gender")}: </span>{viewing.gender}</div>}
-              {viewing.ssn && <div><span className="text-xs font-semibold text-stone-500">SSN: </span>{viewing.ssn}</div>}
-              {viewing.visit_date && <div><span className="text-xs font-semibold text-stone-500">{t("visitDate")}: </span>{viewing.visit_date}</div>}
-              {viewing.icd10 && <div><span className="text-xs font-semibold text-stone-500">ICD-10-CM: </span>{viewing.icd10}</div>}
-              {viewing.reason_for_visit && <div><span className="text-xs font-semibold text-stone-500">{t("reasonForVisit")}: </span>{viewing.reason_for_visit}</div>}
-              {viewing.attending_provider && <div><span className="text-xs font-semibold text-stone-500">{t("attendingProvider")}: </span>{viewing.attending_provider}</div>}
-              {viewing.referring_provider && <div><span className="text-xs font-semibold text-stone-500">{t("referringProvider")}: </span>{viewing.referring_provider}</div>}
+          <div className="space-y-4">
+            <div id="note-print" className="space-y-4">
+              <Letterhead settings={settings} />
+              <ReadHeader n={viewing} />
+              <div className="whitespace-pre-wrap text-base leading-relaxed text-stone-800 p-6 border border-border rounded-lg min-h-[200px] no-print" data-testid="note-view-body">{viewing.content}</div>
+              <div className="print-only whitespace-pre-wrap text-base leading-relaxed text-stone-800 p-6">{viewing.content}</div>
+              {viewing.signature && (
+                <div className="pt-3 border-t border-border flex items-end justify-between">
+                  <img src={viewing.signature} alt="signature" className="h-14 object-contain" />
+                  <p className="text-xs text-stone-500 text-right">{t("signedBy")}<br /><span className="font-semibold text-moneygreen-700">{viewing.signed_by}</span></p>
+                </div>
+              )}
             </div>
-
-            {viewing.note_type === "soap" ? (
-              <div className="space-y-2">
-                {[["S", viewing.subjective, t("soapS")], ["O", viewing.objective, t("soapO")], ["A", viewing.assessment, t("soapA")], ["P", viewing.plan, t("soapP")]]
-                  .filter(([, v]) => v).map(([k, v, label]) => (
-                    <div key={k} className="text-sm"><span className="font-bold text-moneygreen-700">{label}: </span><span className="text-stone-700 whitespace-pre-wrap">{v}</span></div>
-                  ))}
-                {viewing.summary && <p className="text-sm text-stone-700 whitespace-pre-wrap pt-1">{viewing.summary}</p>}
-              </div>
-            ) : (
-              <p className="text-sm text-stone-700 whitespace-pre-wrap">
-                {viewing.content}{viewing.summary ? `\n\n${viewing.summary}` : ""}
-              </p>
-            )}
-
-            {viewing.signature && (
-              <div className="pt-3 border-t border-border flex items-end justify-between">
-                <img src={viewing.signature} alt="signature" className="h-14 object-contain" />
-                <p className="text-xs text-stone-500 text-right">{t("signedBy")}<br /><span className="font-semibold text-moneygreen-700">{viewing.signed_by}</span></p>
-              </div>
-            )}
-
             <div className="flex justify-end gap-2 pt-2 no-print">
+              <Btn variant="outline" onClick={() => window.print()} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
               <Btn variant="outline" onClick={() => window.print()} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
               {allowed && <Btn onClick={() => openEdit(viewing)} data-testid="view-edit-btn"><Pencil className="w-4 h-4" />{t("edit")}</Btn>}
             </div>
@@ -380,3 +341,17 @@ export default function Notes() {
     </div>
   );
 }
+
+const HRow = ({ label, children }) => (
+  <div className="flex items-baseline gap-2">
+    <span className="w-40 shrink-0 text-sm font-semibold text-stone-700">{label}:</span>
+    <div className="flex-1 min-w-0">{children}</div>
+  </div>
+);
+
+const ReadRow = ({ label, value }) => (
+  <div className="flex items-baseline gap-2">
+    <span className="w-40 shrink-0 font-semibold text-stone-700">{label}:</span>
+    <span className="flex-1 text-moneygreen-800 font-medium">{value || "—"}</span>
+  </div>
+);

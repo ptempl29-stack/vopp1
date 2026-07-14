@@ -1,0 +1,75 @@
+{
+  "summary": "Frontend e2e verified all 4 phases + regression for VoPP clinic app. Phase 1 (Progress Notes stacked header + PDF layout), Phase 2 (Patients SSN persistence + Privacy click-to-reveal masking), Phase 3 (Billing Reports filters + revenue chart + inline status + bulk delete + CSV), Phase 4 (ICD/CPT memory chips) all functional. Regression: Unpaid card deep-link, bilingual toggle, bulk delete without confirm all working.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PrivacyContext uses useState (in-memory only) - state resets on full page reload. Acceptable for MVP but consider sessionStorage for durability across F5.",
+    "Notes.js line ~199 uses useState with no error boundary; a failure in patient-code-history endpoint is silently swallowed which is intentional per code but hides regressions.",
+    "Provider dropdown (nf-provider) shows empty when no doctor/nurse/psychologist users exist in DB. Consider showing all users or a fallback."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "not tested (backend already curl-verified per handoff)", "frontend": "100%" },
+  "test_credentials": "Admin: usvopp@yahoo.com / Football2023?",
+  "seed_data_creation": "Temporarily created 1 test note (deleted via bulk-delete) and set/cleared patient SSN + DOB on the single seed patient. All test data cleaned up post-run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Preview DB has 1 patient 'Test Patient' (id=6fa0fdd7-8ecf-4619-bb59-03265cbe7834) and 27 seeded invoices. No doctor/nurse/psychologist users exist so nf-provider dropdown is empty. Note bulk-delete confirmed WITHOUT browser confirm(); privacy state persists across SPA nav but resets on hard page reload (expected).",
+  "detailed_findings": {
+    "phase1_notes": {
+      "editor_fields_all_visible": true,
+      "auto_fill_dob_ssn_on_patient_select": true,
+      "risk_options": ["", "Low", "Moderate", "High", "Imminent"],
+      "save_creates_note_card_with_chips": true,
+      "view_modal_shows_stacked_header_plus_note_view_body": true,
+      "edit_from_view_loads_editor": true,
+      "select_all_and_bulk_delete_without_confirm": true
+    },
+    "phase1_pdf": {
+      "editor_note_print_count": 1,
+      "editor_textarea_has_no_print_class": true,
+      "editor_print_only_sibling_has_body": true,
+      "view_modal_note_print_count": 1,
+      "view_modal_print_only_sibling_has_body": true,
+      "print_handler_fires_on_all_4_buttons": true,
+      "no_js_errors": true
+    },
+    "phase4_icd_memory": {
+      "icd_suggestions_render_after_prior_note": true,
+      "cpt_suggestions_render": true,
+      "icd_chip_F33_0_fills_nf_icd10": true,
+      "cpt_chip_90837_present": true
+    },
+    "phase2_patients_ssn": {
+      "pf_ssn_persists_across_save_and_reopen": true,
+      "patient_detail_shows_social_security_tile": true
+    },
+    "phase2_privacy": {
+      "privacy_toggle_visible_next_to_lang_toggle": true,
+      "masks_render_when_on": true,
+      "counts_per_page_privacy_on": { "patients_list": 2, "patient_detail": 2, "invoices": 27, "reports": 27 },
+      "click_reveals_amber_bg_click_again_hides": true,
+      "revealed_bg_rgb": "rgb(254, 243, 199)",
+      "state_persists_across_spa_nav": true,
+      "state_resets_on_hard_reload_expected": true
+    },
+    "phase3_billing_reports": {
+      "filters_present": ["report-filter-patient", "report-filter-doctor", "report-filter-appt-type"],
+      "revenue_by_patient_chart_rendered": true,
+      "select_all_report_invoices_present": true,
+      "status_dropdown_options": ["in_transit", "paid", "denied"],
+      "status_change_persists_via_put_and_reload": true,
+      "delete_single_and_bulk_present": true,
+      "csv_export_button_present": true
+    },
+    "regression": {
+      "unpaid_dashboard_card_deep_links_to_status_outstanding": true,
+      "language_toggle_switches_en_es": true
+    }
+  }
+}

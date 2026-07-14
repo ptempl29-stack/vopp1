@@ -1,5 +1,7 @@
 .App { min-height: 100vh; }
 
+.print-only { display: none; }
+
 @media print {
   body * { visibility: hidden; }
   #invoice-print, #invoice-print *,
@@ -9,4 +11,10 @@
   #form-print { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; max-height: none !important; overflow: visible !important; }
   #note-print { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; max-height: none !important; overflow: visible !important; }
   .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  #note-print input, #note-print select, #note-print textarea {
+    border: none !important; padding: 0 !important; box-shadow: none !important;
+    -webkit-appearance: none; appearance: none; background: transparent !important;
+    color: #1c1917 !important; font: inherit;
+  }
 }

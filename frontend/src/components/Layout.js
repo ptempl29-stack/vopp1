@@ -2,10 +2,11 @@ import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
+import { usePrivacy } from "../context/PrivacyContext";
 import {
   LayoutDashboard, Users, CalendarDays, FileText, ReceiptText,
   ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages, Hash,
-  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles,
+  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff,
 } from "lucide-react";
 
 const nav = [
@@ -33,6 +34,7 @@ const roleColors = {
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const { t, lang, toggle } = useLang();
+  const { privacy, toggle: togglePrivacy } = usePrivacy();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 
@@ -94,11 +96,21 @@ export default function Layout({ children }) {
           <div className="hidden lg:block">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500">{t("tagline")}</p>
           </div>
-          <button onClick={toggle} data-testid="lang-toggle"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-sm font-semibold text-moneygreen-700 hover:bg-moneygreen-50 transition-colors duration-200">
-            <Languages className="w-4 h-4" />
-            {lang === "en" ? "ES" : "EN"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={togglePrivacy} data-testid="privacy-toggle"
+              title={t("privacyMode")}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-sm font-semibold transition-colors duration-200 ${
+                privacy ? "bg-moneygreen-600 text-white border-moneygreen-600" : "border-border text-moneygreen-700 hover:bg-moneygreen-50"
+              }`}>
+              {privacy ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              <span className="hidden sm:inline">{t("privacyMode")}</span>
+            </button>
+            <button onClick={toggle} data-testid="lang-toggle"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-sm font-semibold text-moneygreen-700 hover:bg-moneygreen-50 transition-colors duration-200">
+              <Languages className="w-4 h-4" />
+              {lang === "en" ? "ES" : "EN"}
+            </button>
+          </div>
         </header>
         <main className="flex-1 p-4 lg:p-8 custom-scroll overflow-y-auto">{children}</main>
       </div>

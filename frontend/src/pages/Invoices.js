@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import api, { apiErr } from "../lib/api";
 import { useSearchParams } from "react-router-dom";
 import { useSelection, bulkDelete } from "../lib/bulk";
+import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
 import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
@@ -63,7 +64,7 @@ export default function Invoices() {
     setInv((s) => ({
       ...s, patient_id: e.target.value,
       patient_name: p ? `${p.first_name} ${p.last_name}` : "",
-      dob: p?.dob || s.dob, gender: p?.gender || s.gender,
+      dob: p?.dob || s.dob, gender: p?.gender || s.gender, ssn: p?.ssn || s.ssn,
     }));
   };
   const setF = (k) => (e) => setInv({ ...inv, [k]: e.target.value });
@@ -329,7 +330,7 @@ export default function Invoices() {
                           data-testid={`select-invoice-${v.id}`} className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
                       </td>
                       <td className="px-5 py-3 font-mono font-semibold text-moneygreen-700">{v.invoice_number || "—"}</td>
-                      <td className="px-5 py-3 text-stone-700">{v.patient_name}</td>
+                      <td className="px-5 py-3 text-stone-700"><Private value={v.patient_name} /></td>
                       <td className="px-5 py-3 hidden md:table-cell text-stone-600">{v.service_date || (v.created_at || "").slice(0, 10)}</td>
                       <td className="px-5 py-3">
                         <select value={STATUSES.includes(v.status) ? v.status : "in_transit"} onChange={(e) => changeStatus(v.id, e.target.value)}
@@ -369,8 +370,9 @@ export default function Invoices() {
                 <Badge tone={statusTone[viewing.status] || "gray"}>{statusLabel(viewing.status)}</Badge>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5 text-sm mt-4">
-                <div><span className="text-xs font-semibold text-stone-500">{t("fullName")}: </span>{viewing.patient_name || "—"}</div>
-                {viewing.dob && <div><span className="text-xs font-semibold text-stone-500">{t("dob")}: </span>{viewing.dob}</div>}
+                <div><span className="text-xs font-semibold text-stone-500">{t("fullName")}: </span><Private value={viewing.patient_name} /></div>
+                {viewing.dob && <div><span className="text-xs font-semibold text-stone-500">{t("dob")}: </span><Private value={viewing.dob} /></div>}
+                {viewing.ssn && <div><span className="text-xs font-semibold text-stone-500">SSN: </span><Private value={viewing.ssn} /></div>}
                 {viewing.gender && <div><span className="text-xs font-semibold text-stone-500">{t("gender")}: </span>{viewing.gender}</div>}
                 {viewing.visit_reason && <div><span className="text-xs font-semibold text-stone-500">{t("visitReason")}: </span>{viewing.visit_reason}</div>}
                 {viewing.icd10 && <div><span className="text-xs font-semibold text-stone-500">ICD-10-CM: </span>{viewing.icd10}</div>}

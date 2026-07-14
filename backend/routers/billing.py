@@ -169,12 +169,25 @@ def _inv_date(inv):
 
 @router.get("/reports/billing")
 async def billing_report(start: Optional[str] = None, end: Optional[str] = None,
+                         patient_id: Optional[str] = None, provider: Optional[str] = None,
+                         appointment_type: Optional[str] = None,
                          user: dict = Depends(require_roles("biller", "admin"))):
     invoices = await db.invoices.find({}, {"_id": 0}).to_list(2000)
     if start:
         invoices = [i for i in invoices if _inv_date(i) >= start]
     if end:
         invoices = [i for i in invoices if _inv_date(i) <= end]
+    if patient_id:
+        invoices = [i for i in invoices if i.get("patient_id") == patient_id]
+    if provider:
+        invoices = [i for i in invoices if i.get("provider") == provider]
+    if appointment_type:
+        pts = set(await db.appointments.distinct("patient_id", {"appointment_type": appointment_type}))
+        invoices = [i for i in invoices if i.get("patient_id") in pts]
+
+    patients_map = {p["id"]: f"{p['first_name']} {p['last_name']}"
+                    async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1})}
+    pname = lambda i: i.get("patient_name") or patients_map.get(i.get("patient_id"), "Unknown")
 
     total_billed = sum(i.get("total", 0) for i in invoices)
     collected = sum(i.get("total", 0) for i in invoices if i.get("status") == "paid")
@@ -199,6 +212,20 @@ async def billing_report(start: Optional[str] = None, end: Optional[str] = None,
             by_cpt[c]["revenue"] += it.get("amount", 0) * it.get("quantity", 1)
     cpt_breakdown = sorted(by_cpt.values(), key=lambda x: x["revenue"], reverse=True)
 
+    by_patient = {}
+    for i in invoices:
+        n = pname(i)
+        e = by_patient.setdefault(n, {"patient": n, "revenue": 0.0, "count": 0})
+        e["revenue"] += i.get("total", 0)
+        e["count"] += 1
+    patient_breakdown = sorted(by_patient.values(), key=lambda x: x["revenue"], reverse=True)
+
+    inv_list = sorted([{
+        "id": i["id"], "invoice_number": i.get("invoice_number"), "patient_name": pname(i),
+        "service_date": _inv_date(i), "status": i.get("status"), "total": round(i.get("total", 0), 2),
+        "provider": i.get("provider"),
+    } for i in invoices], key=lambda x: x["service_date"], reverse=True)
+
     return {
         "summary": {
             "total_billed": round(total_billed, 2),
@@ -210,6 +237,8 @@ async def billing_report(start: Optional[str] = None, end: Optional[str] = None,
         "timeseries": [{"date": t["date"], "billed": round(t["billed"], 2),
                         "collected": round(t["collected"], 2)} for t in timeseries],
         "cpt_breakdown": [{**c, "revenue": round(c["revenue"], 2)} for c in cpt_breakdown],
+        "patient_breakdown": [{**c, "revenue": round(c["revenue"], 2)} for c in patient_breakdown],
+        "invoices": inv_list,
     }
 
 

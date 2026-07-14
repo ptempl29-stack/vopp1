@@ -6,42 +6,70 @@ import {
 } from "recharts";
 import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
+import { usePrivacy, Private } from "../context/PrivacyContext";
+import { useSelection, bulkDelete } from "../lib/bulk";
 import { PageHeader, Btn, Card, Field, inputCls, Empty } from "../components/ui-kit";
-import { Download, DollarSign, CheckCircle2, AlertCircle, FileText } from "lucide-react";
+import { Download, DollarSign, CheckCircle2, AlertCircle, FileText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+
+const STATUSES = ["in_transit", "paid", "denied"];
+const statusKey = { in_transit: "inTransit", paid: "paid", denied: "denied", unpaid: "unpaid", void: "draft" };
 
 export default function BillingReports() {
   const { t } = useLang();
+  const sel = useSelection();
   const [data, setData] = useState(null);
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [patientId, setPatientId] = useState("");
+  const [provider, setProvider] = useState("");
+  const [apptType, setApptType] = useState("");
+  const [patients, setPatients] = useState([]);
+  const [providers, setProviders] = useState([]);
 
-  const load = () => {
-    const params = {};
-    if (start) params.start = start;
-    if (end) params.end = end;
-    api.get("/reports/billing", { params }).then((r) => setData(r.data)).catch((e) => toast.error(apiErr(e)));
+  const statusLabel = (s) => t(statusKey[s] || s);
+  const params = () => {
+    const p = {};
+    if (start) p.start = start;
+    if (end) p.end = end;
+    if (patientId) p.patient_id = patientId;
+    if (provider) p.provider = provider;
+    if (apptType) p.appointment_type = apptType;
+    return p;
   };
-  useEffect(() => { load(); }, []);
+  const load = () => api.get("/reports/billing", { params: params() }).then((r) => setData(r.data)).catch((e) => toast.error(apiErr(e)));
+  useEffect(() => {
+    load();
+    api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
+    api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "psychologist", "nurse"].includes(u.role)))).catch(() => {});
+  }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [patientId, provider, apptType]);
 
   const exportCsv = async () => {
-    const params = {};
-    if (start) params.start = start;
-    if (end) params.end = end;
     try {
-      const res = await api.get("/reports/billing/export", { params, responseType: "blob" });
+      const res = await api.get("/reports/billing/export", { params: params(), responseType: "blob" });
       const url = window.URL.createObjectURL(res.data);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = "billing_report.csv";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      a.href = url; a.download = "billing_report.csv";
+      document.body.appendChild(a); a.click(); a.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) { toast.error(apiErr(err)); }
   };
 
+  const changeStatus = async (id, status) => {
+    try { await api.put(`/invoices/${id}/status`, null, { params: { status } }); toast.success(t("updated")); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+  const removeInvoice = async (id) => {
+    try { await api.delete(`/invoices/${id}`); load(); } catch (err) { toast.error(apiErr(err)); }
+  };
+  const removeSelected = async () => {
+    try { await bulkDelete("/invoices/bulk-delete", [...sel.selected], t); sel.clear(); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
+
   const s = data?.summary;
+  const invoices = data?.invoices || [];
   const cards = [
     { key: "totalBilled", value: s?.total_billed, icon: DollarSign, tone: "moneygreen-600" },
     { key: "collected", value: s?.collected, icon: CheckCircle2, tone: "moneygreen-500" },
@@ -56,14 +84,33 @@ export default function BillingReports() {
 
       <Card className="p-4 mb-6">
         <div className="flex flex-wrap items-end gap-3">
-          <Field label={t("dateRange") + " (" + t("from") + ")"}>
+          <Field label={t("byPatient")}>
+            <select value={patientId} onChange={(e) => setPatientId(e.target.value)} className={inputCls + " !w-auto"} data-testid="report-filter-patient">
+              <option value="">{t("allPatients")}</option>
+              {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+            </select>
+          </Field>
+          <Field label={t("byDoctor")}>
+            <select value={provider} onChange={(e) => setProvider(e.target.value)} className={inputCls + " !w-auto"} data-testid="report-filter-doctor">
+              <option value="">{t("allDoctors")}</option>
+              {providers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
+            </select>
+          </Field>
+          <Field label={t("byAppointmentType")}>
+            <select value={apptType} onChange={(e) => setApptType(e.target.value)} className={inputCls + " !w-auto"} data-testid="report-filter-appt-type">
+              <option value="">{t("allTypes")}</option>
+              <option value="in_person">{t("inPerson")}</option>
+              <option value="telehealth">{t("telehealth")}</option>
+            </select>
+          </Field>
+          <Field label={t("from")}>
             <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className={inputCls} data-testid="report-start" />
           </Field>
           <Field label={t("to")}>
             <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className={inputCls} data-testid="report-end" />
           </Field>
           <Btn onClick={load} data-testid="apply-filter-btn">{t("applyFilter")}</Btn>
-          <Btn variant="outline" onClick={() => { setStart(""); setEnd(""); setTimeout(load, 0); }}>{t("clearFilter")}</Btn>
+          <Btn variant="outline" onClick={() => { setStart(""); setEnd(""); setPatientId(""); setProvider(""); setApptType(""); setTimeout(load, 0); }} data-testid="clear-report-filter">{t("clearFilter")}</Btn>
         </div>
       </Card>
 
@@ -111,13 +158,13 @@ export default function BillingReports() {
         </Card>
 
         <Card className="p-5">
-          <h3 className="font-heading font-bold text-moneygreen-800 mb-4">{t("byCptCode")}</h3>
-          {data?.cpt_breakdown?.length ? (
+          <h3 className="font-heading font-bold text-moneygreen-800 mb-4">{t("revenueByPatient")}</h3>
+          {data?.patient_breakdown?.length ? (
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={data.cpt_breakdown.slice(0, 8)} layout="vertical" margin={{ left: 10 }}>
+              <BarChart data={data.patient_breakdown.slice(0, 8)} layout="vertical" margin={{ left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#EAE5D9" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11 }} stroke="#5C6661" />
-                <YAxis type="category" dataKey="cpt_code" tick={{ fontSize: 11 }} width={60} stroke="#5C6661" />
+                <YAxis type="category" dataKey="patient" tick={{ fontSize: 11 }} width={110} stroke="#5C6661" />
                 <Tooltip />
                 <Bar dataKey="revenue" fill="#41805B" radius={[0, 4, 4, 0]} name={t("revenue")} />
               </BarChart>
@@ -126,32 +173,71 @@ export default function BillingReports() {
         </Card>
       </div>
 
-      {data?.cpt_breakdown?.length > 0 && (
-        <Card className="mt-4 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
-                  <th className="px-5 py-3">{t("cptCode")}</th>
-                  <th className="px-5 py-3">{t("description")}</th>
-                  <th className="px-5 py-3 text-right">{t("count")}</th>
-                  <th className="px-5 py-3 text-right">{t("revenue")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.cpt_breakdown.map((c, i) => (
-                  <tr key={c.cpt_code} className={`border-b border-border/60 ${i % 2 ? "bg-tan-50/40" : ""}`}>
-                    <td className="px-5 py-3 font-mono font-semibold text-moneygreen-700">{c.cpt_code}</td>
-                    <td className="px-5 py-3 text-stone-600">{c.description}</td>
-                    <td className="px-5 py-3 text-right text-stone-600">{c.count}</td>
-                    <td className="px-5 py-3 text-right font-semibold text-moneygreen-800">${c.revenue.toFixed(2)}</td>
+      {/* Invoices with select / status / delete */}
+      <div className="mt-6">
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          <h3 className="font-heading text-lg font-bold text-moneygreen-800">{t("invoices")}</h3>
+          {invoices.length > 0 && (
+            <div className="ml-auto flex items-center gap-3">
+              <label className="flex items-center gap-1.5 text-sm text-stone-600 cursor-pointer">
+                <input type="checkbox" data-testid="select-all-report-invoices"
+                  checked={sel.count >= invoices.length && invoices.length > 0}
+                  onChange={() => sel.toggleAll(invoices.map((v) => v.id))}
+                  className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+                {t("selectAll")}
+              </label>
+              {sel.count > 0 && (<>
+                <span className="text-sm text-stone-500">{sel.count}</span>
+                <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-report-invoices"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
+                <Btn variant="outline" onClick={sel.clear} data-testid="deselect-report-invoices">{t("deselectAll")}</Btn>
+              </>)}
+            </div>
+          )}
+        </div>
+        <Card className="overflow-hidden">
+          {invoices.length === 0 ? <p className="p-6 text-sm text-stone-400">{t("noData")}</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
+                    <th className="px-4 py-3 w-8"></th>
+                    <th className="px-5 py-3">{t("invoiceNumber")}</th>
+                    <th className="px-5 py-3">{t("patient")}</th>
+                    <th className="px-5 py-3 hidden md:table-cell">{t("serviceDate")}</th>
+                    <th className="px-5 py-3">{t("status")}</th>
+                    <th className="px-5 py-3 text-right">{t("total")}</th>
+                    <th className="px-5 py-3 text-right">{t("actions")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {invoices.map((v, i) => (
+                    <tr key={v.id} data-testid={`report-invoice-${v.id}`} className={`border-b border-border/60 ${sel.has(v.id) ? "bg-moneygreen-50" : i % 2 ? "bg-tan-50/40" : ""}`}>
+                      <td className="px-4 py-3">
+                        <input type="checkbox" checked={sel.has(v.id)} onChange={() => sel.toggle(v.id)}
+                          data-testid={`select-report-invoice-${v.id}`} className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+                      </td>
+                      <td className="px-5 py-3 font-mono font-semibold text-moneygreen-700">{v.invoice_number || "—"}</td>
+                      <td className="px-5 py-3 text-stone-700"><Private value={v.patient_name} /></td>
+                      <td className="px-5 py-3 hidden md:table-cell text-stone-600">{v.service_date}</td>
+                      <td className="px-5 py-3">
+                        <select value={STATUSES.includes(v.status) ? v.status : "in_transit"} onChange={(e) => changeStatus(v.id, e.target.value)}
+                          data-testid={`report-invoice-status-${v.id}`}
+                          className="px-2 py-1 rounded-md border border-border text-xs font-semibold cursor-pointer bg-white focus:outline-none focus:ring-2 focus:ring-moneygreen-500">
+                          {STATUSES.map((st) => <option key={st} value={st}>{statusLabel(st)}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-5 py-3 text-right font-semibold text-moneygreen-800">${(v.total || 0).toFixed(2)}</td>
+                      <td className="px-5 py-3 text-right">
+                        <Btn variant="ghost" onClick={() => removeInvoice(v.id)} data-testid={`delete-report-invoice-${v.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
-      )}
+      </div>
     </div>
   );
 }

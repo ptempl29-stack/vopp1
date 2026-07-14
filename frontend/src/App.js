@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LanguageProvider } from "./context/LanguageContext";
+import { PrivacyProvider } from "./context/PrivacyContext";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -41,6 +42,7 @@ function App() {
     <div className="App">
       <LanguageProvider>
         <AuthProvider>
+          <PrivacyProvider>
           <Toaster position="top-right" richColors />
           <BrowserRouter>
             <Routes>
@@ -65,6 +67,7 @@ function App() {
               <Route path="/claims" element={<Protected tab="claims"><Claims /></Protected>} />
             </Routes>
           </BrowserRouter>
+          </PrivacyProvider>
         </AuthProvider>
       </LanguageProvider>
     </div>

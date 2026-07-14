@@ -32,6 +32,7 @@ class PatientInput(BaseModel):
     last_name: str
     dob: Optional[str] = None
     gender: Optional[str] = None
+    ssn: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
@@ -68,6 +69,8 @@ class NoteInput(BaseModel):
     attending_provider: Optional[str] = None
     referring_provider: Optional[str] = None
     icd10: Optional[str] = None
+    cpt_code: Optional[str] = None
+    risk_level: Optional[str] = None
     ai_summarized: bool = False
 
 

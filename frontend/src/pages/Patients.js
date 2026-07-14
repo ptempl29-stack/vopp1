@@ -3,12 +3,13 @@ import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { can } from "../lib/perms";
 import { useAuth } from "../context/AuthContext";
+import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { Plus, Search, Pencil, Trash2, Eye, Video, MapPin, CalendarClock, FileText, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 
-const blank = { first_name: "", last_name: "", dob: "", gender: "", phone: "", email: "", address: "", notes: "", status: "active" };
+const blank = { first_name: "", last_name: "", dob: "", gender: "", ssn: "", phone: "", email: "", address: "", notes: "", status: "active" };
 
 export default function Patients() {
   const { t } = useLang();
@@ -99,11 +100,11 @@ export default function Patients() {
                     data-testid={`patient-row-${p.id}`}
                     className={`border-b border-border/60 hover:bg-tan-50 transition-colors duration-200 ${i % 2 ? "bg-tan-50/40" : ""}`}>
                     <td className="px-5 py-3">
-                      <p className="font-semibold text-moneygreen-800">{p.first_name} {p.last_name}</p>
+                      <p className="font-semibold text-moneygreen-800"><Private value={`${p.first_name} ${p.last_name}`} /></p>
                       <p className="text-xs text-stone-500">{p.email || "—"}</p>
                     </td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{p.phone || "—"}</td>
-                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{p.dob || "—"}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600"><Private value={p.dob} /></td>
                     <td className="px-5 py-3"><Badge tone={p.status === "active" ? "green" : "gray"}>{t(p.status === "active" ? "active" : "inactive")}</Badge></td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-1">
@@ -135,6 +136,7 @@ export default function Patients() {
             </Field>
             <Field label={t("phone")}><input value={form.phone || ""} onChange={set("phone")} className={inputCls} /></Field>
             <Field label={t("email")}><input value={form.email || ""} onChange={set("email")} className={inputCls} /></Field>
+            <Field label={t("socialSecurity")}><input value={form.ssn || ""} onChange={set("ssn")} className={inputCls} data-testid="pf-ssn" placeholder="XXX-XX-XXXX" /></Field>
           </div>
           <Field label={t("address")}><input value={form.address || ""} onChange={set("address")} className={inputCls} /></Field>
           <Field label={t("status")}>
@@ -153,13 +155,13 @@ export default function Patients() {
           <div className="space-y-5" data-testid="patient-detail">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-3 rounded-md bg-tan-50 border border-border">
-                <p className="text-xs text-stone-500">{t("dob")}</p><p className="font-semibold text-moneygreen-800">{detail.dob || "—"}</p>
+                <p className="text-xs text-stone-500">{t("dob")}</p><p className="font-semibold text-moneygreen-800"><Private value={detail.dob} /></p>
+              </div>
+              <div className="p-3 rounded-md bg-tan-50 border border-border">
+                <p className="text-xs text-stone-500">{t("socialSecurity")}</p><p className="font-semibold text-moneygreen-800"><Private value={detail.ssn} /></p>
               </div>
               <div className="p-3 rounded-md bg-tan-50 border border-border">
                 <p className="text-xs text-stone-500">{t("phone")}</p><p className="font-semibold text-moneygreen-800">{detail.phone || "—"}</p>
-              </div>
-              <div className="p-3 rounded-md bg-tan-50 border border-border">
-                <p className="text-xs text-stone-500">{t("email")}</p><p className="font-semibold text-moneygreen-800 truncate">{detail.email || "—"}</p>
               </div>
               <div className="p-3 rounded-md bg-tan-50 border border-border">
                 <p className="text-xs text-stone-500">{t("status")}</p><p className="font-semibold text-moneygreen-800 capitalize">{t(detail.status === "active" ? "active" : "inactive")}</p>
