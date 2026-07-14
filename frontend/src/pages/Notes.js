@@ -117,46 +117,48 @@ export default function Notes() {
     finally { setSavingSig(false); }
   };
 
-  // Editable header block matching the requested format
-  const EditableHeader = () => (
+  // Editable header (inline JSX, NOT a nested component — prevents input focus loss)
+  const editableHeader = (
     <div>
       <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500 mb-2">{t("notesLabel")}</p>
-      <div className="rounded-lg border border-border border-l-4 border-l-moneygreen-600 bg-white p-5">
-        <div className="space-y-1.5 max-w-md">
+      <div className="rounded-lg border border-border border-l-4 border-l-moneygreen-600 bg-white p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
           <HRow label={t("patientName")}>
             <select required value={form.patient_id} onChange={onPatient} className={headerInputCls} data-testid="nf-patient">
               <option value="">{t("selectPatient")}</option>
               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
             </select>
           </HRow>
+          <HRow label={t("dateOfSession")}><input type="date" value={form.visit_date || ""} onChange={set("visit_date")} className={headerInputCls} data-testid="nf-visit-date" /></HRow>
           <HRow label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={headerInputCls} data-testid="nf-dob" /></HRow>
           <HRow label={t("socialSecurity")}><input value={form.ssn || ""} onChange={set("ssn")} className={headerInputCls} data-testid="nf-ssn" placeholder="XXX-XX-XXXX" /></HRow>
-          <HRow label={t("dateOfSession")}><input type="date" value={form.visit_date || ""} onChange={set("visit_date")} className={headerInputCls} data-testid="nf-visit-date" /></HRow>
-          <HRow label={t("icd10Code")}><input value={form.icd10 || ""} onChange={set("icd10")} className={headerInputCls} data-testid="nf-icd10" placeholder="e.g. F33.0" /></HRow>
-          {codeHistory.icd10.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5" data-testid="icd-suggestions">
-              <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
-              {codeHistory.icd10.map((c) => (
-                <button key={c} type="button" onClick={() => setForm((f) => ({ ...f, icd10: c }))}
-                  data-testid={`icd-chip-${c}`}
-                  className="text-xs px-2 py-0.5 rounded-full bg-moneygreen-100 text-moneygreen-700 hover:bg-moneygreen-200 font-mono font-semibold transition-colors">{c}</button>
-              ))}
-            </div>
-          )}
-          <HRow label={t("cptCode")}>
-            <input list="cpt-list" value={form.cpt_code || ""} onChange={set("cpt_code")} className={headerInputCls} data-testid="nf-cpt" placeholder="e.g. 90837" />
-            <datalist id="cpt-list">{cpt.map((c) => <option key={c.code} value={c.code}>{c.description}</option>)}</datalist>
-          </HRow>
-          {codeHistory.cpt.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5" data-testid="cpt-suggestions">
-              <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
-              {codeHistory.cpt.map((c) => (
-                <button key={c} type="button" onClick={() => setForm((f) => ({ ...f, cpt_code: c }))}
-                  data-testid={`cpt-chip-${c}`}
-                  className="text-xs px-2 py-0.5 rounded-full bg-tan-100 text-tan-900 hover:bg-tan-200 font-mono font-semibold transition-colors">{c}</button>
-              ))}
-            </div>
-          )}
+          <div>
+            <HRow label={t("icd10Code")}><input value={form.icd10 || ""} onChange={set("icd10")} className={headerInputCls} data-testid="nf-icd10" placeholder="e.g. F33.0" /></HRow>
+            {codeHistory.icd10.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-1 pl-2" data-testid="icd-suggestions">
+                <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
+                {codeHistory.icd10.map((c) => (
+                  <button key={c} type="button" onClick={() => setForm((f) => ({ ...f, icd10: c }))} data-testid={`icd-chip-${c}`}
+                    className="text-xs px-2 py-0.5 rounded-full bg-moneygreen-100 text-moneygreen-700 hover:bg-moneygreen-200 font-mono font-semibold transition-colors">{c}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <HRow label={t("cptCode")}>
+              <input list="cpt-list" value={form.cpt_code || ""} onChange={set("cpt_code")} className={headerInputCls} data-testid="nf-cpt" placeholder="e.g. 90837" />
+              <datalist id="cpt-list">{cpt.map((c) => <option key={c.code} value={c.code}>{c.description}</option>)}</datalist>
+            </HRow>
+            {codeHistory.cpt.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-1 pl-2" data-testid="cpt-suggestions">
+                <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
+                {codeHistory.cpt.map((c) => (
+                  <button key={c} type="button" onClick={() => setForm((f) => ({ ...f, cpt_code: c }))} data-testid={`cpt-chip-${c}`}
+                    className="text-xs px-2 py-0.5 rounded-full bg-tan-100 text-tan-900 hover:bg-tan-200 font-mono font-semibold transition-colors">{c}</button>
+                ))}
+              </div>
+            )}
+          </div>
           <HRow label={t("riskAssessment")}>
             <select value={form.risk_level || ""} onChange={set("risk_level")} className={headerInputCls} data-testid="nf-risk">
               <option value="">{t("selectRisk")}</option>
@@ -264,7 +266,7 @@ export default function Notes() {
               <EditableLetterhead settings={settings} onSaved={setSettings} t={t}
                 canEdit={["admin", "doctor", "nurse", "psychologist"].includes(user?.role)} />
             </div>
-            <EditableHeader />
+            {editableHeader}
             {/* Blank writing page */}
             <textarea value={form.content} onChange={set("content")} data-testid="nf-content"
               className="w-full min-h-[420px] p-6 bg-white border border-border rounded-lg text-base leading-relaxed text-stone-800 focus:outline-none focus:ring-2 focus:ring-moneygreen-500 no-print"
@@ -344,7 +346,7 @@ export default function Notes() {
 
 const HRow = ({ label, children }) => (
   <div className="flex items-baseline gap-2">
-    <span className="w-40 shrink-0 text-sm font-semibold text-stone-700">{label}:</span>
+    <span className="w-32 shrink-0 text-sm font-semibold text-stone-700 leading-tight">{label}:</span>
     <div className="flex-1 min-w-0">{children}</div>
   </div>
 );

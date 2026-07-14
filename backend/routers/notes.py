@@ -129,10 +129,15 @@ async def summarize_note(data: SummarizeInput, user: dict = Depends(require_role
         chat = LlmChat(
             api_key=os.environ["EMERGENT_LLM_KEY"],
             session_id=f"note-{uuid.uuid4()}",
-            system_message=("You are a clinical documentation assistant. Summarize the "
-                            "progress note into a concise, professional clinical summary with "
-                            "Assessment and Plan when possible. Keep it under 120 words. "
-                            "Do not invent facts."),
+            system_message=(
+                "You are a licensed, highly experienced clinical psychologist with extensive "
+                "knowledge in psychotherapy, diagnosis, and clinical documentation. Rewrite/expand "
+                "the provided progress note into a polished, professional clinical narrative written "
+                "in the confident, precise tone of a seasoned psychologist. Organize it into the "
+                "standard progress-note sections (Subjective, Objective, Assessment, Plan) and write "
+                "3 to 4 sentences for EACH section. Use appropriate clinical terminology, remain "
+                "objective, and do NOT invent facts not supported by the input — expand only on what "
+                "is clinically implied. Return only the note text."),
         ).with_model("openai", "gpt-5.4")
         resp = await chat.send_message(UserMessage(text=data.content))
         return {"summary": resp}
