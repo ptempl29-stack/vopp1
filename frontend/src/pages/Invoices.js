@@ -228,11 +228,6 @@ export default function Invoices() {
               <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                 <CField label={t("invoiceNumber")}><input value={inv.invoice_number} onChange={setF("invoice_number")} className={cellCls} data-testid="inv-number" /></CField>
                 <CField label={t("serviceDate")}><input type="date" value={inv.service_date} onChange={setF("service_date")} className={cellCls} data-testid="inv-service-date" /></CField>
-                <CField label={t("status")}>
-                  <select value={inv.status} onChange={setF("status")} className={cellCls} data-testid="inv-status">
-                    {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-                  </select>
-                </CField>
                 <CField label={t("visitReason")}>
                   <select value={inv.visit_reason || ""} onChange={setF("visit_reason")} className={cellCls} data-testid="inv-reason">
                     <option value="">—</option>
