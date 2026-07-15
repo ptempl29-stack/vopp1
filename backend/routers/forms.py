@@ -1,5 +1,6 @@
 import uuid
 import io
+import re
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from fastapi.responses import Response, StreamingResponse
@@ -211,7 +212,8 @@ class FormUpdate(BaseModel):
 
 
 class EmailSend(BaseModel):
-    recipient_email: EmailStr
+    recipients: Optional[list] = None
+    recipient_email: Optional[EmailStr] = None
 
 
 class ToFolder(BaseModel):
@@ -294,11 +296,22 @@ async def send_form_email(fid: str, data: EmailSend, user: dict = Depends(requir
     f = await db.forms.find_one({"id": fid})
     if not f:
         raise HTTPException(status_code=404, detail="Form not found")
+    raw = list(data.recipients or [])
+    if data.recipient_email:
+        raw.append(str(data.recipient_email))
+    seen, recipients = set(), []
+    for r in raw:
+        r = (r or "").strip()
+        if r and re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", r) and r.lower() not in seen:
+            seen.add(r.lower())
+            recipients.append(r)
+    if not recipients:
+        raise HTTPException(status_code=400, detail="At least one valid recipient email is required")
     if not email_configured():
-        return {"sent": False, "configured": False}
+        return {"sent": 0, "total": len(recipients), "configured": False, "failed": recipients}
     s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
     clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
-    body_lines = [f"Hello,", "", f"{clinic} has sent you a form: {f.get('title')}"]
+    body_lines = ["Hello,", "", f"{clinic} has sent you a form: {f.get('title')}"]
     if f.get("public_token"):
         link = f"{PUBLIC_BASE_URL.rstrip('/')}/form/{f['public_token']}"
         body_lines += ["", "Please complete it securely here:", link]
@@ -313,10 +326,18 @@ async def send_form_email(fid: str, data: EmailSend, user: dict = Depends(requir
                             "content_type": f["attachment"].get("content_type", "application/octet-stream")}]
         except Exception as e:
             logger.error(f"attach fetch failed: {e}")
-    ok = send_email(data.recipient_email, f"{clinic}: {f.get('title')}", "\n".join(body_lines), attachments)
-    await db.forms.update_one({"id": fid}, {"$set": {"email_sent": ok, "recipient_email": data.recipient_email}})
-    await log_audit("update", "form", actor=user, resource_id=fid, detail=f"email sent={ok} to {data.recipient_email}")
-    return {"sent": ok, "configured": True}
+    subject = f"{clinic}: {f.get('title')}"
+    body = "\n".join(body_lines)
+    sent, failed = 0, []
+    for r in recipients:
+        if send_email(r, subject, body, attachments):
+            sent += 1
+        else:
+            failed.append(r)
+    await db.forms.update_one({"id": fid}, {"$set": {"email_sent": sent > 0, "recipient_email": recipients[0]}})
+    await log_audit("update", "form", actor=user, resource_id=fid,
+                    detail=f"email sent {sent}/{len(recipients)} to {', '.join(recipients)}")
+    return {"sent": sent, "total": len(recipients), "configured": True, "failed": failed}
 
 
 @router.post("/forms/{fid}/to-folder")

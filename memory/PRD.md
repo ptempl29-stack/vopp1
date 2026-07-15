@@ -280,9 +280,13 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Tested: testing_agent iteration_33 — 10/10 backend pytest + 6/6 frontend flows, no bugs. DB left clean.
 
 ## Backlog / Next
-- **Add email credentials to activate sending**: Resend (`RESEND_API_KEY` + verified `SENDER_EMAIL`) and/or Yahoo (`YAHOO_EMAIL` + app password) in backend/.env, then restart backend. Same values must be set in the production deployment env.
+- **Add email credentials to activate sending**: Yahoo needs a 16-char **App Password** (the account password is rejected by Yahoo SMTP), or use Resend (`RESEND_API_KEY`+`SENDER_EMAIL`). Set same in production env.
 - P2: Stripe payment gateway for invoices.
-- Optional: backfill legacy forms with null `created_by`; hide orphan appointments/invoices rendering "—".
+
+## Iteration 37 (2026-06) — Multi-recipient form email
+- Forms email dialog now supports **multiple recipients**: dynamic add/remove email inputs ("Add recipient"), send the same form (with attachment) to a patient AND e.g. their referring doctor at once. `POST /api/forms/{id}/send-email` accepts `recipients: [..]` (backward-compatible with `recipient_email`), de-dupes, drops invalid addresses, 400 on none; returns `{sent, total, configured, failed[]}`. UI toast shows `sent/total` and lists any failures.
+- Self-tested: backend dedup/invalid-filter/empty→400 via curl; frontend add/remove recipient inputs verified. Email still INACTIVE pending valid Yahoo App Password.
+
 
 ## Backlog / Next (superseded)
 

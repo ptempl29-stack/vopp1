@@ -166,16 +166,21 @@ export default function Forms() {
 
   const openEmail = (f) => {
     const p = patients.find((x) => x.id === f.patient_id);
-    setEmailModal({ fid: f.id, title: f.title, recipient: f.recipient_email || p?.email || "" });
+    setEmailModal({ fid: f.id, title: f.title, recipients: [f.recipient_email || p?.email || ""] });
   };
   const sendEmail = async (e) => {
     e.preventDefault();
+    const recips = (emailModal.recipients || []).map((r) => r.trim()).filter(Boolean);
+    if (!recips.length) { toast.error(t("recipientEmail")); return; }
     setSendingEmail(true);
     try {
-      const res = await api.post(`/forms/${emailModal.fid}/send-email`, { recipient_email: emailModal.recipient });
+      const res = await api.post(`/forms/${emailModal.fid}/send-email`, { recipients: recips });
       if (res.data.configured === false) toast.info(t("emailNotConfigured"));
-      else if (res.data.sent) { toast.success(t("emailSentOk")); setEmailModal(null); load(); }
-      else toast.error(t("emailFailed"));
+      else if (res.data.sent > 0) {
+        toast.success(`${res.data.sent}/${res.data.total} ${t("emailSentOk")}`);
+        if (res.data.failed?.length) toast.error(`${t("emailFailed")} ${res.data.failed.join(", ")}`);
+        setEmailModal(null); load();
+      } else toast.error(t("emailFailed"));
     } catch (err) { toast.error(apiErr(err)); }
     finally { setSendingEmail(false); }
   };
@@ -509,10 +514,30 @@ export default function Forms() {
         {emailModal && (
           <form onSubmit={sendEmail} className="space-y-4" data-testid="email-modal">
             <p className="text-sm text-stone-600">{emailModal.title}</p>
-            <Field label={t("recipientEmail")}>
-              <input required type="email" value={emailModal.recipient} onChange={(e) => setEmailModal({ ...emailModal, recipient: e.target.value })} className={inputCls} data-testid="email-recipient" placeholder="patient@email.com" />
+            <div>
+              <label className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500">{t("recipientEmail")}</label>
+              <div className="mt-1.5 space-y-2">
+                {emailModal.recipients.map((r, idx) => (
+                  <div key={idx} className="flex gap-2">
+                    <input required={idx === 0} type="email" value={r}
+                      onChange={(e) => { const rs = [...emailModal.recipients]; rs[idx] = e.target.value; setEmailModal({ ...emailModal, recipients: rs }); }}
+                      className={inputCls} data-testid={`email-recipient-${idx}`} placeholder="patient@email.com" />
+                    {emailModal.recipients.length > 1 && (
+                      <Btn type="button" variant="ghost" className="!px-2 !text-destructive" data-testid={`remove-recipient-${idx}`}
+                        onClick={() => setEmailModal({ ...emailModal, recipients: emailModal.recipients.filter((_, i) => i !== idx) })}>
+                        <Trash2 className="w-4 h-4" />
+                      </Btn>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button type="button" data-testid="add-recipient-btn"
+                onClick={() => setEmailModal({ ...emailModal, recipients: [...emailModal.recipients, ""] })}
+                className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-moneygreen-700 hover:text-moneygreen-800">
+                <Plus className="w-4 h-4" />{t("addRecipient")}
+              </button>
               <p className="text-xs text-stone-400 mt-1">{t("anyEmailHint")}</p>
-            </Field>
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <Btn variant="outline" type="button" onClick={() => setEmailModal(null)}>{t("cancel")}</Btn>
               <Btn type="submit" disabled={sendingEmail} data-testid="send-email-btn">
