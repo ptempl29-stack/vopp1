@@ -5,11 +5,12 @@ import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { roleLabel } from "../lib/perms";
 import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
-  "invoices", "cpt", "reports", "forms", "messages", "team", "audit", "claims", "assistant"];
+  "invoices", "cpt", "reports", "forms", "folders", "messages", "team", "audit", "claims", "assistant"];
 
 const roleColors = {
   doctor: "green", nurse: "green", psychologist: "green",
@@ -207,7 +208,7 @@ export default function Team() {
                       <p className="font-semibold text-moneygreen-800">{u.name}</p>
                       <p className="text-xs text-stone-500">{u.email}</p>
                     </td>
-                    <td className="px-5 py-3"><Badge tone={roleColors[u.role] || "gray"}>{u.role}</Badge></td>
+                    <td className="px-5 py-3"><Badge tone={roleColors[u.role] || "gray"}>{roleLabel(u.role)}</Badge></td>
                     <td className="px-5 py-3">
                       <Badge tone={u.active === false ? "gray" : "green"} data-testid={`user-status-${u.id}`}>
                         {u.active === false ? t("suspended") : t("active")}
@@ -272,7 +273,7 @@ export default function Team() {
                   {invites.map((iv, i) => (
                     <tr key={iv.id} data-testid={`invite-row-${iv.id}`} className={`border-b border-border/60 ${i % 2 ? "bg-tan-50/40" : ""}`}>
                       <td className="px-5 py-3 text-moneygreen-800 font-medium">{iv.email}</td>
-                      <td className="px-5 py-3"><Badge tone="tan">{iv.role}</Badge></td>
+                      <td className="px-5 py-3"><Badge tone="tan">{roleLabel(iv.role)}</Badge></td>
                       <td className="px-5 py-3"><Badge tone={iv.status === "accepted" ? "green" : "amber"}>{iv.status === "accepted" ? t("accepted") : t("pending")}</Badge></td>
                       <td className="px-5 py-3">
                         <div className="flex justify-end gap-1">
@@ -299,7 +300,7 @@ export default function Team() {
             <Card key={role} className="p-4 flex flex-col" data-testid={`role-card-${role}`}>
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-8 h-8 rounded-md bg-moneygreen-100 flex items-center justify-center text-moneygreen-600"><Users className="w-4 h-4" /></div>
-                <span className="font-heading font-bold capitalize text-moneygreen-800">{role}</span>
+                <span className="font-heading font-bold capitalize text-moneygreen-800">{roleLabel(role)}</span>
                 <span className="ml-auto text-xs text-stone-400">{(defaults[role] || []).length} tabs</span>
               </div>
               <div className="flex flex-wrap gap-1.5 mb-3 flex-1">
@@ -315,7 +316,7 @@ export default function Team() {
         </div>
       </div>
 
-      <Modal open={!!roleTpl} onClose={() => setRoleTpl(null)} title={roleTpl ? `${t("editRoleTemplate")} — ${roleTpl.role}` : ""}>
+      <Modal open={!!roleTpl} onClose={() => setRoleTpl(null)} title={roleTpl ? `${t("editRoleTemplate")} — ${roleLabel(roleTpl.role)}` : ""}>
         {roleTpl && (
           <div>
             <div className="grid grid-cols-2 gap-2" data-testid="role-tabs-checklist">
@@ -358,7 +359,7 @@ export default function Team() {
             <Field label={t("email")}><input type="email" required value={inviteForm.email} onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })} className={inputCls} data-testid="invite-email" placeholder="employee@email.com" /></Field>
             <Field label={t("role")}>
               <select value={inviteForm.role} onChange={onInviteRole} className={inputCls} data-testid="invite-role">
-                {(roles.length ? roles : ["doctor", "nurse", "psychologist", "receptionist", "biller"]).filter((r) => r !== "admin").map((r) => <option key={r} value={r}>{r}</option>)}
+                {(roles.length ? roles : ["doctor", "nurse", "psychologist", "receptionist", "biller"]).filter((r) => r !== "admin").map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
               </select>
             </Field>
             <div>
@@ -428,7 +429,7 @@ export default function Team() {
             <Field label={t("email")}><input type="email" required value={infoForm.email} onChange={setInfo("email")} className={inputCls} data-testid="eu-email" /></Field>
             <Field label={t("role")}>
               <select value={infoForm.role} onChange={setInfo("role")} className={inputCls} data-testid="eu-role" disabled={infoUser.role === "admin"}>
-                {(roles.length ? roles : ["doctor", "nurse", "psychologist", "receptionist", "biller", "admin"]).map((r) => <option key={r} value={r}>{r}</option>)}
+                {(roles.length ? roles : ["doctor", "nurse", "psychologist", "receptionist", "biller", "admin"]).map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
               </select>
             </Field>
             <Field label={t("password") + " (" + t("orLabel") + " leave blank)"}>

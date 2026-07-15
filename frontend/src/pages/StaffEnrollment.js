@@ -95,7 +95,7 @@ export default function StaffEnrollment() {
             <Field label={t("email")}><input type="email" required value={form.email} onChange={set("email")} className={inputCls} data-testid="en-email" /></Field>
             <Field label={t("role")}>
               <select value={form.role} onChange={onRole} className={inputCls} data-testid="en-role">
-                {roleList.map((r) => <option key={r} value={r}>{r}</option>)}
+                {roleList.map((r) => <option key={r} value={r}>{r === "admin" ? "CEO" : r}</option>)}
               </select>
             </Field>
           </div>

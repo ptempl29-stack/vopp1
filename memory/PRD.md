@@ -283,6 +283,12 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Add email credentials to activate sending**: Yahoo needs a 16-char **App Password** (the account password is rejected by Yahoo SMTP), or use Resend (`RESEND_API_KEY`+`SENDER_EMAIL`). Set same in production env.
 - P2: Stripe payment gateway for invoices.
 
+## Iteration 38 (2026-06) — Rename "Admin" → "CEO" (display only)
+- The `admin` role is now labeled **"CEO"** everywhere in the UI (sidebar nav/page, page title, staff role badge, account name/role, role dropdowns in Team + Staff Enrollment, lockout copy). Internal role key remains `admin` — all RBAC (`require_roles("admin")`, `user.role==="admin"` bypass, JWT, seeding) is unchanged and unaffected. Added `roleLabel()` helper in `lib/perms.js`.
+- Fixed: Team.js `ALL_TABS` was missing `folders` — CEO can now grant/revoke the Patient Folders tab per user/role.
+- Renamed the primary admin account's display name from "ADMIN" → "CEO" (data update; email/password unchanged: usvopp@yahoo.com / Football2023?).
+- Self-tested via screenshot; frontend compiles clean.
+
 ## Iteration 37 (2026-06) — Multi-recipient form email
 - Forms email dialog now supports **multiple recipients**: dynamic add/remove email inputs ("Add recipient"), send the same form (with attachment) to a patient AND e.g. their referring doctor at once. `POST /api/forms/{id}/send-email` accepts `recipients: [..]` (backward-compatible with `recipient_email`), de-dupes, drops invalid addresses, 400 on none; returns `{sent, total, configured, failed[]}`. UI toast shows `sent/total` and lists any failures.
 - Self-tested: backend dedup/invalid-filter/empty→400 via curl; frontend add/remove recipient inputs verified. Email still INACTIVE pending valid Yahoo App Password.

@@ -76,7 +76,7 @@ export default function Layout({ children }) {
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
-              <p className="text-xs text-tan-300 capitalize">{user?.role}</p>
+              <p className="text-xs text-tan-300 capitalize">{user?.role === "admin" ? "CEO" : user?.role}</p>
             </div>
           </div>
           <button onClick={handleLogout} data-testid="logout-btn"

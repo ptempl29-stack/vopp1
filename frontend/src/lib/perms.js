@@ -15,3 +15,10 @@ export function can(role, resource) {
   if (role === "admin") return true;
   return (rules[resource] || []).includes(role);
 }
+
+// Display label for a role. Internal key stays "admin"; shown as "CEO" everywhere.
+export function roleLabel(role) {
+  if (!role) return "";
+  if (role === "admin") return "CEO";
+  return role;
+}
