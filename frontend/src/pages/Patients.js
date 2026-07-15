@@ -128,7 +128,7 @@ export default function Patients() {
           <div className="grid grid-cols-2 gap-4">
             <Field label={t("firstName")}><input required value={form.first_name} onChange={set("first_name")} className={inputCls} data-testid="pf-first" /></Field>
             <Field label={t("lastName")}><input required value={form.last_name} onChange={set("last_name")} className={inputCls} data-testid="pf-last" /></Field>
-            <Field label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={inputCls} /></Field>
+            <Field label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={inputCls} data-testid="pf-dob" /></Field>
             <Field label={t("gender")}>
               <select value={form.gender || ""} onChange={set("gender")} className={inputCls}>
                 <option value="">—</option><option value="male">M</option><option value="female">F</option><option value="other">X</option>

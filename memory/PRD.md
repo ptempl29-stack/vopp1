@@ -252,6 +252,15 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Provider dropdowns** now include admin (sole clinical user selectable).
 - Verified: testing_agent iteration_28 — 100% frontend, backend curl-verified, zero bugs, no-confirm deletes, no regressions.
 
+## Iteration 34 (2026-06/07) — Note redesign polish, robust multi-page print, patient-data accuracy, invoice UX, appointments filters
+- **Progress Notes**: compact 2-col editable header; fixed input focus-loss (inlined header JSX instead of nested component); AI Summarize prompt now = experienced psychologist tone, S/O/A/P with 3-4 sentences each; List/Card view toggle.
+- **Robust print (multi-page fix)**: `lib/print.js` printSection() clones content into a top-level `#print-holder` (body.printing) so notes/invoices/forms paginate without overlap. Notes editor+view, Invoice VIEW modal, and Forms use it. Invoice EDITOR print stays legacy (live form). Legacy `#invoice-print`/`#form-print` CSS scoped to `body:not(.printing)`.
+- **Patient data accuracy**: selecting a patient in Invoices/Notes fetches fresh `GET /patients/{id}` (name/DOB/SSN/gender); `GET /invoices/{id}` and invoice list always reflect the current patient record.
+- **Invoices**: compact 2-col Patient/Invoice info layout; saved-invoice rows clickable to open on-screen view; Service Date shows chosen date; new **Completed** column = date marked Paid (`completed_at` set on paid, cleared otherwise).
+- **Appointments**: Provider is now a staff-name dropdown; filter bar adds Patient filter.
+- **Patients**: SSN field; Name/DOB/SSN flow into invoices/notes; privacy masking applies.
+- Verified: testing_agent iterations 29-31, all 100%. Known: ~25 legacy orphan invoices (null number/date) render '—' gracefully — optional cleanup.
+
 ## In progress / Pending
 - (none active)
 
