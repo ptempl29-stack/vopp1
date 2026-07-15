@@ -391,14 +391,29 @@ export default function Invoices() {
                 </div>
                 <Badge tone={statusTone[viewing.status] || "gray"}>{statusLabel(viewing.status)}</Badge>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5 text-sm mt-4">
-                <div><span className="text-xs font-semibold text-stone-500">{t("fullName")}: </span><Private value={viewing.patient_name} /></div>
-                {viewing.dob && <div><span className="text-xs font-semibold text-stone-500">{t("dob")}: </span><Private value={viewing.dob} /></div>}
-                {viewing.ssn && <div><span className="text-xs font-semibold text-stone-500">SSN: </span><Private value={viewing.ssn} /></div>}
-                {viewing.gender && <div><span className="text-xs font-semibold text-stone-500">{t("gender")}: </span>{viewing.gender}</div>}
-                {viewing.visit_reason && <div><span className="text-xs font-semibold text-stone-500">{t("visitReason")}: </span>{viewing.visit_reason}</div>}
-                {viewing.icd10 && <div><span className="text-xs font-semibold text-stone-500">ICD-10-CM: </span>{viewing.icd10}</div>}
-                {viewing.provider && <div><span className="text-xs font-semibold text-stone-500">{t("attendingProvider")}: </span>{viewing.provider}</div>}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6 mt-5">
+                <div>
+                  <h4 className="font-heading text-xs font-bold uppercase tracking-[0.2em] text-moneygreen-600 border-b border-border pb-1.5 mb-2">{t("patientInformation")}</h4>
+                  <div className="space-y-1 text-sm">
+                    <VRow label={t("fullName")} value={viewing.patient_name ? <Private value={viewing.patient_name} /> : ""} />
+                    <VRow label={t("dob")} value={viewing.dob ? <Private value={viewing.dob} /> : ""} />
+                    <VRow label="SSN" value={viewing.ssn ? <Private value={viewing.ssn} /> : ""} />
+                    <VRow label={t("gender")} value={viewing.gender} />
+                    <VRow label={t("policyNumber")} value={viewing.policy_number} />
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-heading text-xs font-bold uppercase tracking-[0.2em] text-moneygreen-600 border-b border-border pb-1.5 mb-2">{t("invoiceInformation")}</h4>
+                  <div className="space-y-1 text-sm">
+                    <VRow label={t("invoiceNumber")} value={viewing.invoice_number} />
+                    <VRow label={t("serviceDate")} value={viewing.service_date} />
+                    <VRow label={t("completed")} value={viewing.completed_at ? (viewing.completed_at || "").slice(0, 10) : ""} />
+                    <VRow label={t("status")} value={statusLabel(viewing.status)} />
+                    <VRow label={t("visitReason")} value={viewing.visit_reason} />
+                    <VRow label="ICD-10-CM" value={viewing.icd10} />
+                    <VRow label={t("attendingProvider")} value={viewing.provider} />
+                  </div>
+                </div>
               </div>
               <div className="mt-5 overflow-x-auto">
                 <table className="w-full text-sm border border-border rounded-lg overflow-hidden">
@@ -483,5 +498,12 @@ const CField = ({ label, children }) => (
   <div>
     <label className="block text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-0.5">{label}</label>
     {children}
+  </div>
+);
+
+const VRow = ({ label, value }) => (
+  <div className="flex items-baseline gap-2">
+    <span className="w-36 shrink-0 text-xs font-semibold text-stone-500">{label}:</span>
+    <span className="flex-1 text-moneygreen-800 font-medium">{value || "—"}</span>
   </div>
 );
