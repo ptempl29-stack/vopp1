@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { can } from "../lib/perms";
@@ -6,11 +6,11 @@ import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
 import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
-import { PageHeader, Modal, Btn, Empty, Card } from "../components/ui-kit";
+import { PageHeader, Modal, Btn, Empty, Card, inputCls } from "../components/ui-kit";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X } from "lucide-react";
 import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
@@ -44,6 +44,9 @@ export default function Notes() {
   const [savingSig, setSavingSig] = useState(false);
   const [codeHistory, setCodeHistory] = useState({ icd10: [], cpt: [] });
   const [viewMode, setViewMode] = useState("cards");
+  const [providerFilter, setProviderFilter] = useState("");
+  const [patientFilter, setPatientFilter] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
 
   const load = () => api.get("/notes").then((r) => setNotes(r.data)).catch(() => {});
   useEffect(() => {
@@ -62,6 +65,16 @@ export default function Notes() {
   const providerName = (n) => n.attending_provider || n.author || "—";
   const riskLabel = (r) => (r ? t(riskKey[r] || r) : "—");
   const curPatient = (id) => patients.find((x) => x.id === id) || {};
+
+  const noteProvider = (n) => n.attending_provider || n.author || "";
+  const noteDate = (n) => n.visit_date || (n.created_at || "").slice(0, 10);
+  const providerOptions = useMemo(
+    () => [...new Set([...providers.map((u) => u.name), ...notes.map(noteProvider)].filter(Boolean))], [providers, notes]);
+  const filtered = useMemo(() => notes.filter((n) =>
+    (!providerFilter || noteProvider(n) === providerFilter) &&
+    (!patientFilter || n.patient_id === patientFilter) &&
+    (!dateFilter || noteDate(n) === dateFilter)
+  ), [notes, providerFilter, patientFilter, dateFilter]);
 
   const onPatient = async (e) => {
     const pid = e.target.value;
@@ -241,7 +254,7 @@ export default function Notes() {
 
   return (
     <div>
-      <PageHeader title={t("notes")} subtitle={`${notes.length}`}
+      <PageHeader title={t("notes")} subtitle={`${filtered.length}`}
         action={
           <div className="flex items-center gap-2">
             <div className="flex rounded-md border border-border overflow-hidden" data-testid="notes-view-toggle">
@@ -258,12 +271,33 @@ export default function Notes() {
           </div>
         } />
 
-      {allowed && notes.length > 0 && (
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="flex items-center gap-1.5 text-stone-500 text-sm font-semibold"><Filter className="w-4 h-4" />{t("filterBy")}:</div>
+        <select value={providerFilter} onChange={(e) => setProviderFilter(e.target.value)} data-testid="notes-filter-provider" className={inputCls + " !w-auto"}>
+          <option value="">{t("allProviders")}</option>
+          {providerOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={patientFilter} onChange={(e) => setPatientFilter(e.target.value)} data-testid="notes-filter-patient" className={inputCls + " !w-auto"}>
+          <option value="">{t("allPatients")}</option>
+          {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+        </select>
+        <div className="flex items-center gap-1">
+          <input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} data-testid="notes-filter-date"
+            className={inputCls + " !w-auto"} title={t("filterDate")} />
+          {dateFilter && (
+            <button onClick={() => setDateFilter("")} data-testid="notes-clear-date-filter" title={t("filterDate")}
+              className="p-1 rounded hover:bg-stone-100 text-stone-500"><X className="w-4 h-4" /></button>
+          )}
+        </div>
+      </div>
+
+      {allowed && filtered.length > 0 && (
         <div className="flex items-center gap-3 mb-4">
           <label className="flex items-center gap-1.5 text-sm text-stone-600 cursor-pointer">
             <input type="checkbox" data-testid="select-all-notes"
-              checked={sel.count >= notes.length && notes.length > 0}
-              onChange={() => sel.toggleAll(notes.map((n) => n.id))}
+              checked={sel.count >= filtered.length && filtered.length > 0}
+              onChange={() => sel.toggleAll(filtered.map((n) => n.id))}
               className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
             {t("selectAll")}
           </label>
@@ -275,7 +309,7 @@ export default function Notes() {
         </div>
       )}
 
-      {notes.length === 0 ? <Card><Empty text={t("noData")} /></Card> : viewMode === "list" ? (
+      {filtered.length === 0 ? <Card><Empty text={t("noData")} /></Card> : viewMode === "list" ? (
         <Card className="overflow-hidden" data-testid="notes-list-table">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -291,7 +325,7 @@ export default function Notes() {
                 </tr>
               </thead>
               <tbody>
-                {notes.map((n, i) => (
+                {filtered.map((n, i) => (
                   <tr key={n.id} data-testid={`note-row-${n.id}`} className={`border-b border-border/60 ${sel.has(n.id) ? "bg-moneygreen-50" : i % 2 ? "bg-tan-50/40" : ""}`}>
                     {allowed && (
                       <td className="px-4 py-3">
@@ -320,7 +354,7 @@ export default function Notes() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {notes.map((n, i) => (
+          {filtered.map((n, i) => (
             <motion.div key={n.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
               <Card className={`p-5 ${sel.has(n.id) ? "ring-2 ring-moneygreen-500" : ""}`} data-testid={`note-card-${n.id}`}>
                 <div className="flex items-start gap-3 mb-2">

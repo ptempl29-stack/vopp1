@@ -283,6 +283,12 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Add email credentials to activate sending**: Yahoo needs a 16-char **App Password** (the account password is rejected by Yahoo SMTP), or use Resend (`RESEND_API_KEY`+`SENDER_EMAIL`). Set same in production env.
 - P2: Stripe payment gateway for invoices.
 
+## Iteration 39 (2026-06) — Shared filters + list view on Appointments & Progress Notes
+- **Appointments**: added a card↔list view toggle (list = invoice-style table: Patient, Provider, Type, Date, Time, Status, Actions with checkboxes/select-all/bulk-delete). Replaced the "today" URL badge with a proper **date filter** input (+clear); keeps Type/Provider/Patient filters. Dashboard "today" deep-link still pre-selects today's date.
+- **Progress Notes**: added the same filter bar as Appointments — **Provider**, **Patient**, and **Date (session date)** filters (list/cards views already existed with selection).
+- Both pages filter client-side via `useMemo`; subtitle counts reflect filtered results.
+- Self-tested via screenshots (toggles, filters, list tables render with selection). Compiles clean.
+
 ## Iteration 38 (2026-06) — Rename "Admin" → "CEO" (display only)
 - The `admin` role is now labeled **"CEO"** everywhere in the UI (sidebar nav/page, page title, staff role badge, account name/role, role dropdowns in Team + Staff Enrollment, lockout copy). Internal role key remains `admin` — all RBAC (`require_roles("admin")`, `user.role==="admin"` bypass, JWT, seeding) is unchanged and unaffected. Added `roleLabel()` helper in `lib/perms.js`.
 - Fixed: Team.js `ALL_TABS` was missing `folders` — CEO can now grant/revoke the Patient Folders tab per user/role.

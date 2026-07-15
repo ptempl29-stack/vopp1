@@ -7,7 +7,7 @@ import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
-import { Plus, Video, Trash2, Clock, MapPin, Filter, X } from "lucide-react";
+import { Plus, Video, Trash2, Clock, MapPin, Filter, X, LayoutGrid, List, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 const blank = { patient_id: "", provider: "", date: "", time: "", reason: "", appointment_type: "in_person", status: "scheduled" };
@@ -19,7 +19,7 @@ export default function Appointments() {
   const { user } = useAuth();
   const allowed = can(user?.role, "appointments");
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const [appts, setAppts] = useState([]);
   const [patients, setPatients] = useState([]);
   const [open, setOpen] = useState(false);
@@ -28,8 +28,9 @@ export default function Appointments() {
   const [typeFilter, setTypeFilter] = useState("");
   const [providerFilter, setProviderFilter] = useState("");
   const [patientFilter, setPatientFilter] = useState("");
+  const [dateFilter, setDateFilter] = useState(params.get("date") === "today" ? today() : "");
+  const [viewMode, setViewMode] = useState("cards");
   const [staff, setStaff] = useState([]);
-  const dateToday = params.get("date") === "today";
   const sel = useSelection();
 
   const load = () => api.get("/appointments").then((r) => setAppts(r.data)).catch(() => {});
@@ -46,8 +47,8 @@ export default function Appointments() {
     (!typeFilter || (a.appointment_type || "in_person") === typeFilter) &&
     (!providerFilter || a.provider === providerFilter) &&
     (!patientFilter || a.patient_id === patientFilter) &&
-    (!dateToday || a.date === today())
-  ), [appts, typeFilter, providerFilter, patientFilter, dateToday]);
+    (!dateFilter || a.date === dateFilter)
+  ), [appts, typeFilter, providerFilter, patientFilter, dateFilter]);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -77,7 +78,21 @@ export default function Appointments() {
   return (
     <div>
       <PageHeader title={t("appointments")} subtitle={`${filtered.length} ${t("appointments").toLowerCase()}`}
-        action={allowed && <Btn onClick={openNew} data-testid="add-appt-btn"><Plus className="w-4 h-4" />{t("newAppointment")}</Btn>} />
+        action={
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-md border border-border overflow-hidden" data-testid="appts-view-toggle">
+              <button onClick={() => setViewMode("cards")} data-testid="appts-view-cards" title={t("cardView")}
+                className={`px-2.5 py-1.5 transition-colors ${viewMode === "cards" ? "bg-moneygreen-600 text-white" : "bg-white text-moneygreen-700 hover:bg-moneygreen-50"}`}>
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button onClick={() => setViewMode("list")} data-testid="appts-view-list" title={t("listView")}
+                className={`px-2.5 py-1.5 transition-colors ${viewMode === "list" ? "bg-moneygreen-600 text-white" : "bg-white text-moneygreen-700 hover:bg-moneygreen-50"}`}>
+                <List className="w-4 h-4" />
+              </button>
+            </div>
+            {allowed && <Btn onClick={openNew} data-testid="add-appt-btn"><Plus className="w-4 h-4" />{t("newAppointment")}</Btn>}
+          </div>
+        } />
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -98,11 +113,14 @@ export default function Appointments() {
           <option value="">{t("allPatients")}</option>
           {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
         </select>
-        {dateToday && (
-          <Badge tone="green" className="flex items-center gap-1">{t("apptToday")}
-            <button onClick={() => { params.delete("date"); setParams(params); }} data-testid="clear-today-filter"><X className="w-3 h-3" /></button>
-          </Badge>
-        )}
+        <div className="flex items-center gap-1">
+          <input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} data-testid="filter-date"
+            className={inputCls + " !w-auto"} title={t("filterDate")} />
+          {dateFilter && (
+            <button onClick={() => setDateFilter("")} data-testid="clear-date-filter" title={t("filterDate")}
+              className="p-1 rounded hover:bg-stone-100 text-stone-500"><X className="w-4 h-4" /></button>
+          )}
+        </div>
         {sel.count > 0 && allowed && (
           <div className="ml-auto flex items-center gap-2">
             <span className="text-sm text-stone-500">{sel.count}</span>
@@ -125,7 +143,59 @@ export default function Appointments() {
         )}
       </div>
 
-      {filtered.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
+      {filtered.length === 0 ? <Card><Empty text={t("noData")} /></Card> : viewMode === "list" ? (
+        <Card className="overflow-hidden" data-testid="appts-list-table">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
+                  {allowed && <th className="px-4 py-3 w-8"></th>}
+                  <th className="px-5 py-3">{t("patient")}</th>
+                  <th className="px-5 py-3 hidden md:table-cell">{t("provider")}</th>
+                  <th className="px-5 py-3 hidden lg:table-cell">{t("appointmentType")}</th>
+                  <th className="px-5 py-3">{t("date")}</th>
+                  <th className="px-5 py-3 hidden md:table-cell">{t("time")}</th>
+                  <th className="px-5 py-3">{t("status")}</th>
+                  <th className="px-5 py-3 text-right">{t("actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((a, i) => (
+                  <tr key={a.id} data-testid={`appt-row-${a.id}`} className={`border-b border-border/60 ${sel.has(a.id) ? "bg-moneygreen-50" : i % 2 ? "bg-tan-50/40" : ""}`}>
+                    {allowed && (
+                      <td className="px-4 py-3">
+                        <input type="checkbox" checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)}
+                          data-testid={`select-appt-${a.id}`} className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+                      </td>
+                    )}
+                    <td className="px-5 py-3 font-semibold text-moneygreen-800">{a.patient_name}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{a.provider || "—"}</td>
+                    <td className="px-5 py-3 hidden lg:table-cell">
+                      <Badge tone={isTele(a) ? "green" : "tan"} className="flex items-center gap-1 w-fit">
+                        {isTele(a) ? <Video className="w-3 h-3" /> : <MapPin className="w-3 h-3" />}
+                        {isTele(a) ? t("telehealth") : t("inPerson")}
+                      </Badge>
+                    </td>
+                    <td className="px-5 py-3 text-stone-600">{a.date}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{a.time || "—"}</td>
+                    <td className="px-5 py-3"><Badge tone={toneMap[a.status]}>{t(a.status)}</Badge></td>
+                    <td className="px-5 py-3 text-right">
+                      <div className="flex justify-end gap-1">
+                        {isTele(a) && (
+                          <Btn variant="ghost" onClick={() => navigate(`/telehealth?room=vpp-${a.id}&name=${encodeURIComponent(a.patient_name)}`)}
+                            data-testid={`join-video-${a.id}`} className="!px-2" title={t("joinVideo")}><Video className="w-4 h-4" /></Btn>
+                        )}
+                        {allowed && <Btn variant="ghost" onClick={() => openEdit(a)} data-testid={`edit-appt-${a.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>}
+                        {allowed && <Btn variant="ghost" onClick={() => remove(a.id)} data-testid={`delete-appt-${a.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((a, i) => (
             <motion.div key={a.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
