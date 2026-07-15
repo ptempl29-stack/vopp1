@@ -1,0 +1,27 @@
+{
+  "summary": "Tested new Patient Folders feature end-to-end (backend + frontend UI). Backend: 18/18 pytest tests pass — listing, get, subfolder CRUD, upload (valid + invalid ext), edit label/description, download, move (within same patient + to a different patient with source/target verification), invalid-move 400, bulk-delete, single delete, subfolder-delete preserves items (subfolder_id set to null), unauthenticated 401/403. Frontend Playwright: nav-patientFolders sidebar link works, /folders grid renders folder-card-<pid>, opening card renders folder-detail with sub-chip-all + sub-chip-root, New Folder modal (subfolder-name-input + save-subfolder-btn) creates a sub-chip-<id>, upload via folder-upload-input creates folder-item-<id> row, edit modal (item-label-input + item-desc-input + save-item-btn) updates label/description in the row, move modal (move-subfolder-select + confirm-move-btn) works, bulk select-all + folder-bulk-delete deletes with NO confirmation dialog and shows success toast, subfolder delete DOES trigger window.confirm as designed. DB left clean (1 patient, 0 items, 0 subfolders).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Patient Folders detail — Attach Existing Form <select>", "issues": ["React dev-mode hydration warning: <span> injected inside <option> element (visual-editor instrumentation wrapping f.title). Non-blocking runtime warning, but flag: consider forcing plain string children in <option> to silence and be safer across renderers."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_patient_folders.py", "/app/test_reports/pytest/pf_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "folders.py delete_item authz check `it.get('created_by_id') not in (user['id'], None)` allows any non-admin to delete legacy items missing created_by_id (created_by_id=None → treated as owned). Intentional back-compat, but worth documenting. Same pattern in bulk_delete_items.",
+    "download_item fetches full doc including _id — MongoDB _id is present in the returned dict internally (though not returned to client since we return Response bytes). Safe here, but style: use projection {'_id': 0} for consistency.",
+    "attach_form reuses the original form's storage_path (both docs point to same S3 object). If the folder-item is deleted via bulk_delete_items, it only calls delete_object for source == 'upload' (correct), so form's file is preserved. Good.",
+    "PatientFolders.js — <option> children include ' · ' separator; visual-editor injects <span> wrappers causing hydration warnings. Consider `>{f.title + ' · ' + f.patient_name}<` as a single expression to avoid mixed static+dynamic children."
+  ],
+  "updated_files": ["/app/backend/tests/test_patient_folders.py"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100% of critical flows exercised"},
+  "test_credentials": "Admin: usvopp@yahoo.com / Football2023? (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Temporary 2nd patient created by pytest fixture for cross-patient move test; torn down at end. Frontend test created 1 subfolder + 1 upload item, both cleaned up via bulk-delete + subfolder-delete during the test. Final DB state verified: 1 patient, 0 items, 0 subfolders.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_patient_folders.py is xdist-safe via pytestmark xdist_group. All Patient Folders backend endpoints covered. 'Attach existing form' UI flow was NOT exercised end-to-end because DB had 0 forms with attachments; E1 confirmed backend attach-form endpoint was curl-verified. If a future iteration adds test fixtures for forms with attachments, wire folder-pick-form + folder-attach-form in a Playwright test.",
+  "rca of the issue": "N/A — no bugs found."
+}

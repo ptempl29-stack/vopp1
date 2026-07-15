@@ -14,6 +14,7 @@ import Notes from "./pages/Notes";
 import Invoices from "./pages/Invoices";
 import CptCodes from "./pages/CptCodes";
 import Forms from "./pages/Forms";
+import PatientFolders from "./pages/PatientFolders";
 import Messages from "./pages/Messages";
 import PublicForm from "./pages/PublicForm";
 import BillingReports from "./pages/BillingReports";
@@ -58,6 +59,7 @@ function App() {
               <Route path="/cpt-codes" element={<Protected tab="cpt"><CptCodes /></Protected>} />
               <Route path="/reports" element={<Protected tab="reports"><BillingReports /></Protected>} />
               <Route path="/forms" element={<Protected tab="forms"><Forms /></Protected>} />
+              <Route path="/folders" element={<Protected tab="folders"><PatientFolders /></Protected>} />
               <Route path="/messages" element={<Protected tab="messages"><Messages /></Protected>} />
               <Route path="/assistant" element={<Protected tab="assistant"><AIAssistant /></Protected>} />
               <Route path="/team" element={<Protected tab="team"><Team /></Protected>} />

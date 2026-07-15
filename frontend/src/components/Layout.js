@@ -6,7 +6,7 @@ import { usePrivacy } from "../context/PrivacyContext";
 import {
   LayoutDashboard, Users, CalendarDays, FileText, ReceiptText,
   ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages, Hash,
-  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff,
+  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff, FolderTree,
 } from "lucide-react";
 
 const nav = [
@@ -19,6 +19,7 @@ const nav = [
   { to: "/cpt-codes", tab: "cpt", key: "cptCodes", icon: Hash },
   { to: "/reports", tab: "reports", key: "reports", icon: BarChart3 },
   { to: "/forms", tab: "forms", key: "forms", icon: ClipboardList },
+  { to: "/folders", tab: "folders", key: "patientFolders", icon: FolderTree },
   { to: "/claims", tab: "claims", key: "claims", icon: FolderArchive },
   { to: "/messages", tab: "messages", key: "messages", icon: MessageSquare },
   { to: "/assistant", tab: "assistant", key: "aiAssistant", icon: Sparkles },
