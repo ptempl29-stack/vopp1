@@ -264,6 +264,13 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 ## In progress / Pending
 - (none active)
 
+## Iteration 35 (2026-06) — Patient Folders (per-patient document management)
+- New **Patient Folders** tab (tab key `folders`, `/folders`, icon FolderTree). One folder auto per patient; inside each, create custom **sub-folders** (e.g., Insurance, Lab Results). Items = **uploaded files** (pdf/img/doc/docx/txt/xls/xlsx ≤15MB, Emergent object storage) + **existing patient Forms** attached from the Forms tab (references the form's stored attachment; deleting the folder-item never deletes the shared form file).
+- Item actions: **view/download**, **edit** (rename label + description), **move** (within same patient's sub-folders AND to a different patient's folder), single **delete** + **bulk delete** (Select all/Deselect all, NO confirmation — matches app pattern). Sub-folder chips filter items (All Items / Unfiled / each sub-folder); deleting a sub-folder moves its items to Unfiled (never deletes documents). Sub-folder rename/delete inline on chips (delete has a confirm).
+- Backend `routers/folders.py` (collections `folder_subfolders`, `folder_items`). RBAC via `FOLDERS_ROLES` (doctor/nurse/psychologist/receptionist/biller + admin override); item ownership = `created_by_id` (admin deletes anything, staff only their own). Audit-logged as resource `folder`. Tab added to ALL_TABS + defaults for admin/doctor/nurse/receptionist. Privacy masking (`<Private>`) on patient names/DOB.
+- Tested: testing_agent iteration_32 — 18/18 backend pytest, 100% frontend critical flows, no bugs. DB left clean (1 admin, 1 patient).
+
+
 ## Backlog / Next
 - P2: Stripe payment gateway for invoices.
 - Optional: migrate notes/forms ownership from name → id (rename-safe); backfill/hide orphan appointments; DELETE /api/invoices/{id} (admin); extract shared patient-name map helper (DRY).

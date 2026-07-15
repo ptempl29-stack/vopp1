@@ -191,7 +191,7 @@ export default function PatientFolders() {
               <div className="flex gap-2 mt-1.5">
                 <select value={pickForm} onChange={(e) => setPickForm(e.target.value)} className={inputCls} data-testid="folder-pick-form">
                   <option value="">{t("selectForm")}</option>
-                  {attachOptions.map((f) => <option key={f.id} value={f.id}>{f.title} · {f.patient_name}</option>)}
+                  {attachOptions.map((f) => <option key={f.id} value={f.id}>{`${f.title} · ${f.patient_name}`}</option>)}
                 </select>
                 <Btn variant="outline" onClick={attachForm} disabled={!pickForm} data-testid="folder-attach-form" className="!px-3"><Plus className="w-4 h-4" /></Btn>
               </div>
