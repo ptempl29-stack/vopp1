@@ -283,6 +283,13 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Add email credentials to activate sending**: Yahoo needs a 16-char **App Password** (the account password is rejected by Yahoo SMTP), or use Resend (`RESEND_API_KEY`+`SENDER_EMAIL`). Set same in production env.
 - P2: Stripe payment gateway for invoices.
 
+## Iteration 40 (2026-06) — Email ACTIVATED via Resend + Invoice view sections + Invoice ICD-10 memory
+- **Email is LIVE via Resend** (`RESEND_API_KEY` set, sender `onboarding@resend.dev`). Confirmed a real send through the app (`sent:1`). ⚠️ On the current free/unverified tier, Resend only delivers to the account owner's address (**ptempl29@gmail.com**). To email patients/prospects at any address, verify a domain at resend.com/domains and set `SENDER_EMAIL` to an address on that domain (e.g. forms@clinic.com). Yahoo SMTP abandoned (cloud IP blocked by Yahoo).
+- **Invoice view**: clicking a saved invoice now shows full **Patient Information** (name, DOB, SSN, gender, policy #) and **Invoice Information** (invoice #, service date, completed, status, visit reason, ICD-10, provider) sections, all fields shown with "—" fallback.
+- **Invoice ICD-10 memory**: new `GET /api/invoices/patient-code-history?patient_id=` (biller/receptionist) returns ICD-10 codes previously used for a patient (from invoices + notes). Invoice editor shows "Previously used:" ICD-10 suggestion chips on patient select / edit / duplicate / create-from-note — mirrors Progress Notes code memory.
+- Also removed the Status field from the Invoice Information editor section (still managed via the Saved Invoices list dropdown).
+- Self-tested via curl + screenshots.
+
 ## Iteration 39 (2026-06) — Shared filters + list view on Appointments & Progress Notes
 - **Appointments**: added a card↔list view toggle (list = invoice-style table: Patient, Provider, Type, Date, Time, Status, Actions with checkboxes/select-all/bulk-delete). Replaced the "today" URL badge with a proper **date filter** input (+clear); keeps Type/Provider/Patient filters. Dashboard "today" deep-link still pre-selects today's date.
 - **Progress Notes**: added the same filter bar as Appointments — **Provider**, **Patient**, and **Date (session date)** filters (list/cards views already existed with selection).
