@@ -10,7 +10,7 @@ import { PageHeader, Modal, Btn, Empty, Card } from "../components/ui-kit";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
@@ -102,6 +102,27 @@ export default function Notes() {
 
   const openNew = () => { setForm({ ...blank, signature: user?.default_signature || "" }); setEditId(null); setSigKey((k) => k + 1); setOpen(true); };
   const openEdit = (n) => { setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setSigKey((k) => k + 1); setOpen(true); };
+
+  const duplicateNote = (n) => {
+    setEditId(null); setViewing(null);
+    const p = curPatient(n.patient_id);
+    setForm({
+      ...blank,
+      patient_id: n.patient_id || "",
+      content: n.content || "",
+      icd10: n.icd10 || "", cpt_code: n.cpt_code || "", risk_level: n.risk_level || "",
+      attending_provider: n.attending_provider || "",
+      dob: p.dob || n.dob || "", ssn: p.ssn || n.ssn || "", gender: p.gender || n.gender || "",
+      visit_date: new Date().toISOString().slice(0, 10),
+      signature: user?.default_signature || "",
+    });
+    setCodeHistory({ icd10: [], cpt: [] });
+    if (n.patient_id) api.get("/notes/patient-code-history", { params: { patient_id: n.patient_id } })
+      .then((r) => setCodeHistory(r.data)).catch(() => {});
+    setSigKey((k) => k + 1);
+    setOpen(true);
+    toast.success(t("duplicated"));
+  };
 
   const deleteNote = async (n) => {
     try { await api.delete(`/notes/${n.id}`); toast.success(t("delete") + " ✓"); load(); }
@@ -287,6 +308,7 @@ export default function Notes() {
                       <div className="flex justify-end gap-1">
                         <Btn variant="ghost" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
                         {allowed && <Btn variant="ghost" onClick={() => openEdit(n)} data-testid={`edit-note-${n.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>}
+                        {allowed && <Btn variant="ghost" onClick={() => duplicateNote(n)} data-testid={`duplicate-note-${n.id}`} className="!px-2" title={t("duplicate")}><Copy className="w-4 h-4" /></Btn>}
                         {allowed && <Btn variant="ghost" onClick={() => deleteNote(n)} data-testid={`delete-note-${n.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>}
                       </div>
                     </td>
@@ -329,6 +351,7 @@ export default function Notes() {
                 <div className="mt-3 pt-3 border-t border-border flex justify-end gap-2">
                   <Btn variant="outline" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`}><Eye className="w-4 h-4" />{t("view")}</Btn>
                   {allowed && <Btn variant="outline" onClick={() => openEdit(n)} data-testid={`edit-note-${n.id}`}><Pencil className="w-4 h-4" />{t("edit")}</Btn>}
+                  {allowed && <Btn variant="ghost" onClick={() => duplicateNote(n)} data-testid={`duplicate-note-${n.id}`} className="!px-2" title={t("duplicate")}><Copy className="w-4 h-4" /></Btn>}
                   {allowed && <Btn variant="ghost" onClick={() => deleteNote(n)} data-testid={`delete-note-${n.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>}
                 </div>
               </Card>
