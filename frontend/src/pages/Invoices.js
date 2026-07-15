@@ -7,7 +7,7 @@ import { printSection } from "../lib/print";
 import { useLang } from "../context/LanguageContext";
 import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
-import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil } from "lucide-react";
+import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 let seq = 0;
@@ -145,6 +145,24 @@ export default function Invoices() {
   const viewInvoice = async (id) => {
     try { setViewing((await api.get(`/invoices/${id}`)).data); }
     catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const duplicateInvoice = async (id) => {
+    try {
+      const d = (await api.get(`/invoices/${id}`)).data;
+      setEditId(null);
+      setViewing(null);
+      setInv({
+        patient_id: d.patient_id || "", patient_name: d.patient_name || "", dob: d.dob || "",
+        ssn: d.ssn || "", policy_number: d.policy_number || "", gender: d.gender || "",
+        invoice_number: "", service_date: new Date().toISOString().slice(0, 10),
+        visit_reason: d.visit_reason || "", icd10: d.icd10 || "", provider: d.provider || "", status: "in_transit",
+      });
+      setItems((d.items || []).length ? d.items.map((it) => ({ _uid: `it-${seq++}`, ...it })) : [newItem()]);
+      loadNumber();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      toast.success(t("duplicated"));
+    } catch (err) { toast.error(apiErr(err)); }
   };
 
   const changeStatus = async (id, status) => {
@@ -352,6 +370,7 @@ export default function Invoices() {
                         <div className="flex justify-end gap-1">
                           <Btn variant="ghost" onClick={() => viewInvoice(v.id)} data-testid={`view-invoice-${v.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
                           <Btn variant="ghost" onClick={() => editInvoice(v.id)} data-testid={`edit-invoice-${v.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>
+                          <Btn variant="ghost" onClick={() => duplicateInvoice(v.id)} data-testid={`duplicate-invoice-${v.id}`} className="!px-2" title={t("duplicate")}><Copy className="w-4 h-4" /></Btn>
                           <Btn variant="ghost" onClick={() => removeInvoice(v.id)} data-testid={`delete-invoice-${v.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>
                         </div>
                       </td>
@@ -419,6 +438,7 @@ export default function Invoices() {
             </div>
             <div className="flex justify-end gap-2 pt-2 no-print">
               <Btn variant="outline" onClick={() => editInvoice(viewing.id)} data-testid="view-edit-invoice-btn"><Pencil className="w-4 h-4" />{t("edit")}</Btn>
+              <Btn variant="outline" onClick={() => duplicateInvoice(viewing.id)} data-testid="view-duplicate-invoice-btn"><Copy className="w-4 h-4" />{t("duplicate")}</Btn>
               <Btn variant="outline" onClick={() => printSection("invoice-print")} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
               <Btn variant="outline" onClick={() => printSection("invoice-print")} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
             </div>
