@@ -7,7 +7,7 @@ import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../
 import { useSelection, bulkDelete } from "../lib/bulk";
 import {
   Folder, FolderOpen, FolderPlus, ChevronLeft, Download, FileText, Upload,
-  Pencil, Trash2, Search, Plus, MoveRight, ClipboardList, Users,
+  Pencil, Trash2, Search, Plus, MoveRight, ClipboardList, Users, Eye, UploadCloud,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,6 +28,8 @@ export default function PatientFolders() {
   const [subModal, setSubModal] = useState(null); // {id?, name}
   const [editModal, setEditModal] = useState(null); // item
   const [moveModal, setMoveModal] = useState(null); // item
+  const [dragging, setDragging] = useState(false);
+  const [preview, setPreview] = useState(null); // {label, kind, url}
 
   const sel = useSelection();
 
@@ -71,18 +73,44 @@ export default function PatientFolders() {
     } catch (e) { toast.error(apiErr(e)); }
   };
 
-  const onUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("subfolder_id", activeSub !== "all" && activeSub !== "root" ? activeSub : "");
+  const uploadFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const targetSub = activeSub !== "all" && activeSub !== "root" ? activeSub : "";
     setBusy(true);
     try {
-      await api.post(`/folders/${openFolder.patient_id}/upload`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success(t("uploadToFolder") + " ✓"); refresh();
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("subfolder_id", targetSub);
+        await api.post(`/folders/${openFolder.patient_id}/upload`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      }
+      toast.success(`${files.length} · ${t("uploadToFolder")} ✓`); refresh(); loadPatients();
     } catch (err) { toast.error(apiErr(err)); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  const onUpload = async (e) => { await uploadFiles(e.target.files); };
+  const onDrop = async (e) => {
+    e.preventDefault(); setDragging(false);
+    if (e.dataTransfer?.files?.length) await uploadFiles(e.dataTransfer.files);
+  };
+
+  const openPreview = async (it) => {
+    const ct = (it.content_type || "").toLowerCase();
+    const isImg = ct.startsWith("image/");
+    const isPdf = ct === "application/pdf" || (it.filename || "").toLowerCase().endsWith(".pdf");
+    if (!isImg && !isPdf) { toast.info(t("previewUnavailable")); return; }
+    try {
+      const r = await api.get(`/folders/items/${it.id}/download`, { responseType: "blob" });
+      const blob = new Blob([r.data], { type: isPdf ? "application/pdf" : (ct || "image/png") });
+      const url = URL.createObjectURL(blob);
+      setPreview({ label: it.label || it.filename, kind: isPdf ? "pdf" : "img", url });
+    } catch (e) { toast.error(apiErr(e)); }
+  };
+  const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null); };
+  const canPreview = (it) => {
+    const ct = (it.content_type || "").toLowerCase();
+    return ct.startsWith("image/") || ct === "application/pdf" || (it.filename || "").toLowerCase().endsWith(".pdf");
   };
 
   const [pickForm, setPickForm] = useState("");
@@ -142,7 +170,18 @@ export default function PatientFolders() {
     const subName = (id) => subs.find((s) => s.id === id)?.name || t("unfiled");
 
     return (
-      <div data-testid="folder-detail">
+      <div data-testid="folder-detail" className="relative"
+        onDragOver={(e) => { e.preventDefault(); if (!dragging) setDragging(true); }}
+        onDragLeave={(e) => { if (e.currentTarget === e.target) setDragging(false); }}
+        onDrop={onDrop}>
+        {dragging && (
+          <div className="fixed inset-0 z-40 bg-moneygreen-900/40 flex items-center justify-center pointer-events-none" data-testid="folder-dropzone-overlay">
+            <div className="bg-white rounded-xl border-2 border-dashed border-moneygreen-500 px-10 py-8 text-center shadow-xl">
+              <UploadCloud className="w-10 h-10 text-moneygreen-600 mx-auto mb-2" />
+              <p className="font-heading font-bold text-moneygreen-800">{t("dropToUpload")}</p>
+            </div>
+          </div>
+        )}
         <PageHeader title={<Private value={openFolder.patient_name} />} subtitle={`${items.length} ${t("documents")}`}
           action={
             <div className="flex flex-wrap gap-2">
@@ -184,6 +223,7 @@ export default function PatientFolders() {
                 <input ref={fileRef} type="file" onChange={onUpload} data-testid="folder-upload-input"
                   accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.txt,.xls,.xlsx" disabled={busy}
                   className="block w-full text-sm text-stone-600 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:bg-moneygreen-600 file:text-white file:font-semibold file:cursor-pointer disabled:opacity-60" />
+                <p className="text-xs text-stone-400 mt-1">{t("or_drop")}</p>
               </div>
             </div>
             <div>
@@ -251,6 +291,9 @@ export default function PatientFolders() {
                         <td className="px-4 py-3 hidden md:table-cell text-stone-500 text-xs">{it.filename}</td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
+                            {canPreview(it) && (
+                              <Btn variant="ghost" onClick={() => openPreview(it)} data-testid={`folder-preview-${it.id}`} className="!px-2" title={t("preview")}><Eye className="w-4 h-4" /></Btn>
+                            )}
                             <Btn variant="ghost" onClick={() => authedDownload(it.id, it.filename)} data-testid={`folder-download-${it.id}`} className="!px-2" title={t("download")}><Download className="w-4 h-4" /></Btn>
                             <Btn variant="ghost" onClick={() => setEditModal({ id: it.id, label: it.label || it.filename, description: it.description || "" })} data-testid={`folder-edit-${it.id}`} className="!px-2" title={t("editItem")}><Pencil className="w-4 h-4" /></Btn>
                             <Btn variant="ghost" onClick={() => setMoveModal({ id: it.id, target_patient: openFolder.patient_id, target_sub: it.subfolder_id || "", subs })} data-testid={`folder-move-${it.id}`} className="!px-2" title={t("moveItem")}><MoveRight className="w-4 h-4" /></Btn>
@@ -269,6 +312,18 @@ export default function PatientFolders() {
         <SubfolderModal state={subModal} onClose={() => setSubModal(null)} onSave={saveSubfolder} setState={setSubModal} t={t} />
         <EditItemModal state={editModal} onClose={() => setEditModal(null)} onSave={saveEdit} setState={setEditModal} t={t} />
         <MoveModal state={moveModal} onClose={() => setMoveModal(null)} onSave={doMove} setState={setMoveModal} t={t} patients={patients} />
+
+        <Modal open={!!preview} onClose={closePreview} title={preview?.label || t("preview")} wide>
+          {preview && (
+            <div data-testid="folder-preview-modal">
+              {preview.kind === "img" ? (
+                <img src={preview.url} alt={preview.label} className="max-h-[70vh] w-auto mx-auto rounded-md" />
+              ) : (
+                <iframe title={preview.label} src={preview.url} className="w-full h-[70vh] rounded-md border border-border" />
+              )}
+            </div>
+          )}
+        </Modal>
       </div>
     );
   }

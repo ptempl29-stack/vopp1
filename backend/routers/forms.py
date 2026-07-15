@@ -3,14 +3,17 @@ import io
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, EmailStr
+from typing import Optional
 
 from core.db import db, now_iso, logger
 from core.config import FORMS_ROLES, FORM_STATUSES, EXT_CONTENT_TYPES, APP_NAME, PUBLIC_BASE_URL
 from core.security import require_roles
 from core.audit import log_audit
 from core.storage import put_object, get_object
-from core.email_utils import send_email
+from core.email_utils import send_email, email_configured
 from core.sms_utils import send_sms, sms_configured
+from core.pdf_utils import new_pdf, pdf_bytes, FONT
 from models.schemas import FormInput, FormSubmission, IdList
 from data.seed import FORM_TEMPLATES
 
@@ -195,6 +198,170 @@ async def update_form_status(fid: str, status: str, user: dict = Depends(require
         raise HTTPException(status_code=404, detail="Form not found")
     await log_audit("update", "form", actor=user, resource_id=fid, detail=f"status={status}")
     return await db.forms.find_one({"id": fid}, {"_id": 0})
+
+
+class FormUpdate(BaseModel):
+    title: Optional[str] = None
+    form_type: Optional[str] = None
+    status: Optional[str] = None
+    patient_id: Optional[str] = None
+    external_url: Optional[str] = None
+    recipient_email: Optional[str] = None
+    responses: Optional[dict] = None
+
+
+class EmailSend(BaseModel):
+    recipient_email: EmailStr
+
+
+class ToFolder(BaseModel):
+    patient_id: str
+    subfolder_id: Optional[str] = None
+
+
+async def _patient_name(pid):
+    if not pid:
+        return None
+    p = await db.patients.find_one({"id": pid}, {"_id": 0, "first_name": 1, "last_name": 1})
+    return f"{p['first_name']} {p['last_name']}" if p else None
+
+
+def _form_pdf(form: dict, clinic: str) -> bytes:
+    pdf = new_pdf()
+    pdf.set_font(FONT, "B", 18)
+    pdf.cell(0, 12, (clinic or "")[:60], ln=True)
+    pdf.set_font(FONT, "B", 13)
+    pdf.cell(0, 9, (form.get("title") or "Patient Form")[:70], ln=True)
+    pdf.set_font(FONT, "", 10)
+    meta = " · ".join([x for x in [form.get("form_type"), form.get("patient_name")] if x])
+    if meta:
+        pdf.cell(0, 7, meta, ln=True)
+    pdf.ln(3)
+    responses = form.get("responses") or {}
+    template = form.get("template") or []
+
+    def _mc(text, bold=False, size=11):
+        pdf.set_font(FONT, "B" if bold else "", size)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 6, text)
+
+    if template and responses:
+        for fld in template:
+            val = responses.get(fld.get("name"))
+            if val in (None, ""):
+                continue
+            _mc(str(fld.get("en") or fld.get("name")), bold=True, size=10)
+            shown = "[signature on file]" if str(val).startswith("data:image") else str(val)
+            _mc(shown)
+            pdf.ln(1)
+    elif responses:
+        for k, v in responses.items():
+            _mc(str(k), bold=True, size=10)
+            shown = "[signature on file]" if str(v).startswith("data:image") else str(v)
+            _mc(shown)
+            pdf.ln(1)
+    else:
+        _mc("No responses recorded for this form yet.")
+    return pdf_bytes(pdf)
+
+
+@router.put("/forms/{fid}")
+async def update_form(fid: str, data: FormUpdate, user: dict = Depends(require_roles(*FORMS_ROLES))):
+    existing = await db.forms.find_one({"id": fid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Form not found")
+    if user["role"] != "admin" and existing.get("created_by") not in (user["name"], None):
+        raise HTTPException(status_code=403, detail="You can only edit forms you created")
+    updates = {}
+    for k in ("title", "form_type", "patient_id", "external_url", "recipient_email", "responses"):
+        v = getattr(data, k)
+        if v is not None:
+            updates[k] = v
+    if data.status is not None:
+        if data.status not in FORM_STATUSES:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        updates["status"] = data.status
+    if updates:
+        updates["updated_at"] = now_iso()
+        updates["updated_by"] = user["name"]
+        await db.forms.update_one({"id": fid}, {"$set": updates})
+    await log_audit("update", "form", actor=user, resource_id=fid, detail="edit form")
+    return await db.forms.find_one({"id": fid}, {"_id": 0})
+
+
+@router.post("/forms/{fid}/send-email")
+async def send_form_email(fid: str, data: EmailSend, user: dict = Depends(require_roles(*FORMS_ROLES))):
+    f = await db.forms.find_one({"id": fid})
+    if not f:
+        raise HTTPException(status_code=404, detail="Form not found")
+    if not email_configured():
+        return {"sent": False, "configured": False}
+    s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
+    clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
+    body_lines = [f"Hello,", "", f"{clinic} has sent you a form: {f.get('title')}"]
+    if f.get("public_token"):
+        link = f"{PUBLIC_BASE_URL.rstrip('/')}/form/{f['public_token']}"
+        body_lines += ["", "Please complete it securely here:", link]
+    if f.get("external_url"):
+        body_lines += ["", "Reference link:", f["external_url"]]
+    body_lines += ["", "Thank you."]
+    attachments = None
+    if f.get("attachment"):
+        try:
+            content, _ = get_object(f["attachment"]["storage_path"])
+            attachments = [{"filename": f["attachment"]["filename"], "content": content,
+                            "content_type": f["attachment"].get("content_type", "application/octet-stream")}]
+        except Exception as e:
+            logger.error(f"attach fetch failed: {e}")
+    ok = send_email(data.recipient_email, f"{clinic}: {f.get('title')}", "\n".join(body_lines), attachments)
+    await db.forms.update_one({"id": fid}, {"$set": {"email_sent": ok, "recipient_email": data.recipient_email}})
+    await log_audit("update", "form", actor=user, resource_id=fid, detail=f"email sent={ok} to {data.recipient_email}")
+    return {"sent": ok, "configured": True}
+
+
+@router.post("/forms/{fid}/to-folder")
+async def move_form_to_folder(fid: str, data: ToFolder, user: dict = Depends(require_roles(*FORMS_ROLES))):
+    f = await db.forms.find_one({"id": fid}, {"_id": 0})
+    if not f:
+        raise HTTPException(status_code=404, detail="Form not found")
+    pname = await _patient_name(data.patient_id)
+    if not pname:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if data.subfolder_id:
+        sf = await db.folder_subfolders.find_one({"id": data.subfolder_id, "patient_id": data.patient_id})
+        if not sf:
+            raise HTTPException(status_code=400, detail="Target folder not found for that patient")
+    base = {"id": str(uuid.uuid4()), "patient_id": data.patient_id, "subfolder_id": data.subfolder_id or None,
+            "form_id": f["id"], "description": f.get("form_type") or "",
+            "created_at": now_iso(), "created_by": user["name"], "created_by_id": user["id"]}
+    if f.get("attachment"):
+        att = f["attachment"]
+        item = {**base, "source": "form", "storage_path": att["storage_path"], "filename": att["filename"],
+                "label": (f.get("title") or att["filename"])[:120],
+                "content_type": att.get("content_type", "application/octet-stream"), "size": att.get("size")}
+    else:
+        s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
+        clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
+        form_with_name = {**f, "patient_name": pname}
+        try:
+            pdf = _form_pdf(form_with_name, clinic)
+        except Exception as e:
+            logger.error(f"form pdf failed: {e}")
+            raise HTTPException(status_code=500, detail="Could not render form PDF")
+        fname = f"{(f.get('title') or 'form').replace('/', '-')[:50]}.pdf"
+        path = f"{APP_NAME}/folders/{data.patient_id}/{uuid.uuid4()}.pdf"
+        try:
+            result = put_object(path, pdf, "application/pdf")
+        except Exception as e:
+            logger.error(f"form pdf storage failed: {e}")
+            raise HTTPException(status_code=502, detail="File storage failed")
+        item = {**base, "source": "upload", "storage_path": result["path"], "filename": fname,
+                "label": (f.get("title") or "Form")[:120], "content_type": "application/pdf",
+                "size": result.get("size")}
+    await db.folder_items.insert_one(item)
+    item.pop("_id", None)
+    await log_audit("update", "form", actor=user, resource_id=fid, detail=f"to folder {pname}")
+    return {"ok": True, "patient_name": pname}
 
 
 # ---------------- Public (unauthenticated) patient form ----------------

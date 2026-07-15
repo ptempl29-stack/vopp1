@@ -7,7 +7,7 @@ import { useSearchParams } from "react-router-dom";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { Letterhead } from "../components/Letterhead";
-import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown, FileText, FileSpreadsheet, MessageCircle, Send, Trash2 } from "lucide-react";
+import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown, FileText, FileSpreadsheet, MessageCircle, Send, Trash2, Mail, FolderInput, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 const types = ["Intake", "Consent", "Medical History", "Insurance", "Referral"];
@@ -30,6 +30,11 @@ export default function Forms() {
   const [settings, setSettings] = useState(null);
   const [form, setForm] = useState({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "", recipient_email: "" });
   const [upl, setUpl] = useState({ title: "", form_type: "Uploaded", patient_id: "", file: null });
+  const [emailModal, setEmailModal] = useState(null);
+  const [folderModal, setFolderModal] = useState(null);
+  const [folderSubs, setFolderSubs] = useState([]);
+  const [formModal, setFormModal] = useState(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   const load = () => api.get("/forms").then((r) => setForms(r.data)).catch(() => {});
   useEffect(() => {
@@ -93,7 +98,8 @@ export default function Forms() {
   const save = async (e) => {
     e.preventDefault();
     try {
-      const res = await api.post("/forms", { ...form, link_base: window.location.origin });
+      const payload = { ...form, recipient_email: form.recipient_email || null, link_base: window.location.origin };
+      const res = await api.post("/forms", payload);
       if (res.data.email_sent) toast.success(t("emailSent"));
       else if (form.recipient_email) toast.info(t("emailNotSent"));
       else toast.success(t("save") + " ✓");
@@ -135,6 +141,65 @@ export default function Forms() {
   const removeSelected = async () => {
     try { await bulkDelete("/forms/bulk-delete", [...sel.selected], t); sel.clear(); load(); }
     catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const openForm = (f) => {
+    setFormModal({
+      id: f.id, title: f.title || "", form_type: f.form_type || "Intake", status: f.status || "sent",
+      patient_id: f.patient_id || "", external_url: f.external_url || "", recipient_email: f.recipient_email || "",
+      responses: f.responses ? { ...f.responses } : null, template: f.template || [],
+      patient_name: f.patient_name, attachment: f.attachment, public_token: f.public_token,
+    });
+  };
+  const saveFormEdit = async (e) => {
+    e.preventDefault();
+    const m = formModal;
+    try {
+      await api.put(`/forms/${m.id}`, {
+        title: m.title, form_type: m.form_type, status: m.status,
+        patient_id: m.patient_id || null, external_url: m.external_url || "",
+        recipient_email: m.recipient_email || null, responses: m.responses || undefined,
+      });
+      toast.success(t("saveForm") + " ✓"); setFormModal(null); load();
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const openEmail = (f) => {
+    const p = patients.find((x) => x.id === f.patient_id);
+    setEmailModal({ fid: f.id, title: f.title, recipient: f.recipient_email || p?.email || "" });
+  };
+  const sendEmail = async (e) => {
+    e.preventDefault();
+    setSendingEmail(true);
+    try {
+      const res = await api.post(`/forms/${emailModal.fid}/send-email`, { recipient_email: emailModal.recipient });
+      if (res.data.configured === false) toast.info(t("emailNotConfigured"));
+      else if (res.data.sent) { toast.success(t("emailSentOk")); setEmailModal(null); load(); }
+      else toast.error(t("emailFailed"));
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setSendingEmail(false); }
+  };
+
+  const openFolderMove = async (f) => {
+    setFolderModal({ fid: f.id, title: f.title, patient_id: f.patient_id || "", subfolder_id: "" });
+    setFolderSubs([]);
+    if (f.patient_id) {
+      try { setFolderSubs((await api.get(`/folders/${f.patient_id}`)).data.subfolders || []); } catch { /* noop */ }
+    }
+  };
+  const changeFolderPatient = async (pid) => {
+    setFolderModal((m) => ({ ...m, patient_id: pid, subfolder_id: "" }));
+    if (pid) { try { setFolderSubs((await api.get(`/folders/${pid}`)).data.subfolders || []); } catch { setFolderSubs([]); } }
+    else setFolderSubs([]);
+  };
+  const doMoveToFolder = async (e) => {
+    e.preventDefault();
+    if (!folderModal.patient_id) { toast.error(t("selectPatient")); return; }
+    try {
+      const res = await api.post(`/forms/${folderModal.fid}/to-folder`, {
+        patient_id: folderModal.patient_id, subfolder_id: folderModal.subfolder_id || null });
+      toast.success(`${t("movedToFolder")} (${res.data.patient_name})`); setFolderModal(null);
+    } catch (err) { toast.error(apiErr(err)); }
   };
 
   const filtered = forms.filter((f) => {
@@ -200,10 +265,11 @@ export default function Forms() {
                         data-testid={`select-form-${f.id}`} className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
                     </td>
                     <td className="px-5 py-3">
-                      <div className="flex items-center gap-2.5">
+                      <button type="button" onClick={() => openForm(f)} data-testid={`open-form-${f.id}`}
+                        className="flex items-center gap-2.5 text-left hover:underline">
                         <ClipboardList className="w-4 h-4 text-moneygreen-500" />
                         <span className="font-semibold text-moneygreen-800">{f.title}</span>
-                      </div>
+                      </button>
                     </td>
                     <td className="px-5 py-3 text-stone-600">{f.form_type}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{f.patient_name}</td>
@@ -245,6 +311,12 @@ export default function Forms() {
                             <Send className="w-4 h-4" />
                           </Btn>
                         )}
+                        <Btn variant="ghost" onClick={() => openEmail(f)} data-testid={`email-form-${f.id}`} className="!px-2" title={t("sendByEmail")}>
+                          <Mail className="w-4 h-4" />
+                        </Btn>
+                        <Btn variant="ghost" onClick={() => openFolderMove(f)} data-testid={`to-folder-${f.id}`} className="!px-2" title={t("moveToFolderTitle")}>
+                          <FolderInput className="w-4 h-4" />
+                        </Btn>
                         {f.status === "received" && f.responses && (
                           <Btn variant="ghost" onClick={() => setViewing(f)} data-testid={`view-responses-${f.id}`} className="!px-2" title={t("viewResponses")}>
                             <Eye className="w-4 h-4" />
@@ -360,6 +432,119 @@ export default function Forms() {
               <Btn variant="outline" onClick={() => printSection("form-print")} data-testid="form-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
             </div>
           </div>
+        )}
+      </Modal>
+
+      {/* View / Edit form */}
+      <Modal open={!!formModal} onClose={() => setFormModal(null)} title={t("viewEditForm")} wide>
+        {formModal && (
+          <form onSubmit={saveFormEdit} className="space-y-4" data-testid="form-edit-modal">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label={t("title")}><input required value={formModal.title} onChange={(e) => setFormModal({ ...formModal, title: e.target.value })} className={inputCls} data-testid="fm-title" /></Field>
+              <Field label={t("formType")}>
+                <select value={formModal.form_type} onChange={(e) => setFormModal({ ...formModal, form_type: e.target.value })} className={inputCls} data-testid="fm-type">
+                  {["Uploaded", ...types].map((ty) => <option key={ty} value={ty}>{ty}</option>)}
+                </select>
+              </Field>
+              <Field label={t("patient")}>
+                <select value={formModal.patient_id} onChange={(e) => setFormModal({ ...formModal, patient_id: e.target.value })} className={inputCls} data-testid="fm-patient">
+                  <option value="">—</option>
+                  {patients.map((p) => <option key={p.id} value={p.id}>{`${p.first_name} ${p.last_name}`}</option>)}
+                </select>
+              </Field>
+              <Field label={t("status")}>
+                <select value={formModal.status} onChange={(e) => setFormModal({ ...formModal, status: e.target.value })} className={inputCls} data-testid="fm-status">
+                  <option value="sent">{t("sent")}</option><option value="pending">{t("pending")}</option><option value="received">{t("received")}</option>
+                </select>
+              </Field>
+              <Field label={t("recipientEmail")}><input type="email" value={formModal.recipient_email} onChange={(e) => setFormModal({ ...formModal, recipient_email: e.target.value })} className={inputCls} data-testid="fm-recipient" placeholder="patient@email.com" /></Field>
+              <Field label={t("externalLink")}><input value={formModal.external_url} onChange={(e) => setFormModal({ ...formModal, external_url: e.target.value })} className={inputCls} data-testid="fm-url" placeholder="https://..." /></Field>
+            </div>
+
+            {formModal.responses && Object.keys(formModal.responses).length > 0 && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500 mb-2">{t("editResponses")}</p>
+                <div className="space-y-3 border border-border rounded-md p-3 bg-tan-50/40 max-h-72 overflow-y-auto custom-scroll">
+                  {Object.entries(formModal.responses).map(([k, v]) => {
+                    const fld = (formModal.template || []).find((x) => x.name === k);
+                    const labelTxt = fld ? fld.en : k;
+                    if (typeof v === "string" && v.startsWith("data:image")) {
+                      return (
+                        <div key={k}>
+                          <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{labelTxt} · {t("signatureOnFile")}</p>
+                          <img src={v} alt={labelTxt} className="h-14 object-contain mt-1" />
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={k}>
+                        <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{labelTxt}</label>
+                        <input value={String(v)} data-testid={`fm-resp-${k}`}
+                          onChange={(e) => setFormModal({ ...formModal, responses: { ...formModal.responses, [k]: e.target.value } })}
+                          className={`${inputCls} mt-1`} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap justify-between gap-2 pt-2 border-t border-border">
+              <div className="flex flex-wrap gap-2">
+                <Btn type="button" variant="outline" onClick={() => { openEmail(formModal); }} data-testid="fm-email-btn"><Mail className="w-4 h-4" />{t("sendByEmail")}</Btn>
+                <Btn type="button" variant="outline" onClick={() => { openFolderMove(formModal); }} data-testid="fm-folder-btn"><FolderInput className="w-4 h-4" />{t("moveToFolderBtn")}</Btn>
+                <Btn type="button" variant="danger" onClick={() => { removeForm(formModal.id); setFormModal(null); }} data-testid="fm-delete-btn"><Trash2 className="w-4 h-4" />{t("delete")}</Btn>
+              </div>
+              <div className="flex gap-2">
+                <Btn variant="outline" type="button" onClick={() => setFormModal(null)}>{t("cancel")}</Btn>
+                <Btn type="submit" data-testid="fm-save-btn"><Pencil className="w-4 h-4" />{t("saveForm")}</Btn>
+              </div>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Send by email */}
+      <Modal open={!!emailModal} onClose={() => setEmailModal(null)} title={t("emailForm")}>
+        {emailModal && (
+          <form onSubmit={sendEmail} className="space-y-4" data-testid="email-modal">
+            <p className="text-sm text-stone-600">{emailModal.title}</p>
+            <Field label={t("recipientEmail")}>
+              <input required type="email" value={emailModal.recipient} onChange={(e) => setEmailModal({ ...emailModal, recipient: e.target.value })} className={inputCls} data-testid="email-recipient" placeholder="patient@email.com" />
+              <p className="text-xs text-stone-400 mt-1">{t("anyEmailHint")}</p>
+            </Field>
+            <div className="flex justify-end gap-2 pt-2">
+              <Btn variant="outline" type="button" onClick={() => setEmailModal(null)}>{t("cancel")}</Btn>
+              <Btn type="submit" disabled={sendingEmail} data-testid="send-email-btn">
+                {sendingEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}{t("sendEmailBtn")}
+              </Btn>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Move to patient folder */}
+      <Modal open={!!folderModal} onClose={() => setFolderModal(null)} title={t("moveToFolderTitle")}>
+        {folderModal && (
+          <form onSubmit={doMoveToFolder} className="space-y-4" data-testid="folder-move-modal">
+            <p className="text-sm text-stone-600">{folderModal.title}</p>
+            <Field label={t("targetPatient")}>
+              <select value={folderModal.patient_id} onChange={(e) => changeFolderPatient(e.target.value)} className={inputCls} data-testid="fm-move-patient">
+                <option value="">{t("selectPatient")}</option>
+                {patients.map((p) => <option key={p.id} value={p.id}>{`${p.first_name} ${p.last_name}`}</option>)}
+              </select>
+            </Field>
+            <Field label={t("targetFolder")}>
+              <select value={folderModal.subfolder_id} onChange={(e) => setFolderModal({ ...folderModal, subfolder_id: e.target.value })} className={inputCls} data-testid="fm-move-subfolder">
+                <option value="">{t("unfiled")}</option>
+                {folderSubs.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </Field>
+            <div className="flex justify-end gap-2 pt-2">
+              <Btn variant="outline" type="button" onClick={() => setFolderModal(null)}>{t("cancel")}</Btn>
+              <Btn type="submit" data-testid="confirm-to-folder-btn"><FolderInput className="w-4 h-4" />{t("moveToFolderBtn")}</Btn>
+            </div>
+          </form>
         )}
       </Modal>
     </div>
