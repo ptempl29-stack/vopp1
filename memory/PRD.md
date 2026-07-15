@@ -271,9 +271,19 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Tested: testing_agent iteration_32 — 18/18 backend pytest, 100% frontend critical flows, no bugs. DB left clean (1 admin, 1 patient).
 
 
+## Iteration 36 (2026-06) — Forms email (Resend+Yahoo), form View/Edit/Delete, Move-to-Folder; Folders drag-drop + preview
+- **Email sending (Forms)**: `POST /api/forms/{id}/send-email` sends the secure form link (+ attaches the uploaded doc if present) to ANY email — existing patient (auto-filled) or a prospective patient (typed). New `core/email_utils.send_email(..., attachments=)` supports **Resend** (primary, `RESEND_API_KEY`+`SENDER_EMAIL`) and **Yahoo SMTP** (fallback). ⚠️ EMAIL IS INACTIVE until credentials added to backend/.env (both empty) — endpoint returns `{sent:false, configured:false}` and UI shows a friendly "Email is not set up yet" toast. Row button `email-form-<id>` + in-modal `fm-email-btn`.
+- **Form View/Edit/Delete**: clicking a form title (`open-form-<id>`) opens a View/Edit modal — edit title/type/status/patient/recipient/external link AND the patient's answered response fields (signatures shown read-only). `PUT /api/forms/{id}` (owner-or-admin; audited). Save + Delete inside modal. Fixed a latent bug: creating a form with an empty recipient email 422'd (EmailStr) — frontend now sends `null`.
+- **Move form to Patient Folder**: `POST /api/forms/{id}/to-folder` — uploaded-doc forms attach the file (source `form`); field-based forms generate a PDF of the answers (`_form_pdf`, DejaVu Unicode) stored as folder item (source `upload`). Row button `to-folder-<id>` + in-modal `fm-folder-btn`; pick patient + sub-folder.
+- **Patient Folders drag-drop + preview**: drag files onto the open folder to upload (multi-file, into the active sub-folder) with a drop overlay; in-app **preview** modal for image/PDF items (`folder-preview-<id>` → `<img>`/`<iframe>`), non-previewable types show an info toast.
+- Cleanup: removed ~255 leftover `TEST_` forms from the preview DB (now 27 forms, 1 patient).
+- Tested: testing_agent iteration_33 — 10/10 backend pytest + 6/6 frontend flows, no bugs. DB left clean.
+
 ## Backlog / Next
+- **Add email credentials to activate sending**: Resend (`RESEND_API_KEY` + verified `SENDER_EMAIL`) and/or Yahoo (`YAHOO_EMAIL` + app password) in backend/.env, then restart backend. Same values must be set in the production deployment env.
 - P2: Stripe payment gateway for invoices.
-- Optional: migrate notes/forms ownership from name → id (rename-safe); backfill/hide orphan appointments; DELETE /api/invoices/{id} (admin); extract shared patient-name map helper (DRY).
-- P3: In-browser .docx/.xlsx editing — DECIDED NOT building.
+- Optional: backfill legacy forms with null `created_by`; hide orphan appointments/invoices rendering "—".
+
+## Backlog / Next (superseded)
 
 ## Earlier backlog
