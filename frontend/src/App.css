@@ -3,18 +3,22 @@
 .print-only { display: none; }
 
 @media print {
-  body * { visibility: hidden; }
-  #invoice-print, #invoice-print *,
-  #form-print, #form-print *,
-  #note-print, #note-print * { visibility: visible; }
-  #invoice-print { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; }
-  #form-print { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; max-height: none !important; overflow: visible !important; }
-  #note-print { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; max-height: none !important; overflow: visible !important; }
+  /* Legacy single-section print (invoices, forms) */
+  body:not(.printing) * { visibility: hidden; }
+  body:not(.printing) #invoice-print, body:not(.printing) #invoice-print *,
+  body:not(.printing) #form-print, body:not(.printing) #form-print * { visibility: visible; }
+  body:not(.printing) #invoice-print,
+  body:not(.printing) #form-print { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; }
+
+  /* Robust multi-page print via cloned holder (notes) */
+  body.printing > *:not(#print-holder) { display: none !important; }
+  #print-holder { display: block !important; padding: 24px; color: #1c1917; }
+
   .no-print { display: none !important; }
   .print-only { display: block !important; }
-  #note-print input, #note-print select, #note-print textarea {
+
+  #print-holder input, #print-holder select, #print-holder textarea {
     border: none !important; padding: 0 !important; box-shadow: none !important;
-    -webkit-appearance: none; appearance: none; background: transparent !important;
-    color: #1c1917 !important; font: inherit;
+    -webkit-appearance: none; appearance: none; background: transparent !important; color: #1c1917 !important;
   }
 }

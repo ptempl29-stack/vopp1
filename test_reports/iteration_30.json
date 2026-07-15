@@ -1,0 +1,26 @@
+{
+  "summary": "Verified the printSection() PDF/Print bug fix on Progress Notes editor + view, plus regressions on editor typing focus and Invoices legacy print. All checks pass: #print-holder is created as a DIRECT child of <body> with body.printing class, contains header labels + full long body text (240 repetitions), window.print is invoked, and afterprint cleanup restores DOM. Zero console/page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_fixes": [
+    {"fix": "Editor Save-as-PDF (note-save-pdf-btn -> printSection('note-print'))", "evidence": "After click, #print-holder present, parentElement === body, body.classList contains 'printing', holder.textContent length ~17,812 chars; contains 'Patient Name', 'Social Security', SSN value '123-45-6789', 240 occurrences of long-body sentence; window.__printed === true. Cleanup runs on afterprint (holder removed, printing class removed)."},
+    {"fix": "View Save-as-PDF (view-save-pdf-btn) and Print (view-print-btn)", "evidence": "Both buttons produce #print-holder with header labels + full long body (240 repetitions) as direct body child; body.printing set; window.print invoked; no errors."},
+    {"fix": "Editor focus regression", "evidence": "Typed '987654321' into nf-ssn continuously via keyboard.type — full value retained, activeElement=nf-ssn. Typed 'F33.0' into nf-icd10 — full value retained, activeElement=nf-icd10."},
+    {"fix": "Invoices legacy print (regression)", "evidence": "save-pdf-btn and print-btn on /invoices still call window.print (legacy path), no console errors."},
+    {"fix": "Save note works", "evidence": "save-note-btn saved throwaway note; appeared in list."}
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Both the New/Edit note modal and the View modal render an inner element with id='note-print'. React renders only one modal open at a time so it works, but relying on duplicated DOM ids across sibling modals is fragile. Consider unique ids (e.g., 'note-print-editor' vs 'note-print-view') to be safe.",
+    "printSection() calls window.print() inside a 60ms setTimeout, so an automated/UI test that queries the holder MUST wait ~60-100ms before asserting; humans see no issue. The current implementation correctly removes holder on afterprint."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend only per request)", "frontend": "100%"},
+  "test_credentials": "usvopp@yahoo.com / Football2023?",
+  "seed_data_creation": "Created 2 throwaway notes (from editor and view flows) and bulk-deleted them via select-note + bulk-delete-notes. Only original seed note remains.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The print mechanism cannot be visually verified via innerText because .print-only divs are display:none on screen; use textContent (or querySelectorAll('.print-only').textContent) to assert content presence. window.print must be overridden before clicking any print button to avoid hanging automation.",
+  "rca of the issue": "N/A — bug fix (printSection) verified working."
+}

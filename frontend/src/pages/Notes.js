@@ -9,6 +9,7 @@ import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Btn, Empty, Card } from "../components/ui-kit";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
+import { printSection } from "../lib/print";
 import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -176,6 +177,25 @@ export default function Notes() {
     </div>
   );
 
+  // Print-only header rendered from the live form values (editor PDF)
+  const printHeader = (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500 mb-2">{t("notesLabel")}</p>
+      <div className="rounded-lg border border-border border-l-4 border-l-moneygreen-600 bg-white p-5">
+        <div className="space-y-1 max-w-md text-sm">
+          <ReadRow label={t("patientName")} value={patientName(form.patient_id)} />
+          <ReadRow label={t("dob")} value={form.dob} />
+          <ReadRow label={t("socialSecurity")} value={form.ssn} />
+          <ReadRow label={t("dateOfSession")} value={form.visit_date} />
+          <ReadRow label={t("icd10Code")} value={form.icd10} />
+          <ReadRow label={t("cptCode")} value={form.cpt_code} />
+          <ReadRow label={t("riskAssessment")} value={form.risk_level ? riskLabel(form.risk_level) : ""} />
+          <ReadRow label={t("provider")} value={form.attending_provider} />
+        </div>
+      </div>
+    </div>
+  );
+
   // Read-only header (view modal & PDF for saved notes)
   const ReadHeader = ({ n }) => (
     <div>
@@ -262,16 +282,18 @@ export default function Notes() {
       <Modal open={open} onClose={() => { setOpen(false); setEditId(null); }} title={editId ? t("editNote") : t("newNote")} wide>
         <form onSubmit={save} className="space-y-4">
           <div id="note-print" className="space-y-4">
-            <div className="rounded-lg border border-border p-4">
+            <div className="rounded-lg border border-border p-4 no-print">
               <EditableLetterhead settings={settings} onSaved={setSettings} t={t}
                 canEdit={["admin", "doctor", "nurse", "psychologist"].includes(user?.role)} />
             </div>
-            {editableHeader}
+            <div className="print-only"><Letterhead settings={settings} /></div>
+            <div className="no-print">{editableHeader}</div>
+            <div className="print-only">{printHeader}</div>
             {/* Blank writing page */}
             <textarea value={form.content} onChange={set("content")} data-testid="nf-content"
               className="w-full min-h-[420px] p-6 bg-white border border-border rounded-lg text-base leading-relaxed text-stone-800 focus:outline-none focus:ring-2 focus:ring-moneygreen-500 no-print"
               placeholder={t("noteBodyPlaceholder")} />
-            <div className="print-only whitespace-pre-wrap text-base leading-relaxed text-stone-800 p-6 min-h-[300px]">{form.content}</div>
+            <div className="print-only whitespace-pre-wrap text-base leading-relaxed text-stone-800 p-6">{form.content}</div>
             {form.signature && (
               <div className="pt-3 border-t border-border">
                 <p className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">{t("providerSignature")}</p>
@@ -285,8 +307,8 @@ export default function Notes() {
               {summarizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               {summarizing ? t("summarizing") : t("aiSummarize")}
             </Btn>
-            <Btn variant="outline" type="button" onClick={() => window.print()} data-testid="note-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
-            <Btn variant="outline" type="button" onClick={() => window.print()} data-testid="note-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
+            <Btn variant="outline" type="button" onClick={() => printSection("note-print")} data-testid="note-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
+            <Btn variant="outline" type="button" onClick={() => printSection("note-print")} data-testid="note-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
           </div>
 
           <div className="p-4 rounded-md bg-tan-50 border border-tan-200 no-print">
@@ -333,8 +355,8 @@ export default function Notes() {
               )}
             </div>
             <div className="flex justify-end gap-2 pt-2 no-print">
-              <Btn variant="outline" onClick={() => window.print()} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
-              <Btn variant="outline" onClick={() => window.print()} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
+              <Btn variant="outline" onClick={() => printSection("note-print")} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
+              <Btn variant="outline" onClick={() => printSection("note-print")} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
               {allowed && <Btn onClick={() => openEdit(viewing)} data-testid="view-edit-btn"><Pencil className="w-4 h-4" />{t("edit")}</Btn>}
             </div>
           </div>
