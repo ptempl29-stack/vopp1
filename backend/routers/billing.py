@@ -63,6 +63,13 @@ async def next_invoice_number(user: dict = Depends(require_roles("biller", "rece
     return {"invoice_number": f"MB-{count + 1:04d}"}
 
 
+@router.get("/invoices/patient-code-history")
+async def invoice_code_history(patient_id: str, user: dict = Depends(require_roles("biller", "receptionist"))):
+    icd_inv = await db.invoices.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})
+    icd_notes = await db.notes.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})
+    return {"icd10": sorted(set(icd_inv) | set(icd_notes))}
+
+
 @router.post("/invoices")
 async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles("biller", "receptionist"))):
     items = [i.model_dump() for i in data.items]

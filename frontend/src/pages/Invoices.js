@@ -42,10 +42,16 @@ export default function Invoices() {
   const [notePatient, setNotePatient] = useState("");
   const [billingNotes, setBillingNotes] = useState([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
+  const [icdHistory, setIcdHistory] = useState([]);
 
   const statusLabel = (s) => t(statusKey[s] || s);
   const loadInvoices = () => api.get("/invoices").then((r) => setInvoices(r.data)).catch(() => {});
   const loadNumber = () => api.get("/invoices/next-number").then((r) => setInv((s) => ({ ...s, invoice_number: r.data.invoice_number }))).catch(() => {});
+  const loadIcdHistory = (pid) => {
+    if (!pid) { setIcdHistory([]); return; }
+    api.get("/invoices/patient-code-history", { params: { patient_id: pid } })
+      .then((r) => setIcdHistory(r.data.icd10 || [])).catch(() => setIcdHistory([]));
+  };
 
   useEffect(() => {
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
@@ -62,7 +68,7 @@ export default function Invoices() {
 
   const onPatient = async (e) => {
     const pid = e.target.value;
-    if (!pid) { setInv((s) => ({ ...s, patient_id: "", patient_name: "", dob: "", ssn: "", gender: "" })); return; }
+    if (!pid) { setInv((s) => ({ ...s, patient_id: "", patient_name: "", dob: "", ssn: "", gender: "" })); setIcdHistory([]); return; }
     let p = patients.find((x) => x.id === pid);
     try { p = (await api.get(`/patients/${pid}`)).data; } catch { /* fallback to cached */ }
     setInv((s) => ({
@@ -70,6 +76,7 @@ export default function Invoices() {
       patient_name: p ? `${p.first_name} ${p.last_name}` : "",
       dob: p?.dob || "", gender: p?.gender || "", ssn: p?.ssn || "",
     }));
+    loadIcdHistory(pid);
   };
   const setF = (k) => (e) => setInv({ ...inv, [k]: e.target.value });
 
@@ -80,7 +87,7 @@ export default function Invoices() {
   };
   const total = items.reduce((s, i) => s + (Number(i.amount) || 0) * (Number(i.quantity) || 0), 0);
 
-  const resetInvoice = () => { setEditId(null); setInv(emptyInvoice); setItems([newItem()]); loadNumber(); };
+  const resetInvoice = () => { setEditId(null); setInv(emptyInvoice); setItems([newItem()]); setIcdHistory([]); loadNumber(); };
 
   const openNoteModal = () => { setNotePatient(""); setBillingNotes([]); setNoteModal(true); };
   const onNotePatient = (e) => {
@@ -109,6 +116,7 @@ export default function Invoices() {
       provider: n.attending_provider || s.provider,
     }));
     setNoteModal(false);
+    loadIcdHistory(notePatient);
     toast.success(t("prefilledFromNote"));
   };
   const reasonOptions = inv.visit_reason && !reasons.includes(inv.visit_reason)
@@ -138,6 +146,7 @@ export default function Invoices() {
       });
       setItems((d.items || []).length ? d.items.map((it) => ({ _uid: `it-${seq++}`, ...it })) : [newItem()]);
       setViewing(null);
+      loadIcdHistory(d.patient_id);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) { toast.error(apiErr(err)); }
   };
@@ -160,6 +169,7 @@ export default function Invoices() {
       });
       setItems((d.items || []).length ? d.items.map((it) => ({ _uid: `it-${seq++}`, ...it })) : [newItem()]);
       loadNumber();
+      loadIcdHistory(d.patient_id);
       window.scrollTo({ top: 0, behavior: "smooth" });
       toast.success(t("duplicated"));
     } catch (err) { toast.error(apiErr(err)); }
@@ -234,7 +244,18 @@ export default function Invoices() {
                     {reasonOptions.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </CField>
-                <CField label="ICD-10-CM"><input value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" /></CField>
+                <CField label="ICD-10-CM">
+                  <input value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" />
+                  {icdHistory.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1" data-testid="inv-icd-suggestions">
+                      <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
+                      {icdHistory.map((c) => (
+                        <button key={c} type="button" onClick={() => setInv((s) => ({ ...s, icd10: c }))} data-testid={`inv-icd-chip-${c}`}
+                          className="text-xs px-2 py-0.5 rounded-full bg-moneygreen-100 text-moneygreen-700 hover:bg-moneygreen-200 font-mono font-semibold transition-colors">{c}</button>
+                      ))}
+                    </div>
+                  )}
+                </CField>
                 <CField label={t("attendingProvider")}>
                   <select value={inv.provider || ""} onChange={setF("provider")} className={cellCls} data-testid="inv-provider">
                     <option value="">—</option>
