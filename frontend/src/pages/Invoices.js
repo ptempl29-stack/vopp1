@@ -3,6 +3,7 @@ import api, { apiErr } from "../lib/api";
 import { useSearchParams } from "react-router-dom";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import { usePrivacy, Private } from "../context/PrivacyContext";
+import { printSection } from "../lib/print";
 import { useLang } from "../context/LanguageContext";
 import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
@@ -59,12 +60,15 @@ export default function Invoices() {
     ? invoices.filter((v) => (statusFilter === "outstanding" ? v.status !== "paid" : v.status === statusFilter))
     : invoices;
 
-  const onPatient = (e) => {
-    const p = patients.find((x) => x.id === e.target.value);
+  const onPatient = async (e) => {
+    const pid = e.target.value;
+    if (!pid) { setInv((s) => ({ ...s, patient_id: "", patient_name: "", dob: "", ssn: "", gender: "" })); return; }
+    let p = patients.find((x) => x.id === pid);
+    try { p = (await api.get(`/patients/${pid}`)).data; } catch { /* fallback to cached */ }
     setInv((s) => ({
-      ...s, patient_id: e.target.value,
+      ...s, patient_id: pid,
       patient_name: p ? `${p.first_name} ${p.last_name}` : "",
-      dob: p?.dob || s.dob, gender: p?.gender || s.gender, ssn: p?.ssn || s.ssn,
+      dob: p?.dob || "", gender: p?.gender || "", ssn: p?.ssn || "",
     }));
   };
   const setF = (k) => (e) => setInv({ ...inv, [k]: e.target.value });
@@ -319,6 +323,7 @@ export default function Invoices() {
                     <th className="px-5 py-3">{t("invoiceNumber")}</th>
                     <th className="px-5 py-3">{t("patient")}</th>
                     <th className="px-5 py-3 hidden md:table-cell">{t("serviceDate")}</th>
+                    <th className="px-5 py-3 hidden lg:table-cell">{t("completedOn")}</th>
                     <th className="px-5 py-3">{t("status")}</th>
                     <th className="px-5 py-3 text-right">{t("total")}</th>
                     <th className="px-5 py-3 text-right">{t("actions")}</th>
@@ -331,9 +336,10 @@ export default function Invoices() {
                         <input type="checkbox" checked={sel.has(v.id)} onChange={() => sel.toggle(v.id)}
                           data-testid={`select-invoice-${v.id}`} className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
                       </td>
-                      <td className="px-5 py-3 font-mono font-semibold text-moneygreen-700">{v.invoice_number || "—"}</td>
-                      <td className="px-5 py-3 text-stone-700"><Private value={v.patient_name} /></td>
-                      <td className="px-5 py-3 hidden md:table-cell text-stone-600">{v.service_date || (v.created_at || "").slice(0, 10)}</td>
+                      <td className="px-5 py-3 font-mono font-semibold text-moneygreen-700 cursor-pointer hover:underline" onClick={() => viewInvoice(v.id)} data-testid={`open-invoice-${v.id}`}>{v.invoice_number || "—"}</td>
+                      <td className="px-5 py-3 text-stone-700 cursor-pointer" onClick={() => viewInvoice(v.id)}><Private value={v.patient_name} /></td>
+                      <td className="px-5 py-3 hidden md:table-cell text-stone-600 cursor-pointer" onClick={() => viewInvoice(v.id)}>{v.service_date || (v.created_at || "").slice(0, 10)}</td>
+                      <td className="px-5 py-3 hidden lg:table-cell text-stone-600" data-testid={`invoice-completed-${v.id}`}>{v.completed_at ? v.completed_at.slice(0, 10) : "—"}</td>
                       <td className="px-5 py-3">
                         <select value={STATUSES.includes(v.status) ? v.status : "in_transit"} onChange={(e) => changeStatus(v.id, e.target.value)}
                           data-testid={`invoice-status-${v.id}`} title={t("changeStatus")}
@@ -413,8 +419,8 @@ export default function Invoices() {
             </div>
             <div className="flex justify-end gap-2 pt-2 no-print">
               <Btn variant="outline" onClick={() => editInvoice(viewing.id)} data-testid="view-edit-invoice-btn"><Pencil className="w-4 h-4" />{t("edit")}</Btn>
-              <Btn variant="outline" onClick={() => window.print()} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
-              <Btn variant="outline" onClick={() => window.print()} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
+              <Btn variant="outline" onClick={() => printSection("invoice-print")} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
+              <Btn variant="outline" onClick={() => printSection("invoice-print")} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
             </div>
           </div>
         )}

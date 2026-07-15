@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
+import { printSection } from "../lib/print";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import { useSearchParams } from "react-router-dom";
 import { useLang } from "../context/LanguageContext";
@@ -355,8 +356,8 @@ export default function Forms() {
               ) : <p className="text-sm text-stone-500">{t("noResponses")}</p>}
             </div>
             <div className="flex justify-end gap-2 pt-2 no-print">
-              <Btn variant="outline" onClick={() => window.print()} data-testid="form-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
-              <Btn variant="outline" onClick={() => window.print()} data-testid="form-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
+              <Btn variant="outline" onClick={() => printSection("form-print")} data-testid="form-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
+              <Btn variant="outline" onClick={() => printSection("form-print")} data-testid="form-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
             </div>
           </div>
         )}

@@ -52,7 +52,7 @@ async def list_invoices(user: dict = Depends(require_roles("biller", "receptioni
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}"
                 async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1})}
     for inv in invoices:
-        inv["patient_name"] = inv.get("patient_name") or patients.get(inv.get("patient_id"), "Unknown")
+        inv["patient_name"] = patients.get(inv.get("patient_id")) or inv.get("patient_name") or "Unknown"
     await log_audit("view", "invoice", actor=user, detail=f"list ({len(invoices)})")
     return invoices
 
@@ -82,6 +82,7 @@ async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles(
            "service_date": data.service_date, "visit_reason": data.visit_reason,
            "icd10": data.icd10, "provider": data.provider,
            "items": items, "total": round(total, 2), "status": data.status, "notes": data.notes,
+           "completed_at": now_iso() if data.status == "paid" else None,
            "created_at": now_iso(), "created_by": user["name"]}
     await db.invoices.insert_one(doc)
     doc.pop("_id", None)
@@ -97,6 +98,9 @@ async def update_invoice_status(iid: str, status: str, user: dict = Depends(requ
     res = await db.invoices.update_one({"id": iid}, {"$set": {"status": status}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    existing = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    completed = (existing.get("completed_at") or now_iso()) if status == "paid" else None
+    await db.invoices.update_one({"id": iid}, {"$set": {"completed_at": completed}})
     await log_audit("update", "invoice", actor=user, resource_id=iid, detail=f"status={status}")
     return await db.invoices.find_one({"id": iid}, {"_id": 0})
 
@@ -106,10 +110,13 @@ async def get_invoice(iid: str, user: dict = Depends(require_roles("biller", "re
     inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    if not inv.get("patient_name") and inv.get("patient_id"):
+    if inv.get("patient_id"):
         p = await db.patients.find_one({"id": inv["patient_id"]}, {"_id": 0})
         if p:
             inv["patient_name"] = f"{p['first_name']} {p['last_name']}"
+            inv["dob"] = p.get("dob") or inv.get("dob")
+            inv["ssn"] = p.get("ssn") or inv.get("ssn")
+            inv["gender"] = p.get("gender") or inv.get("gender")
     await log_audit("view", "invoice", actor=user, resource_id=iid, detail=inv.get("invoice_number", ""))
     return inv
 
@@ -132,6 +139,7 @@ async def update_invoice(iid: str, data: InvoiceInput, user: dict = Depends(requ
            "service_date": data.service_date, "visit_reason": data.visit_reason,
            "icd10": data.icd10, "provider": data.provider,
            "items": items, "total": round(total, 2), "status": data.status, "notes": data.notes,
+           "completed_at": (existing.get("completed_at") or now_iso()) if data.status == "paid" else None,
            "updated_at": now_iso(), "updated_by": user["name"]}
     await db.invoices.update_one({"id": iid}, {"$set": upd})
     await log_audit("update", "invoice", actor=user, resource_id=iid,

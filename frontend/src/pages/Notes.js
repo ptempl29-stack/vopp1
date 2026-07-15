@@ -10,7 +10,7 @@ import { PageHeader, Modal, Btn, Empty, Card } from "../components/ui-kit";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2 } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List } from "lucide-react";
 import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
@@ -43,6 +43,7 @@ export default function Notes() {
   const [sigKey, setSigKey] = useState(0);
   const [savingSig, setSavingSig] = useState(false);
   const [codeHistory, setCodeHistory] = useState({ icd10: [], cpt: [] });
+  const [viewMode, setViewMode] = useState("cards");
 
   const load = () => api.get("/notes").then((r) => setNotes(r.data)).catch(() => {});
   useEffect(() => {
@@ -60,12 +61,14 @@ export default function Notes() {
   };
   const providerName = (n) => n.attending_provider || n.author || "—";
   const riskLabel = (r) => (r ? t(riskKey[r] || r) : "—");
+  const curPatient = (id) => patients.find((x) => x.id === id) || {};
 
-  const onPatient = (e) => {
+  const onPatient = async (e) => {
     const pid = e.target.value;
-    const p = patients.find((x) => x.id === pid);
+    let p = patients.find((x) => x.id === pid);
+    try { if (pid) p = (await api.get(`/patients/${pid}`)).data; } catch { /* fallback */ }
     setForm((f) => ({ ...f, patient_id: pid,
-      dob: p?.dob || f.dob, gender: p?.gender || f.gender, ssn: p?.ssn || f.ssn }));
+      dob: p?.dob || "", gender: p?.gender || "", ssn: p?.ssn || "" }));
     setCodeHistory({ icd10: [], cpt: [] });
     if (pid) api.get("/notes/patient-code-history", { params: { patient_id: pid } })
       .then((r) => setCodeHistory(r.data)).catch(() => {});
@@ -203,8 +206,8 @@ export default function Notes() {
       <div className="rounded-lg border border-border border-l-4 border-l-moneygreen-600 bg-white p-5">
         <div className="space-y-1 max-w-md text-sm">
           <ReadRow label={t("patientName")} value={<Private value={patientName(n.patient_id)} />} />
-          <ReadRow label={t("dob")} value={<Private value={n.dob} />} />
-          <ReadRow label={t("socialSecurity")} value={<Private value={n.ssn} />} />
+          <ReadRow label={t("dob")} value={<Private value={curPatient(n.patient_id).dob || n.dob} />} />
+          <ReadRow label={t("socialSecurity")} value={<Private value={curPatient(n.patient_id).ssn || n.ssn} />} />
           <ReadRow label={t("dateOfSession")} value={n.visit_date} />
           <ReadRow label={t("icd10Code")} value={n.icd10} />
           <ReadRow label={t("cptCode")} value={n.cpt_code} />
@@ -218,7 +221,21 @@ export default function Notes() {
   return (
     <div>
       <PageHeader title={t("notes")} subtitle={`${notes.length}`}
-        action={allowed && <Btn onClick={openNew} data-testid="add-note-btn"><Plus className="w-4 h-4" />{t("newNote")}</Btn>} />
+        action={
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-md border border-border overflow-hidden" data-testid="notes-view-toggle">
+              <button onClick={() => setViewMode("cards")} data-testid="notes-view-cards" title={t("cardView")}
+                className={`px-2.5 py-1.5 transition-colors ${viewMode === "cards" ? "bg-moneygreen-600 text-white" : "bg-white text-moneygreen-700 hover:bg-moneygreen-50"}`}>
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button onClick={() => setViewMode("list")} data-testid="notes-view-list" title={t("listView")}
+                className={`px-2.5 py-1.5 transition-colors ${viewMode === "list" ? "bg-moneygreen-600 text-white" : "bg-white text-moneygreen-700 hover:bg-moneygreen-50"}`}>
+                <List className="w-4 h-4" />
+              </button>
+            </div>
+            {allowed && <Btn onClick={openNew} data-testid="add-note-btn"><Plus className="w-4 h-4" />{t("newNote")}</Btn>}
+          </div>
+        } />
 
       {allowed && notes.length > 0 && (
         <div className="flex items-center gap-3 mb-4">
@@ -237,7 +254,49 @@ export default function Notes() {
         </div>
       )}
 
-      {notes.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
+      {notes.length === 0 ? <Card><Empty text={t("noData")} /></Card> : viewMode === "list" ? (
+        <Card className="overflow-hidden" data-testid="notes-list-table">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
+                  {allowed && <th className="px-4 py-3 w-8"></th>}
+                  <th className="px-5 py-3">{t("patient")}</th>
+                  <th className="px-5 py-3 hidden md:table-cell">{t("dateOfSession")}</th>
+                  <th className="px-5 py-3 hidden md:table-cell">{t("provider")}</th>
+                  <th className="px-5 py-3 hidden lg:table-cell">ICD-10 / CPT</th>
+                  <th className="px-5 py-3">{t("riskAssessment")}</th>
+                  <th className="px-5 py-3 text-right">{t("actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {notes.map((n, i) => (
+                  <tr key={n.id} data-testid={`note-row-${n.id}`} className={`border-b border-border/60 ${sel.has(n.id) ? "bg-moneygreen-50" : i % 2 ? "bg-tan-50/40" : ""}`}>
+                    {allowed && (
+                      <td className="px-4 py-3">
+                        <input type="checkbox" checked={sel.has(n.id)} onChange={() => sel.toggle(n.id)}
+                          data-testid={`select-note-${n.id}`} className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+                      </td>
+                    )}
+                    <td className="px-5 py-3 font-semibold text-moneygreen-800 cursor-pointer" onClick={() => setViewing(n)}><Private value={patientName(n.patient_id)} /></td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{n.visit_date || (n.created_at || "").slice(0, 10)}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{providerName(n)}</td>
+                    <td className="px-5 py-3 hidden lg:table-cell text-stone-500 font-mono text-xs">{[n.icd10, n.cpt_code].filter(Boolean).join(" / ") || "—"}</td>
+                    <td className="px-5 py-3 text-stone-600">{n.risk_level ? riskLabel(n.risk_level) : "—"}</td>
+                    <td className="px-5 py-3 text-right">
+                      <div className="flex justify-end gap-1">
+                        <Btn variant="ghost" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
+                        {allowed && <Btn variant="ghost" onClick={() => openEdit(n)} data-testid={`edit-note-${n.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>}
+                        {allowed && <Btn variant="ghost" onClick={() => deleteNote(n)} data-testid={`delete-note-${n.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {notes.map((n, i) => (
             <motion.div key={n.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>

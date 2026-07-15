@@ -27,6 +27,8 @@ export default function Appointments() {
   const [editId, setEditId] = useState(null);
   const [typeFilter, setTypeFilter] = useState("");
   const [providerFilter, setProviderFilter] = useState("");
+  const [patientFilter, setPatientFilter] = useState("");
+  const [staff, setStaff] = useState([]);
   const dateToday = params.get("date") === "today";
   const sel = useSelection();
 
@@ -34,16 +36,18 @@ export default function Appointments() {
   useEffect(() => {
     load();
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
+    api.get("/users").then((r) => setStaff(r.data.filter((u) => ["doctor", "nurse", "psychologist", "receptionist", "admin"].includes(u.role)))).catch(() => {});
   }, []);
 
   const providers = useMemo(
-    () => [...new Set(appts.map((a) => a.provider).filter(Boolean))], [appts]);
+    () => [...new Set([...staff.map((u) => u.name), ...appts.map((a) => a.provider)].filter(Boolean))], [appts, staff]);
 
   const filtered = useMemo(() => appts.filter((a) =>
     (!typeFilter || (a.appointment_type || "in_person") === typeFilter) &&
     (!providerFilter || a.provider === providerFilter) &&
+    (!patientFilter || a.patient_id === patientFilter) &&
     (!dateToday || a.date === today())
-  ), [appts, typeFilter, providerFilter, dateToday]);
+  ), [appts, typeFilter, providerFilter, patientFilter, dateToday]);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -88,6 +92,11 @@ export default function Appointments() {
           className={inputCls + " !w-auto"}>
           <option value="">{t("allProviders")}</option>
           {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={patientFilter} onChange={(e) => setPatientFilter(e.target.value)} data-testid="filter-patient"
+          className={inputCls + " !w-auto"}>
+          <option value="">{t("allPatients")}</option>
+          {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
         </select>
         {dateToday && (
           <Badge tone="green" className="flex items-center gap-1">{t("apptToday")}
@@ -180,7 +189,12 @@ export default function Appointments() {
               </button>
             </div>
           </Field>
-          <Field label={t("provider")}><input value={form.provider} onChange={set("provider")} className={inputCls} placeholder="Dr. …" /></Field>
+          <Field label={t("provider")}>
+            <select value={form.provider} onChange={set("provider")} className={inputCls} data-testid="af-provider">
+              <option value="">{t("selectProvider")}</option>
+              {staff.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
+            </select>
+          </Field>
           <div className="grid grid-cols-2 gap-4">
             <Field label={t("date")}><input type="date" required value={form.date} onChange={set("date")} className={inputCls} data-testid="af-date" /></Field>
             <Field label={t("time")}><input type="time" value={form.time} onChange={set("time")} className={inputCls} /></Field>

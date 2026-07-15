@@ -1,0 +1,39 @@
+{
+  "summary": "Frontend E2E verification of the 8-item enhancement batch. All 8 features PASS: (1) invoice/note fresh patient fetch, (2) appointment provider dropdown, (3) notes cards/list toggle, (4) invoice row-click view, (5) service_date persists on saved row, (6) Completed date populates on Paid & clears on non-Paid, (7) appointments patient filter, (8) Invoice VIEW modal & Forms print use printSection (#print-holder as body child, body.printing set, window.print invoked). Editor print buttons remain legacy as expected.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_fixes": [
+    {"fix": "New Appointment provider dropdown (af-provider)", "evidence": "af-provider is <SELECT> tagName with staff options ['Select Provider','ADMIN']. Save succeeded with a staff-selected provider."},
+    {"fix": "Appointments patient filter", "evidence": "filter-patient dropdown exists alongside filter-type & filter-provider. cards before=8 -> after selecting Test Patient=1 -> after clear=8."},
+    {"fix": "Notes cards/list toggle", "evidence": "notes-view-toggle present with both buttons. Default is cards (no list-table). Clicking notes-view-list renders notes-list-table with headers [Patient, Date of Session, Provider, ICD-10/CPT, Risk Assessment Level, Actions] and per-row select-note/view-note/edit-note/delete-note. Clicking notes-view-cards removes the table."},
+    {"fix": "Patient data accuracy on New Invoice/Note", "evidence": "Set patient SSN=555-11-2222 & DOB=1985-03-15 via Patients edit; then in New Invoice selecting Test Patient auto-populates inv-ssn=555-11-2222 and inv-dob=1985-03-15 (fresh GET /api/patients/{id})."},
+    {"fix": "Saved invoice row clickable open-invoice", "evidence": "Clicking data-testid='open-invoice-<id>' opens the invoice-view modal on-screen; view content shows current patient name/DOB/SSN and chosen service_date."},
+    {"fix": "Service Date matches chosen date", "evidence": "Created MB-0026 with inv-service-date=2026-06-10; saved-invoices row shows '2026-06-10' (not today). Confirmed also via API: newly-created invoice returns service_date='2026-06-10'."},
+    {"fix": "Completed date column", "evidence": "invoice-completed-<id> column present. Setting status via invoice-status-<id> to 'paid' populates 2026-07-15 (today); switching to 'denied' clears to '—'."},
+    {"fix": "Invoice VIEW modal print via printSection", "evidence": "view-save-pdf-btn & view-print-btn both create #print-holder as direct child of BODY, body.classList contains 'printing', window.print invoked (counter incremented). Zero console errors."},
+    {"fix": "Forms print via printSection", "evidence": "Opening a Received form's Responses modal (view-responses-<id>) shows form-save-pdf-btn & form-print-btn; clicking creates #print-holder as body child with body.printing set and window.print invoked. Zero errors."},
+    {"fix": "Invoice editor legacy print (regression)", "evidence": "Top-of-page save-pdf-btn/print-btn still call window.print directly — expected."},
+    {"fix": "Invoice auto-number increments", "evidence": "Editor auto-fills inv-number 'MB-0027' on new invoice after saving MB-0026."}
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "MINOR: Patients edit form DOB <input type='date'> at Patients.js:131 has NO data-testid (e.g., 'pf-dob'). All other patient fields have testids (pf-ssn). Consider adding data-testid=\"pf-dob\" for consistent test coverage.",
+    "OPTIONAL CLEANUP: DB has 25 orphan invoices lacking invoice_number/service_date/patient (created before these fields existed). UI gracefully renders '—' / created_at fallback, so no functional bug, but list is noisy. Consider one-time backfill or admin delete."
+  ],
+  "critical_code_review_comments": [
+    "Invoices.js line 341 falls back to created_at.slice(0,10) when v.service_date is empty — masks a data quality issue but keeps display clean. Fine as-is; the fallback is intentional.",
+    "backend/routers/billing.py list_invoices does not project a completed_at fallback for old rows; UI handles null with '—'. OK."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (curl spot-check only, all green)", "frontend": "100% (all 8 features verified)"},
+  "test_credentials": "usvopp@yahoo.com / Football2023?",
+  "seed_data_creation": "Created transient throwaway data during test: 1 appointment (Test Patient, 2026-07-15, ADMIN provider), 1 invoice (MB-0026 Test Patient 2026-06-10 $50) plus a few earlier invoice attempts. MB-0026 deleted via API. Patient SSN=555-11-2222 & DOB=1985-03-15 remain saved on the sole Test Patient — please note if that needs reverting.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Only 1 patient exists (id 6fa0fdd7-... 'Test Patient'). ALL invoice list rows except newly-created ones are legacy orphan records with null invoice_number/service_date/patient_id (patient_name resolves to 'Unknown'). To reliably verify service_date/patient_name persistence, always create a fresh invoice with a valid CPT + patient selected, then look for the fresh row (it will sort at top by created_at DESC). Backend curl invoice creation preserves all fields correctly. Always override window.print before clicking any print button; #print-holder cleanup is on afterprint.",
+  "rca of the issue": "N/A — all 8 target features verified working."
+}
