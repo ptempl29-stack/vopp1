@@ -383,9 +383,8 @@ export default function Notes() {
                 <div className="text-sm text-stone-600 whitespace-pre-wrap line-clamp-4">{n.content}</div>
                 {n.signature && (
                   <div className="mt-3 pt-3 border-t border-border">
-                    <p className="text-xs font-semibold text-moneygreen-700">{t("providerSignature")}</p>
                     <img src={n.signature} alt="signature" className="h-12 object-contain my-1" data-testid={`note-sig-${n.id}`} />
-                    <p className="text-xs text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</p>
+                    <p className="text-sm"><span className="font-bold text-moneygreen-800">{t("providerSignature")}</span> <span className="text-stone-500">· {fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</span></p>
                   </div>
                 )}
                 <div className="mt-3 pt-3 border-t border-border flex justify-end gap-2">
@@ -418,9 +417,8 @@ export default function Notes() {
             <div className="print-only whitespace-pre-wrap text-base leading-relaxed text-stone-800 p-6">{form.content}</div>
             {form.signature && (
               <div className="pt-3 border-t border-border">
-                <p className="text-xs font-semibold text-moneygreen-700">{t("providerSignature")}</p>
                 <img src={form.signature} alt="signature" className="h-14 object-contain my-1" />
-                <p className="text-xs text-stone-500">{fmtDate(form.visit_date)}</p>
+                <p className="text-sm"><span className="font-bold text-moneygreen-800">{t("providerSignature")}</span> <span className="text-stone-500">· {fmtDate(form.visit_date)}</span></p>
               </div>
             )}
           </div>
@@ -472,9 +470,8 @@ export default function Notes() {
               <div className="print-only whitespace-pre-wrap text-base leading-relaxed text-stone-800 p-6">{viewing.content}</div>
               {viewing.signature && (
                 <div className="pt-3 border-t border-border">
-                  <p className="text-xs font-semibold text-moneygreen-700">{t("providerSignature")}</p>
                   <img src={viewing.signature} alt="signature" className="h-14 object-contain my-1" />
-                  <p className="text-xs text-stone-500">{fmtDate(viewing.visit_date)}</p>
+                  <p className="text-sm"><span className="font-bold text-moneygreen-800">{t("providerSignature")}</span> <span className="text-stone-500">· {fmtDate(viewing.visit_date)}</span></p>
                 </div>
               )}
             </div>

@@ -128,7 +128,6 @@ def note_pdf(note: dict, clinic: str) -> bytes:
     _mc(pdf, note.get("content") or "", size=11)
     if (note.get("signature") or "").startswith("data:image"):
         pdf.ln(4)
-        _mc(pdf, "Provider Signature", bold=True, size=9)
         try:
             import base64
             b64 = note["signature"].split(",", 1)[1]
@@ -137,6 +136,6 @@ def note_pdf(note: dict, clinic: str) -> bytes:
             pdf.image(img, w=45)
         except Exception:
             pass
-        if vd:
-            _mc(pdf, str(vd), size=9)
+        date_disp = fmt_date(vd).replace("-", "/") if vd else ""
+        _mc(pdf, "Provider Signature" + (f" \u00b7 {date_disp}" if date_disp else ""), bold=True, size=9)
     return pdf_bytes(pdf)
