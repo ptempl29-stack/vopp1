@@ -123,7 +123,7 @@ export default function Claims() {
             <div className="flex flex-wrap gap-2">
               <Btn variant="outline" onClick={() => { setSelected(null); load(); }} data-testid="claim-back"><ChevronLeft className="w-4 h-4" />{t("backToPackets")}</Btn>
               <Btn variant="outline" onClick={() => openEdit(selected)} data-testid="claim-edit-detail"><Pencil className="w-4 h-4" />{t("edit")}</Btn>
-              <Btn onClick={() => authedDownload(`/claims/${selected.id}/merged`, "claim_packet.pdf")} data-testid="claim-download-merged"><Download className="w-4 h-4" />{t("downloadMergedPdf")}</Btn>
+              <Btn onClick={() => { api.post(`/claims/${selected.id}/to-folder`).then((r) => toast.success(t("savedToFolder"))).catch(() => {}); authedDownload(`/claims/${selected.id}/merged`, "claim_packet.pdf"); }} data-testid="claim-download-merged"><Download className="w-4 h-4" />{t("downloadMergedPdf")}</Btn>
             </div>} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">

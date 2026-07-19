@@ -200,7 +200,7 @@ export default function Invoices() {
             <Btn variant="outline" onClick={openNoteModal} data-testid="create-from-note-btn"><NotebookPen className="w-4 h-4" />{t("createFromNote")}</Btn>
             <Btn variant="outline" onClick={resetInvoice} data-testid="new-invoice-btn"><FilePlus2 className="w-4 h-4" />{t("newInvoice")}</Btn>
             <Btn onClick={save} data-testid="save-invoice-btn"><Save className="w-4 h-4" />{editId ? t("save") : t("saveInvoice")}</Btn>
-            <Btn variant="outline" onClick={() => window.print()} data-testid="save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
+            <Btn variant="outline" onClick={() => { if (editId) api.post(`/invoices/${editId}/to-folder`).then(() => toast.success(t("savedToFolder"))).catch(() => {}); window.print(); }} data-testid="save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
             <Btn variant="outline" onClick={() => window.print()} data-testid="print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
           </div>} />
       </div>
@@ -464,7 +464,7 @@ export default function Invoices() {
             <div className="flex justify-end gap-2 pt-2 no-print">
               <Btn variant="outline" onClick={() => editInvoice(viewing.id)} data-testid="view-edit-invoice-btn"><Pencil className="w-4 h-4" />{t("edit")}</Btn>
               <Btn variant="outline" onClick={() => duplicateInvoice(viewing.id)} data-testid="view-duplicate-invoice-btn"><Copy className="w-4 h-4" />{t("duplicate")}</Btn>
-              <Btn variant="outline" onClick={() => printSection("invoice-print")} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
+              <Btn variant="outline" onClick={() => { if (viewing?.id) api.post(`/invoices/${viewing.id}/to-folder`).then(() => toast.success(t("savedToFolder"))).catch(() => {}); printSection("invoice-print"); }} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
               <Btn variant="outline" onClick={() => printSection("invoice-print")} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
             </div>
           </div>

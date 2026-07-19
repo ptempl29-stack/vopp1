@@ -135,6 +135,36 @@ async def get_invoice(iid: str, user: dict = Depends(require_roles("biller", "re
     return inv
 
 
+@router.post("/invoices/{iid}/to-folder")
+async def invoice_to_folder(iid: str, user: dict = Depends(require_roles("biller", "receptionist"))):
+    from core.folder_filing import invoice_pdf, file_pdf_into_folder
+    from datetime import datetime, timezone
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    pid = inv.get("patient_id")
+    if not pid:
+        raise HTTPException(status_code=400, detail="Invoice has no linked patient")
+    p = await db.patients.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    inv = {**inv, "patient_name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob")}
+    s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
+    clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
+    ds = datetime.now(timezone.utc).strftime("%m-%d-%Y")
+    num = inv.get("invoice_number") or "Invoice"
+    try:
+        pdf = invoice_pdf(inv, clinic)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Could not render invoice PDF")
+    item = await file_pdf_into_folder(pid, p["first_name"], pdf,
+                                      f"Invoice {num} {ds}", f"Invoice_{num}_{ds}.pdf", user)
+    if not item:
+        raise HTTPException(status_code=502, detail="Could not file PDF")
+    await log_audit("create", "folder", actor=user, resource_id=pid, detail=f"auto-filed invoice {iid}")
+    return {"ok": True, "patient_name": inv["patient_name"]}
+
+
 @router.put("/invoices/{iid}")
 async def update_invoice(iid: str, data: InvoiceInput, user: dict = Depends(require_roles("biller", "receptionist"))):
     existing = await db.invoices.find_one({"id": iid}, {"_id": 0})

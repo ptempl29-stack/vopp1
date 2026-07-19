@@ -283,6 +283,12 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Add email credentials to activate sending**: Yahoo needs a 16-char **App Password** (the account password is rejected by Yahoo SMTP), or use Resend (`RESEND_API_KEY`+`SENDER_EMAIL`). Set same in production env.
 - P2: Stripe payment gateway for invoices.
 
+## Iteration 42 (2026-06) — Auto-file saved PDFs into Patient Folders
+- Saving a PDF of a **Progress Note**, **Invoice**, or **Claim Packet** now also files a server-generated PDF into that patient's folder, inside a subfolder named **"{FirstName} MM-DD-YYYY"** (created automatically if missing).
+- Backend: new `core/folder_filing.py` (`file_pdf_into_folder` + `invoice_pdf`/`note_pdf` generators) and endpoints `POST /api/notes/{id}/to-folder`, `POST /api/invoices/{id}/to-folder`, `POST /api/claims/{id}/to-folder` (claims merges its docs into one PDF). Filed item = `folder_items` source `upload`, content-type PDF, label "Progress Note/Invoice/Claim {date}".
+- Frontend: the existing "Save as PDF" buttons (note editor + view, invoice editor + view, claim "Download merged PDF") now also fire the to-folder call (fire-and-forget) and toast "Also saved to patient folder ✓".
+- Requires the doc to have a linked patient. Self-tested via curl (all 3 types file correctly) + UI screenshot (toast confirmed). Cleaned up test artifacts.
+
 ## Iteration 41 (2026-06) — Security safe-fixes + Notes/Invoice/Telehealth polish
 **Security (safe fixes applied; user chose permissive options for the rest):**
 - Added `.env`/`backend/.env`/`frontend/.env` to `.gitignore` (SEC-002 fixed).

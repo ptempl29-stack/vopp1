@@ -94,6 +94,36 @@ async def bulk_delete_notes(data: IdList, user: dict = Depends(require_roles("do
     return {"deleted": len(deletable), "skipped": len(data.ids) - len(deletable)}
 
 
+@router.post("/notes/{nid}/to-folder")
+async def note_to_folder(nid: str, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
+    from core.folder_filing import note_pdf, file_pdf_into_folder
+    note = await db.notes.find_one({"id": nid}, {"_id": 0})
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    pid = note.get("patient_id")
+    if not pid:
+        raise HTTPException(status_code=400, detail="Note has no linked patient")
+    p = await db.patients.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    note = {**note, "patient_name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob"), "ssn": p.get("ssn")}
+    s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
+    clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
+    from datetime import datetime, timezone
+    ds = datetime.now(timezone.utc).strftime("%m-%d-%Y")
+    try:
+        pdf = note_pdf(note, clinic)
+    except Exception as e:
+        logger.error(f"note pdf failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not render note PDF")
+    item = await file_pdf_into_folder(pid, p["first_name"], pdf,
+                                      f"Progress Note {ds}", f"Progress_Note_{ds}.pdf", user)
+    if not item:
+        raise HTTPException(status_code=502, detail="Could not file PDF")
+    await log_audit("create", "folder", actor=user, resource_id=pid, detail=f"auto-filed note {nid}")
+    return {"ok": True, "patient_name": note["patient_name"]}
+
+
 @router.get("/notes/patient-code-history")
 async def patient_code_history(patient_id: str, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
     icd = await db.notes.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})

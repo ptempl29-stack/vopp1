@@ -428,7 +428,7 @@ export default function Notes() {
               {summarizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               {summarizing ? t("summarizing") : t("aiSummarize")}
             </Btn>
-            <Btn variant="outline" type="button" onClick={() => printSection("note-print")} data-testid="note-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
+            <Btn variant="outline" type="button" onClick={() => { if (editId) api.post(`/notes/${editId}/to-folder`).then(() => toast.success(t("savedToFolder"))).catch(() => {}); printSection("note-print"); }} data-testid="note-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
             <Btn variant="outline" type="button" onClick={() => printSection("note-print")} data-testid="note-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
           </div>
 
@@ -476,7 +476,7 @@ export default function Notes() {
               )}
             </div>
             <div className="flex justify-end gap-2 pt-2 no-print">
-              <Btn variant="outline" onClick={() => printSection("note-print")} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
+              <Btn variant="outline" onClick={() => { if (viewing?.id) api.post(`/notes/${viewing.id}/to-folder`).then(() => toast.success(t("savedToFolder"))).catch(() => {}); printSection("note-print"); }} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
               <Btn variant="outline" onClick={() => printSection("note-print")} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
               {allowed && <Btn onClick={() => openEdit(viewing)} data-testid="view-edit-btn"><Pencil className="w-4 h-4" />{t("edit")}</Btn>}
             </div>

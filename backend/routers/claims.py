@@ -290,3 +290,51 @@ async def merged_pdf(cid: str, user: dict = Depends(require_roles("admin"))):
     fname = (c.get("name") or "claim_packet").replace('"', "").replace(" ", "_")[:60]
     return StreamingResponse(io.BytesIO(out.getvalue()), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'})
+
+
+@router.post("/claims/{cid}/to-folder")
+async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))):
+    from pypdf import PdfWriter, PdfReader
+    from PIL import Image
+    from datetime import datetime, timezone
+    from core.folder_filing import file_pdf_into_folder
+    c = await db.claim_packets.find_one({"id": cid})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    pid = c.get("patient_id")
+    if not pid:
+        raise HTTPException(status_code=400, detail="Claim packet has no linked patient")
+    p = await db.patients.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    writer = PdfWriter()
+    added = 0
+    for item in c.get("items", []):
+        try:
+            data, _ = get_object(item["storage_path"])
+            fn = item["filename"].lower()
+            if fn.endswith(".pdf"):
+                for page in PdfReader(io.BytesIO(data)).pages:
+                    writer.add_page(page)
+                added += 1
+            elif fn.rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp"):
+                img = Image.open(io.BytesIO(data)).convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format="PDF")
+                for page in PdfReader(io.BytesIO(buf.getvalue())).pages:
+                    writer.add_page(page)
+                added += 1
+        except Exception as e:
+            logger.error(f"merge skip {item.get('filename')}: {e}")
+    if added == 0:
+        raise HTTPException(status_code=400, detail="No PDF/image documents to merge in this packet")
+    out = io.BytesIO()
+    writer.write(out)
+    ds = datetime.now(timezone.utc).strftime("%m-%d-%Y")
+    name = (c.get("name") or "Claim Packet")[:40]
+    item = await file_pdf_into_folder(pid, p["first_name"], out.getvalue(),
+                                      f"{name} {ds}", f"Claim_Packet_{ds}.pdf", user)
+    if not item:
+        raise HTTPException(status_code=502, detail="Could not file PDF")
+    await log_audit("create", "folder", actor=user, resource_id=pid, detail=f"auto-filed claim {cid}")
+    return {"ok": True, "patient_name": f"{p['first_name']} {p['last_name']}"}
