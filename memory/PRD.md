@@ -32,6 +32,15 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Bilingual EN/ES toggle; responsive tan & money-green UI.
 - Tested: 36/36 backend, frontend 100%.
 
+## Claim Packets — "Build from Date" shortcut (2026-06-19)
+- New backend endpoint `POST /api/claims/from-date` (admin only): given `{patient_id, date}`, auto-creates an FMP Claim packet named `"{Patient Name} {mm/dd/yyyy} FMP Claim"` (claim_number = date), auto-pulling that day's matching invoice(s) (by `service_date`) and progress note(s) (by `visit_date`) as rendered PDF items. Returns 404 if nothing found for the date.
+- New claim item `source: "note"` supported (icon/tone/label + storage cleanup on delete). i18n keys added (EN/ES): `src_note, buildFromDate, buildFromDateTitle, buildFromDateHint, build, serviceDate`.
+- Frontend `Claims.js`: "Build from Date" button + modal (patient select + date). On success opens the new packet. Tested via curl (invoice+note packet built) and screenshot.
+
+## Resend Sender (2026-06-19) — BLOCKED on domain verification
+- User requested `SENDER_EMAIL=admin@vpp.com`. Resend rejected: **vpp.com domain is NOT verified**. Reverted `SENDER_EMAIL` to `onboarding@resend.dev` (test sender, owner-only) to keep email functional. ACTION: user must verify vpp.com at resend.com/domains, then we switch the sender.
+
+
 ## Security Audit (2026-06) — REMEDIATED
 - SEC-001 (CRITICAL): demo seeding now gated behind `SEED_DEMO_USERS` env (off by default in code; `true` only in preview); admin password moved to a strong env value with idempotent rotation; **brute-force lockout added** (5 failed attempts / 15 min, keyed on X-Forwarded-For client IP + email).
 - SEC-002 (HIGH): `/api/notes` now restricted to clinical roles (doctor/nurse/admin) — billers/receptionists get 403.

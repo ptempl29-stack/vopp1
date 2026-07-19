@@ -102,6 +102,83 @@ async def create_claim(data: ClaimInput, user: dict = Depends(require_roles("adm
     return doc
 
 
+class ClaimFromDateInput(BaseModel):
+    patient_id: str
+    date: str
+
+
+def _same_day(val, date_str) -> bool:
+    return bool(val) and str(val)[:10] == str(date_str)[:10]
+
+
+@router.post("/claims/from-date")
+async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require_roles("admin"))):
+    from core.folder_filing import note_pdf
+    p = await db.patients.find_one({"id": data.patient_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    pname = f"{p['first_name']} {p['last_name']}"
+    d = data.date[:10]
+
+    invs = await db.invoices.find({"patient_id": data.patient_id}, {"_id": 0}).to_list(500)
+    invs = [i for i in invs if _same_day(i.get("service_date"), d)]
+    notes = await db.notes.find({"patient_id": data.patient_id}, {"_id": 0}).to_list(500)
+    notes = [n for n in notes if _same_day(n.get("visit_date"), d)]
+
+    if not invs and not notes:
+        raise HTTPException(status_code=404, detail="No invoice or progress note found for that patient on that date")
+
+    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    m = d.split("-")
+    disp = f"{m[1]}/{m[2]}/{m[0]}" if len(m) == 3 else d
+    packet_name = f"{pname} {disp} FMP Claim"
+
+    items = []
+    for inv in invs:
+        try:
+            pdf = _invoice_pdf(inv, clinic)
+        except Exception as e:
+            logger.error(f"from-date invoice pdf failed: {e}")
+            continue
+        fname = f"Invoice_{inv.get('invoice_number', inv['id'][:8])}.pdf"
+        path = f"{APP_NAME}/claims/from-date/{uuid.uuid4()}.pdf"
+        try:
+            result = put_object(path, pdf, "application/pdf")
+        except Exception as e:
+            logger.error(f"from-date invoice storage failed: {e}")
+            continue
+        items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
+                      "invoice_id": inv["id"], "storage_path": result["path"], "filename": fname,
+                      "content_type": "application/pdf", "size": result.get("size")})
+
+    for n in notes:
+        note = {**n, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn")}
+        try:
+            pdf = note_pdf(note, clinic)
+        except Exception as e:
+            logger.error(f"from-date note pdf failed: {e}")
+            continue
+        fname = f"Progress_Note_{disp.replace('/', '-')}.pdf"
+        path = f"{APP_NAME}/claims/from-date/{uuid.uuid4()}.pdf"
+        try:
+            result = put_object(path, pdf, "application/pdf")
+        except Exception as e:
+            logger.error(f"from-date note storage failed: {e}")
+            continue
+        items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None, "note_id": n["id"],
+                      "storage_path": result["path"], "filename": fname,
+                      "content_type": "application/pdf", "size": result.get("size")})
+
+    doc = {"id": str(uuid.uuid4()), "name": packet_name, "patient_id": data.patient_id,
+           "patient_name": pname, "claim_number": d, "status": "draft", "notes": None,
+           "items": items, "created_at": now_iso(), "created_by": user["name"]}
+    await db.claim_packets.insert_one(doc)
+    doc.pop("_id", None)
+    await log_audit("create", "claim", actor=user, resource_id=doc["id"],
+                    detail=f"from-date {pname} {d} ({len(items)} items)")
+    return doc
+
+
 @router.get("/claims/{cid}")
 async def get_claim(cid: str, user: dict = Depends(require_roles("admin"))):
     c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
@@ -129,7 +206,7 @@ async def delete_claim(cid: str, user: dict = Depends(require_roles("admin"))):
     c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
     if c:
         for it in c.get("items", []):
-            if it.get("source") in ("upload", "invoice") and it.get("storage_path"):
+            if it.get("source") in ("upload", "invoice", "note") and it.get("storage_path"):
                 delete_object(it["storage_path"])
     await db.claim_packets.delete_one({"id": cid})
     await log_audit("delete", "claim", actor=user, resource_id=cid)
@@ -236,7 +313,7 @@ async def remove_item(cid: str, item_id: str, user: dict = Depends(require_roles
     c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
     if c:
         it = next((i for i in c.get("items", []) if i["id"] == item_id), None)
-        if it and it.get("source") in ("upload", "invoice") and it.get("storage_path"):
+        if it and it.get("source") in ("upload", "invoice", "note") and it.get("storage_path"):
             delete_object(it["storage_path"])
     await db.claim_packets.update_one({"id": cid}, {"$pull": {"items": {"id": item_id}}, "$set": {"updated_at": now_iso()}})
     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})

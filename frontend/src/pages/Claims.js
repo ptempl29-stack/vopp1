@@ -5,12 +5,12 @@ import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import {
   FolderArchive, Plus, Pencil, Trash2, ChevronLeft, Download, FileText,
-  ReceiptText, Upload, FilePlus,
+  ReceiptText, Upload, FilePlus, CalendarClock,
 } from "lucide-react";
 import { toast } from "sonner";
 
-const sourceIcon = { form: FileText, invoice: ReceiptText, upload: Upload };
-const sourceTone = { form: "green", invoice: "amber", upload: "tan" };
+const sourceIcon = { form: FileText, invoice: ReceiptText, upload: Upload, note: FileText };
+const sourceTone = { form: "green", invoice: "amber", upload: "tan", note: "green" };
 const blankForm = { name: "", patient_id: "", claim_number: "", status: "draft", notes: "" };
 
 export default function Claims() {
@@ -27,6 +27,9 @@ export default function Claims() {
   const [pickInvoice, setPickInvoice] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
+  const [fromDateOpen, setFromDateOpen] = useState(false);
+  const [fromDate, setFromDate] = useState({ patient_id: "", date: "" });
+  const [building, setBuilding] = useState(false);
 
   const load = useCallback(async () => {
     try { setPackets((await api.get("/claims")).data); } catch (e) { toast.error(apiErr(e)); }
@@ -89,6 +92,21 @@ export default function Claims() {
     if (!window.confirm(t("confirmDeletePacket"))) return;
     try { await api.delete(`/claims/${id}`); toast.success(t("delete") + " ✓"); load(); }
     catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const buildFromDate = async (e) => {
+    e.preventDefault();
+    if (!fromDate.patient_id || !fromDate.date) return;
+    setBuilding(true);
+    try {
+      const r = await api.post("/claims/from-date", fromDate);
+      toast.success(t("packetSaved"));
+      setFromDateOpen(false);
+      setFromDate({ patient_id: "", date: "" });
+      load();
+      setSelected(r.data);
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setBuilding(false); }
   };
 
   const attachForm = async () => {
@@ -243,7 +261,11 @@ export default function Claims() {
   return (
     <div data-testid="claims-page">
       <PageHeader title={t("claims")} subtitle={t("claimsSubtitle")}
-        action={<Btn onClick={openNew} data-testid="new-claim-btn"><FilePlus className="w-4 h-4" />{t("newClaim")}</Btn>} />
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Btn variant="outline" onClick={() => setFromDateOpen(true)} data-testid="build-from-date-btn"><CalendarClock className="w-4 h-4" />{t("buildFromDate")}</Btn>
+            <Btn onClick={openNew} data-testid="new-claim-btn"><FilePlus className="w-4 h-4" />{t("newClaim")}</Btn>
+          </div>} />
 
       <Card className="overflow-hidden">
         {packets.length === 0 ? <Empty text={t("noData")} /> : (
@@ -290,6 +312,25 @@ export default function Claims() {
       <PacketModal open={modalOpen} onClose={() => setModalOpen(false)} editing={editing}
         form={form} set={set} save={save} patients={patients} t={t}
         setClaimPatient={setClaimPatient} setClaimDate={setClaimDate} />
+
+      <Modal open={fromDateOpen} onClose={() => setFromDateOpen(false)} title={t("buildFromDateTitle")}>
+        <form onSubmit={buildFromDate} className="space-y-4">
+          <p className="text-sm text-stone-500">{t("buildFromDateHint")}</p>
+          <Field label={t("patient")}>
+            <select required value={fromDate.patient_id} onChange={(e) => setFromDate((f) => ({ ...f, patient_id: e.target.value }))} className={inputCls} data-testid="fd-patient">
+              <option value="">{t("selectPatient")}</option>
+              {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </Field>
+          <Field label={t("serviceDate")}>
+            <input required type="date" value={fromDate.date} onChange={(e) => setFromDate((f) => ({ ...f, date: e.target.value }))} className={inputCls} data-testid="fd-date" />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="outline" type="button" onClick={() => setFromDateOpen(false)}>{t("cancel")}</Btn>
+            <Btn type="submit" disabled={building || !fromDate.patient_id || !fromDate.date} data-testid="fd-build-btn">{t("build")}</Btn>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
