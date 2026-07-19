@@ -57,8 +57,10 @@ async def list_invoices(user: dict = Depends(require_roles("biller", "receptioni
     return invoices
 
 
-@router.get("/invoices/next-number")
-async def next_invoice_number(user: dict = Depends(require_roles("biller", "receptionist"))):
+INVOICE_SEQ_BASE = 24
+
+
+async def _compute_next_number() -> str:
     nums = await db.invoices.distinct("invoice_number")
     mx = 0
     for n in nums:
@@ -67,7 +69,12 @@ async def next_invoice_number(user: dict = Depends(require_roles("biller", "rece
                 mx = max(mx, int(n.split("-")[1]))
             except (ValueError, IndexError):
                 pass
-    return {"invoice_number": f"MB-{mx + 1:04d}"}
+    return f"MB-{max(mx + 1, INVOICE_SEQ_BASE):04d}"
+
+
+@router.get("/invoices/next-number")
+async def next_invoice_number(user: dict = Depends(require_roles("biller", "receptionist"))):
+    return {"invoice_number": await _compute_next_number()}
 
 
 @router.get("/invoices/patient-code-history")
@@ -83,8 +90,7 @@ async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles(
     total = sum(i["amount"] * i["quantity"] for i in items)
     number = data.invoice_number
     if not number:
-        count = await db.invoices.count_documents({})
-        number = f"MB-{count + 1:04d}"
+        number = await _compute_next_number()
     name = data.patient_name
     if not name and data.patient_id:
         p = await db.patients.find_one({"id": data.patient_id}, {"_id": 0})
