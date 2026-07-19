@@ -283,6 +283,11 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Add email credentials to activate sending**: Yahoo needs a 16-char **App Password** (the account password is rejected by Yahoo SMTP), or use Resend (`RESEND_API_KEY`+`SENDER_EMAIL`). Set same in production env.
 - P2: Stripe payment gateway for invoices.
 
+## Iteration 43 (2026-06) — Claim Packet naming & claim-number date
+- **Claim Number** is now a **date field** (meant to match the invoice service date / progress-note session date), displayed mm/dd/yyyy in the form, list, and detail.
+- **Packet Name auto-generates** as **"{Patient Name} {date} FMP Claim"** whenever the patient or claim date changes (remains manually editable). Reordered the modal: Patient → Claim date → auto Name.
+- Self-tested via screenshot (name auto-built as "Test Patient 07/19/2026 FMP Claim").
+
 ## Iteration 42 (2026-06) — Auto-file saved PDFs into Patient Folders
 - Saving a PDF of a **Progress Note**, **Invoice**, or **Claim Packet** now also files a server-generated PDF into that patient's folder, inside a subfolder named **"{FirstName} MM-DD-YYYY"** (created automatically if missing).
 - Backend: new `core/folder_filing.py` (`file_pdf_into_folder` + `invoice_pdf`/`note_pdf` generators) and endpoints `POST /api/notes/{id}/to-folder`, `POST /api/invoices/{id}/to-folder`, `POST /api/claims/{id}/to-folder` (claims merges its docs into one PDF). Filed item = `folder_items` source `upload`, content-type PDF, label "Progress Note/Invoice/Claim {date}".

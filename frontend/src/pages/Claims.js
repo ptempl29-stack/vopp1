@@ -52,6 +52,24 @@ export default function Claims() {
   };
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
+  const fmtDate = (d) => {
+    if (!d) return "";
+    const m = String(d).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[2]}/${m[3]}/${m[1]}` : d;
+  };
+  const buildName = (pid, dateStr) => {
+    const p = patients.find((x) => x.id === pid);
+    return [p ? p.name : "", fmtDate(dateStr), "FMP Claim"].filter(Boolean).join(" ");
+  };
+  const setClaimPatient = (e) => {
+    const pid = e.target.value;
+    setForm((f) => ({ ...f, patient_id: pid, name: buildName(pid, f.claim_number) }));
+  };
+  const setClaimDate = (e) => {
+    const v = e.target.value;
+    setForm((f) => ({ ...f, claim_number: v, name: buildName(f.patient_id, v) }));
+  };
+
   const save = async (e) => {
     e.preventDefault();
     const payload = { ...form, patient_id: form.patient_id || null, claim_number: form.claim_number || null };
@@ -118,7 +136,7 @@ export default function Claims() {
     return (
       <div data-testid="claim-detail">
         <PageHeader title={selected.name}
-          subtitle={`${selected.claim_number || t("claimNo") + " —"} · ${items.length} ${t("items")}`}
+          subtitle={`${selected.claim_number ? fmtDate(selected.claim_number) : t("claimNo") + " —"} · ${items.length} ${t("items")}`}
           action={
             <div className="flex flex-wrap gap-2">
               <Btn variant="outline" onClick={() => { setSelected(null); load(); }} data-testid="claim-back"><ChevronLeft className="w-4 h-4" />{t("backToPackets")}</Btn>
@@ -215,7 +233,8 @@ export default function Claims() {
         </Card>
 
         <PacketModal open={modalOpen} onClose={() => setModalOpen(false)} editing={editing}
-          form={form} set={set} save={save} patients={patients} t={t} />
+          form={form} set={set} save={save} patients={patients} t={t}
+          setClaimPatient={setClaimPatient} setClaimDate={setClaimDate} />
       </div>
     );
   }
@@ -250,7 +269,7 @@ export default function Claims() {
                       <span className="inline-flex items-center gap-2 font-semibold text-moneygreen-800"><FolderArchive className="w-4 h-4 text-moneygreen-500" />{p.name}</span>
                     </td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{p.patient_name || "—"}</td>
-                    <td className="px-5 py-3 hidden md:table-cell text-stone-500 font-mono text-xs">{p.claim_number || "—"}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-500 font-mono text-xs">{fmtDate(p.claim_number) || "—"}</td>
                     <td className="px-5 py-3 text-stone-600">{(p.items || []).length}</td>
                     <td className="px-5 py-3"><Badge tone={p.status === "submitted" ? "green" : "amber"}>{t(p.status)}</Badge></td>
                     <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
@@ -269,24 +288,24 @@ export default function Claims() {
       </Card>
 
       <PacketModal open={modalOpen} onClose={() => setModalOpen(false)} editing={editing}
-        form={form} set={set} save={save} patients={patients} t={t} />
+        form={form} set={set} save={save} patients={patients} t={t}
+        setClaimPatient={setClaimPatient} setClaimDate={setClaimDate} />
     </div>
   );
 }
 
-function PacketModal({ open, onClose, editing, form, set, save, patients, t }) {
+function PacketModal({ open, onClose, editing, form, set, save, patients, t, setClaimPatient, setClaimDate }) {
   return (
     <Modal open={open} onClose={onClose} title={editing ? t("editClaim") : t("newClaim")}>
       <form onSubmit={save} className="space-y-4">
-        <Field label={t("claimName")}><input required value={form.name} onChange={set("name")} className={inputCls} data-testid="cf-name" /></Field>
         <Field label={t("patient")}>
-          <select value={form.patient_id} onChange={set("patient_id")} className={inputCls} data-testid="cf-patient">
+          <select value={form.patient_id} onChange={setClaimPatient} className={inputCls} data-testid="cf-patient">
             <option value="">{t("selectPatient")}</option>
             {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
         <div className="grid grid-cols-2 gap-4">
-          <Field label={t("claimNo")}><input value={form.claim_number} onChange={set("claim_number")} className={inputCls} data-testid="cf-number" /></Field>
+          <Field label={t("claimNo")}><input type="date" value={form.claim_number} onChange={setClaimDate} className={inputCls} data-testid="cf-number" /></Field>
           <Field label={t("packetStatus")}>
             <select value={form.status} onChange={set("status")} className={inputCls} data-testid="cf-status">
               <option value="draft">{t("draft")}</option>
@@ -294,6 +313,7 @@ function PacketModal({ open, onClose, editing, form, set, save, patients, t }) {
             </select>
           </Field>
         </div>
+        <Field label={t("claimName")}><input required value={form.name} onChange={set("name")} className={inputCls} data-testid="cf-name" /></Field>
         <Field label={t("extraNotes")}><textarea rows={3} value={form.notes} onChange={set("notes")} className={inputCls} data-testid="cf-notes" /></Field>
         <div className="flex justify-end gap-2 pt-2">
           <Btn variant="outline" type="button" onClick={onClose}>{t("cancel")}</Btn>
