@@ -283,6 +283,20 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Add email credentials to activate sending**: Yahoo needs a 16-char **App Password** (the account password is rejected by Yahoo SMTP), or use Resend (`RESEND_API_KEY`+`SENDER_EMAIL`). Set same in production env.
 - P2: Stripe payment gateway for invoices.
 
+## Iteration 41 (2026-06) — Security safe-fixes + Notes/Invoice/Telehealth polish
+**Security (safe fixes applied; user chose permissive options for the rest):**
+- Added `.env`/`backend/.env`/`frontend/.env` to `.gitignore` (SEC-002 fixed).
+- Capped form email at 20 recipients per send (SEC-003 partial).
+- User decisions on SEC-001: keep broad patient access for all staff incl. biller (B-b), and do NOT enforce per-user tab access server-side for now (C-no). So `allowed_tabs` remains client-side only by explicit choice; documented as accepted risk.
+
+**Features:**
+- **Progress Notes dates → mm/dd/yyyy** display everywhere (list, cards, view, print) via `fmtDate()`. (Date inputs remain native.)
+- **Notes signature**: removed "Signed by <admin>"; now shows the signature image with **"Provider Signature · mm/dd/yyyy"** (date = session date) at bottom-left, in cards, view modal, and print.
+- **Invoice numbering rolled back 1**: `next-number` now = max existing `MB-####` + 1 (ignores unnumbered/junk invoices). Renumbered the lone existing `MB-0026 → MB-0025` so the next invoice is `MB-0026` and continues regularly.
+- **Invoice ICD-10-CM**: replaced the "previously used" chips with a **datalist dropdown** (type-or-pick) fed by the patient's prior ICD-10 codes.
+- **List/row view added to Telehealth** (toggle appears once a Doxy room is set). Notes & Appointments already had list view.
+- Self-tested via screenshots + curl.
+
 ## Iteration 40 (2026-06) — Email ACTIVATED via Resend + Invoice view sections + Invoice ICD-10 memory
 - **Email is LIVE via Resend** (`RESEND_API_KEY` set, sender `onboarding@resend.dev`). Confirmed a real send through the app (`sent:1`). ⚠️ On the current free/unverified tier, Resend only delivers to the account owner's address (**ptempl29@gmail.com**). To email patients/prospects at any address, verify a domain at resend.com/domains and set `SENDER_EMAIL` to an address on that domain (e.g. forms@clinic.com). Yahoo SMTP abandoned (cloud IP blocked by Yahoo).
 - **Invoice view**: clicking a saved invoice now shows full **Patient Information** (name, DOB, SSN, gender, policy #) and **Invoice Information** (invoice #, service date, completed, status, visit reason, ICD-10, provider) sections, all fields shown with "—" fallback.

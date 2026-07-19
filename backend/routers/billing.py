@@ -59,8 +59,15 @@ async def list_invoices(user: dict = Depends(require_roles("biller", "receptioni
 
 @router.get("/invoices/next-number")
 async def next_invoice_number(user: dict = Depends(require_roles("biller", "receptionist"))):
-    count = await db.invoices.count_documents({})
-    return {"invoice_number": f"MB-{count + 1:04d}"}
+    nums = await db.invoices.distinct("invoice_number")
+    mx = 0
+    for n in nums:
+        if isinstance(n, str) and n.startswith("MB-"):
+            try:
+                mx = max(mx, int(n.split("-")[1]))
+            except (ValueError, IndexError):
+                pass
+    return {"invoice_number": f"MB-{mx + 1:04d}"}
 
 
 @router.get("/invoices/patient-code-history")

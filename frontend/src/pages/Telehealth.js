@@ -3,7 +3,7 @@ import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Btn, Card, inputCls } from "../components/ui-kit";
-import { Video, Calendar, Save, Link2, Mail, ShieldCheck, ExternalLink, Loader2, Copy } from "lucide-react";
+import { Video, Calendar, Save, Link2, Mail, ShieldCheck, ExternalLink, Loader2, Copy, LayoutGrid, List } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Telehealth() {
@@ -13,6 +13,7 @@ export default function Telehealth() {
   const [room, setRoom] = useState(user?.doxy_room || "");
   const [savingRoom, setSavingRoom] = useState(false);
   const [inviting, setInviting] = useState(null);
+  const [viewMode, setViewMode] = useState("cards");
 
   useEffect(() => { setRoom(user?.doxy_room || ""); }, [user]);
   useEffect(() => { api.get("/appointments").then((r) => setAppts(r.data)).catch(() => {}); }, []);
@@ -48,7 +49,23 @@ export default function Telehealth() {
   return (
     <div data-testid="telehealth-page">
       <PageHeader title={t("telehealth")} subtitle={t("roomReady")}
-        action={hasRoom && <Btn onClick={openMyRoom} data-testid="open-room-btn"><Video className="w-4 h-4" />{t("openMyRoom")}</Btn>} />
+        action={
+          <div className="flex items-center gap-2">
+            {hasRoom && (
+              <div className="flex rounded-md border border-border overflow-hidden" data-testid="tele-view-toggle">
+                <button onClick={() => setViewMode("cards")} data-testid="tele-view-cards" title={t("cardView")}
+                  className={`px-2.5 py-1.5 transition-colors ${viewMode === "cards" ? "bg-moneygreen-600 text-white" : "bg-white text-moneygreen-700 hover:bg-moneygreen-50"}`}>
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button onClick={() => setViewMode("list")} data-testid="tele-view-list" title={t("listView")}
+                  className={`px-2.5 py-1.5 transition-colors ${viewMode === "list" ? "bg-moneygreen-600 text-white" : "bg-white text-moneygreen-700 hover:bg-moneygreen-50"}`}>
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            {hasRoom && <Btn onClick={openMyRoom} data-testid="open-room-btn"><Video className="w-4 h-4" />{t("openMyRoom")}</Btn>}
+          </div>
+        } />
 
       <Card className="p-5 mb-6 bg-moneygreen-50 border-moneygreen-100">
         <div className="flex items-start gap-3 mb-3">
@@ -78,7 +95,43 @@ export default function Telehealth() {
         </Card>
       )}
 
-      {hasRoom && (
+      {hasRoom && viewMode === "list" && (
+        <Card className="overflow-hidden" data-testid="tele-list-table">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
+                  <th className="px-5 py-3">{t("patient")}</th>
+                  <th className="px-5 py-3 hidden md:table-cell">{t("date")}</th>
+                  <th className="px-5 py-3 hidden md:table-cell">{t("time")}</th>
+                  <th className="px-5 py-3 text-right">{t("actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeAppts.length === 0 ? (
+                  <tr><td colSpan={4} className="px-5 py-8 text-center text-stone-500">{t("noData")}</td></tr>
+                ) : activeAppts.map((a, i) => (
+                  <tr key={a.id} data-testid={`tele-row-${a.id}`} className={`border-b border-border/60 ${i % 2 ? "bg-tan-50/40" : ""}`}>
+                    <td className="px-5 py-3 font-semibold text-moneygreen-800">{a.patient_name}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{a.date}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{a.time || "—"}</td>
+                    <td className="px-5 py-3">
+                      <div className="flex justify-end gap-1">
+                        <Btn variant="ghost" onClick={openMyRoom} data-testid={`tele-row-join-${a.id}`} className="!px-2" title={t("startVisit")}><ExternalLink className="w-4 h-4" /></Btn>
+                        <Btn variant="ghost" onClick={() => invite(a, false)} disabled={inviting === a.id} data-testid={`tele-row-copylink-${a.id}`} className="!px-2" title={t("copyPatientLink")}>
+                          {inviting === a.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                        </Btn>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {hasRoom && viewMode === "cards" && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {activeAppts.map((a) => (
             <Card key={a.id} className="p-5" data-testid={`tele-appt-${a.id}`}>

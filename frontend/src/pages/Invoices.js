@@ -245,16 +245,10 @@ export default function Invoices() {
                   </select>
                 </CField>
                 <CField label="ICD-10-CM">
-                  <input value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" />
-                  {icdHistory.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1" data-testid="inv-icd-suggestions">
-                      <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
-                      {icdHistory.map((c) => (
-                        <button key={c} type="button" onClick={() => setInv((s) => ({ ...s, icd10: c }))} data-testid={`inv-icd-chip-${c}`}
-                          className="text-xs px-2 py-0.5 rounded-full bg-moneygreen-100 text-moneygreen-700 hover:bg-moneygreen-200 font-mono font-semibold transition-colors">{c}</button>
-                      ))}
-                    </div>
-                  )}
+                  <input list="inv-icd-history" value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" autoComplete="off" />
+                  <datalist id="inv-icd-history" data-testid="inv-icd-datalist">
+                    {icdHistory.map((c) => <option key={c} value={c} />)}
+                  </datalist>
                 </CField>
                 <CField label={t("attendingProvider")}>
                   <select value={inv.provider || ""} onChange={setF("provider")} className={cellCls} data-testid="inv-provider">

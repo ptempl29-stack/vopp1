@@ -307,6 +307,8 @@ async def send_form_email(fid: str, data: EmailSend, user: dict = Depends(requir
             recipients.append(r)
     if not recipients:
         raise HTTPException(status_code=400, detail="At least one valid recipient email is required")
+    if len(recipients) > 20:
+        raise HTTPException(status_code=400, detail="Too many recipients (max 20 per send)")
     if not email_configured():
         return {"sent": 0, "total": len(recipients), "configured": False, "failed": recipients}
     s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})

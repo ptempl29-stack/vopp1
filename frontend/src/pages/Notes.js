@@ -15,6 +15,11 @@ import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
 const riskKey = { Low: "riskLow", Moderate: "riskModerate", High: "riskHigh", Imminent: "riskImminent" };
+const fmtDate = (d) => {
+  if (!d) return "";
+  const m = String(d).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : d;
+};
 
 const blank = {
   patient_id: "", title: "", content: "", note_type: "free",
@@ -223,7 +228,7 @@ export default function Notes() {
           <ReadRow label={t("patientName")} value={patientName(form.patient_id)} />
           <ReadRow label={t("dob")} value={form.dob} />
           <ReadRow label={t("socialSecurity")} value={form.ssn} />
-          <ReadRow label={t("dateOfSession")} value={form.visit_date} />
+          <ReadRow label={t("dateOfSession")} value={fmtDate(form.visit_date)} />
           <ReadRow label={t("icd10Code")} value={form.icd10} />
           <ReadRow label={t("cptCode")} value={form.cpt_code} />
           <ReadRow label={t("riskAssessment")} value={form.risk_level ? riskLabel(form.risk_level) : ""} />
@@ -242,7 +247,7 @@ export default function Notes() {
           <ReadRow label={t("patientName")} value={<Private value={patientName(n.patient_id)} />} />
           <ReadRow label={t("dob")} value={<Private value={curPatient(n.patient_id).dob || n.dob} />} />
           <ReadRow label={t("socialSecurity")} value={<Private value={curPatient(n.patient_id).ssn || n.ssn} />} />
-          <ReadRow label={t("dateOfSession")} value={n.visit_date} />
+          <ReadRow label={t("dateOfSession")} value={fmtDate(n.visit_date)} />
           <ReadRow label={t("icd10Code")} value={n.icd10} />
           <ReadRow label={t("cptCode")} value={n.cpt_code} />
           <ReadRow label={t("riskAssessment")} value={n.risk_level ? riskLabel(n.risk_level) : ""} />
@@ -334,7 +339,7 @@ export default function Notes() {
                       </td>
                     )}
                     <td className="px-5 py-3 font-semibold text-moneygreen-800 cursor-pointer" onClick={() => setViewing(n)}><Private value={patientName(n.patient_id)} /></td>
-                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{n.visit_date || (n.created_at || "").slice(0, 10)}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{providerName(n)}</td>
                     <td className="px-5 py-3 hidden lg:table-cell text-stone-500 font-mono text-xs">{[n.icd10, n.cpt_code].filter(Boolean).join(" / ") || "—"}</td>
                     <td className="px-5 py-3 text-stone-600">{n.risk_level ? riskLabel(n.risk_level) : "—"}</td>
@@ -367,7 +372,7 @@ export default function Notes() {
                   </div>
                   <div className="min-w-0">
                     <p className="font-heading font-bold text-moneygreen-800 truncate"><Private value={patientName(n.patient_id)} /></p>
-                    <p className="text-xs text-stone-500">{n.visit_date || (n.created_at || "").slice(0, 10)} · {providerName(n)}</p>
+                    <p className="text-xs text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))} · {providerName(n)}</p>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-stone-500 mb-2">
@@ -377,9 +382,9 @@ export default function Notes() {
                 </div>
                 <div className="text-sm text-stone-600 whitespace-pre-wrap line-clamp-4">{n.content}</div>
                 {n.signature && (
-                  <div className="mt-3 pt-3 border-t border-border flex items-end justify-between">
+                  <div className="mt-3 pt-3 border-t border-border">
                     <img src={n.signature} alt="signature" className="h-12 object-contain" data-testid={`note-sig-${n.id}`} />
-                    <p className="text-xs text-stone-500 text-right">{t("signedBy")}<br /><span className="font-semibold text-moneygreen-700">{n.signed_by}</span></p>
+                    <p className="text-xs text-stone-500 mt-1"><span className="font-semibold text-moneygreen-700">{t("providerSignature")}</span> · {fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</p>
                   </div>
                 )}
                 <div className="mt-3 pt-3 border-t border-border flex justify-end gap-2">
@@ -412,8 +417,8 @@ export default function Notes() {
             <div className="print-only whitespace-pre-wrap text-base leading-relaxed text-stone-800 p-6">{form.content}</div>
             {form.signature && (
               <div className="pt-3 border-t border-border">
-                <p className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">{t("providerSignature")}</p>
                 <img src={form.signature} alt="signature" className="h-14 object-contain" />
+                <p className="text-xs text-stone-500 mt-1"><span className="font-semibold text-moneygreen-700">{t("providerSignature")}</span> · {fmtDate(form.visit_date)}</p>
               </div>
             )}
           </div>
@@ -464,9 +469,9 @@ export default function Notes() {
               <div className="whitespace-pre-wrap text-base leading-relaxed text-stone-800 p-6 border border-border rounded-lg min-h-[200px] no-print" data-testid="note-view-body">{viewing.content}</div>
               <div className="print-only whitespace-pre-wrap text-base leading-relaxed text-stone-800 p-6">{viewing.content}</div>
               {viewing.signature && (
-                <div className="pt-3 border-t border-border flex items-end justify-between">
+                <div className="pt-3 border-t border-border">
                   <img src={viewing.signature} alt="signature" className="h-14 object-contain" />
-                  <p className="text-xs text-stone-500 text-right">{t("signedBy")}<br /><span className="font-semibold text-moneygreen-700">{viewing.signed_by}</span></p>
+                  <p className="text-xs text-stone-500 mt-1"><span className="font-semibold text-moneygreen-700">{t("providerSignature")}</span> · {fmtDate(viewing.visit_date)}</p>
                 </div>
               )}
             </div>
