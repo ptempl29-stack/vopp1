@@ -1,10 +1,18 @@
 import uuid
+import re
 from datetime import datetime, timezone
 
 from core.db import db, now_iso, logger
 from core.config import APP_NAME
 from core.storage import put_object
 from core.pdf_utils import new_pdf, pdf_bytes, FONT
+
+
+def fmt_date(d) -> str:
+    """Return a date as MM-DD-YYYY. Accepts YYYY-MM-DD (or ISO) input; passes through otherwise."""
+    s = str(d or "").strip()[:10]
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
+    return f"{m.group(2)}-{m.group(3)}-{m.group(1)}" if m else s
 
 
 async def _ensure_subfolder(patient_id: str, name: str, user: dict) -> str:
@@ -17,13 +25,14 @@ async def _ensure_subfolder(patient_id: str, name: str, user: dict) -> str:
     return doc["id"]
 
 
-async def file_pdf_into_folder(patient_id, first_name, pdf_data, label, filename, user):
+async def file_pdf_into_folder(patient_id, first_name, pdf_data, label, filename, user, date_str=None):
     """Store a generated PDF into the patient's folder under a '{first_name} MM-DD-YYYY' subfolder.
+    date_str (the document's date of service) drives the subfolder date; falls back to today.
     Creates the subfolder if missing. Returns the folder item, or None on failure."""
     if not patient_id:
         return None
-    date_str = datetime.now(timezone.utc).strftime("%m-%d-%Y")
-    sub_name = f"{(first_name or 'Patient').strip()} {date_str}"
+    date_out = fmt_date(date_str) if date_str else datetime.now(timezone.utc).strftime("%m-%d-%Y")
+    sub_name = f"{(first_name or 'Patient').strip()} {date_out}"
     sid = await _ensure_subfolder(patient_id, sub_name, user)
     path = f"{APP_NAME}/folders/{patient_id}/{uuid.uuid4()}.pdf"
     try:
