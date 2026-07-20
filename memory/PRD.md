@@ -32,6 +32,16 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Bilingual EN/ES toggle; responsive tan & money-green UI.
 - Tested: 36/36 backend, frontend 100%.
 
+## FMP Claim Packets — Fully Developed Claim format (2026-06-20)
+- Completed/merged claim packets now generate a PDF that begins with an auto-generated **Summary/Cover page** (Veteran, DOB, SSN/VA Claim File No., Service Date, Provider, Clinic Address, Diagnosis, CPT, Invoice, Amount Billed, Payment Direction) + an **FMP Fully Developed Claim Checklist page**, followed by all attached documents. Built in `_build_packet_pdf()` in `routers/claims.py`; used by GET /claims/{cid}/merged, POST /claims/{cid}/send-email, POST /claims/{cid}/to-folder.
+- Claim documents can be tagged with a **category** (cover_sheet, invoice, progress_note, va_disability_letter, fmp_registration, provider_exequatur, provider_diploma) via the item edit modal; checklist rows auto-check for present categories (invoice/note auto by source).
+- Claim Packet edit modal gained FMP cover fields: va_claim_number, veteran_physical_address, veteran_mailing_address, diagnosis_narrative, payment_to (provider/veteran).
+- Per-document actions (view/edit/move/download/delete/arrange) + packet Send (emails merged packet); merging marks packet **complete** (green badge + green row). (iter 34-35)
+- Invoice numbering floor set to **MB-0025** (INVOICE_SEQ_BASE=25 in billing.py).
+- Billing Reports: in Spanish (ES) all money shows **RD$ = USD × rate** using editable `usd_to_dop` setting (default 60) on the CEO Clinic Letterhead modal. Amounts formatted with thousands separators.
+- Verified: iteration_34.json (100%), iteration_35.json (100%).
+
+
 ## Claim Packets — "Build from Date" shortcut (2026-06-19)
 - New backend endpoint `POST /api/claims/from-date` (admin only): given `{patient_id, date}`, auto-creates an FMP Claim packet named `"{Patient Name} {mm/dd/yyyy} FMP Claim"` (claim_number = date), auto-pulling that day's matching invoice(s) (by `service_date`) and progress note(s) (by `visit_date`) as rendered PDF items. Returns 404 if nothing found for the date.
 - New claim item `source: "note"` supported (icon/tone/label + storage cleanup on delete). i18n keys added (EN/ES): `src_note, buildFromDate, buildFromDateTitle, buildFromDateHint, build, serviceDate`.

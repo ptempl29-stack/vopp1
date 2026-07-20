@@ -20,9 +20,12 @@ export default function BillingReports() {
   const sel = useSelection();
   const [data, setData] = useState(null);
   const [rate, setRate] = useState(60);
-  const money = (v) => lang === "es"
-    ? `RD$ ${(Number(v || 0) * rate).toFixed(2)}`
-    : `$${Number(v || 0).toFixed(2)}`;
+  const money = (v) => {
+    const n = Number(v || 0);
+    return lang === "es"
+      ? `RD$ ${(n * rate).toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [patientId, setPatientId] = useState("");
