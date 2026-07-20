@@ -40,4 +40,5 @@ DEFAULT_SETTINGS = {
     "mailing_address": "",
     "primary_insurance": "",
     "logo": "",
+    "usd_to_dop": 60.0,
 }

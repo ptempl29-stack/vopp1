@@ -16,9 +16,13 @@ const STATUSES = ["in_transit", "paid", "denied"];
 const statusKey = { in_transit: "inTransit", paid: "paid", denied: "denied", unpaid: "unpaid", void: "draft" };
 
 export default function BillingReports() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const sel = useSelection();
   const [data, setData] = useState(null);
+  const [rate, setRate] = useState(60);
+  const money = (v) => lang === "es"
+    ? `RD$ ${(Number(v || 0) * rate).toFixed(2)}`
+    : `$${Number(v || 0).toFixed(2)}`;
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [patientId, setPatientId] = useState("");
@@ -40,6 +44,7 @@ export default function BillingReports() {
   const load = () => api.get("/reports/billing", { params: params() }).then((r) => setData(r.data)).catch((e) => toast.error(apiErr(e)));
   useEffect(() => {
     load();
+    api.get("/public/settings").then((r) => { if (r.data?.usd_to_dop) setRate(Number(r.data.usd_to_dop)); }).catch(() => {});
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
     api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "psychologist", "nurse", "admin"].includes(u.role)))).catch(() => {});
   }, []);
@@ -122,7 +127,7 @@ export default function BillingReports() {
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500">{t(c.key)}</p>
                   <p className="font-heading text-3xl font-extrabold text-moneygreen-800 mt-2" data-testid={`report-${c.key}`}>
-                    {c.value == null ? "—" : c.money === false ? c.value : `$${Number(c.value).toFixed(2)}`}
+                    {c.value == null ? "—" : c.money === false ? c.value : money(c.value)}
                   </p>
                 </div>
                 <div className={`w-11 h-11 rounded-md bg-${c.tone} flex items-center justify-center`}>
@@ -148,8 +153,8 @@ export default function BillingReports() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#EAE5D9" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#5C6661" />
-                <YAxis tick={{ fontSize: 11 }} stroke="#5C6661" />
-                <Tooltip />
+                <YAxis tick={{ fontSize: 11 }} stroke="#5C6661" tickFormatter={money} />
+                <Tooltip formatter={(val) => money(val)} />
                 <Area type="monotone" dataKey="billed" stroke="#C9BC9E" fill="none" name={t("billed")} />
                 <Area type="monotone" dataKey="collected" stroke="#2D5A40" fill="url(#gCollected)" name={t("collected")} />
               </AreaChart>
@@ -163,9 +168,9 @@ export default function BillingReports() {
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={data.patient_breakdown.slice(0, 8)} layout="vertical" margin={{ left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#EAE5D9" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11 }} stroke="#5C6661" />
+                <XAxis type="number" tick={{ fontSize: 11 }} stroke="#5C6661" tickFormatter={money} />
                 <YAxis type="category" dataKey="patient" tick={{ fontSize: 11 }} width={110} stroke="#5C6661" />
-                <Tooltip />
+                <Tooltip formatter={(val) => money(val)} />
                 <Bar dataKey="revenue" fill="#41805B" radius={[0, 4, 4, 0]} name={t("revenue")} />
               </BarChart>
             </ResponsiveContainer>
@@ -226,7 +231,7 @@ export default function BillingReports() {
                           {STATUSES.map((st) => <option key={st} value={st}>{statusLabel(st)}</option>)}
                         </select>
                       </td>
-                      <td className="px-5 py-3 text-right font-semibold text-moneygreen-800">${(v.total || 0).toFixed(2)}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-moneygreen-800">{money(v.total)}</td>
                       <td className="px-5 py-3 text-right">
                         <Btn variant="ghost" onClick={() => removeInvoice(v.id)} data-testid={`delete-report-invoice-${v.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>
                       </td>

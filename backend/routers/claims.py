@@ -72,6 +72,15 @@ class ClaimInput(BaseModel):
     claim_number: Optional[str] = None
     status: str = "draft"
     notes: Optional[str] = None
+    va_claim_number: Optional[str] = None
+    veteran_physical_address: Optional[str] = None
+    veteran_mailing_address: Optional[str] = None
+    diagnosis_narrative: Optional[str] = None
+    payment_to: Optional[str] = "provider"
+
+
+_COVER_FIELDS = ("va_claim_number", "veteran_physical_address",
+                 "veteran_mailing_address", "diagnosis_narrative", "payment_to")
 
 
 async def _patient_name(pid):
@@ -110,6 +119,144 @@ def _merge_items_pdf(items) -> bytes:
     return out.getvalue()
 
 
+FMP_CHECKLIST = [
+    ("cover_sheet", "FMP Claim Cover Sheet (VA Form 10-7959f-2)"),
+    ("invoice", "Itemized Invoice"),
+    ("progress_note", "Signed Clinical Progress Note / Initial Evaluation"),
+    ("va_disability_letter", "VA Disability Verification Letter"),
+    ("fmp_registration", "FMP Registration Form (VA Form 10-7959f-1)"),
+    ("provider_exequatur", "Provider Exequatur"),
+    ("provider_diploma", "Provider Diploma"),
+]
+
+
+async def _build_packet_pdf(c) -> bytes:
+    """Build the full FMP packet PDF: auto-generated Summary cover + Checklist pages,
+    followed by every attached document (merged)."""
+    from pypdf import PdfWriter, PdfReader
+    from PIL import Image
+    from core.pdf_utils import new_pdf, pdf_bytes, FONT
+    from core.folder_filing import fmt_date
+
+    settings = await get_settings_doc()
+    clinic = settings.get("clinic_name", "Veterans of Puerto Plata")
+    clinic_addr = settings.get("address", "")
+    items = c.get("items", [])
+
+    p = await db.patients.find_one({"id": c.get("patient_id")}, {"_id": 0}) if c.get("patient_id") else None
+    vet_name = c.get("patient_name") or (f"{p['first_name']} {p['last_name']}" if p else "")
+    dob = (p or {}).get("dob", "")
+    ssn = (p or {}).get("ssn", "")
+
+    inv = None
+    inv_item = next((i for i in items if i.get("source") == "invoice" and i.get("invoice_id")), None)
+    if inv_item:
+        inv = await db.invoices.find_one({"id": inv_item["invoice_id"]}, {"_id": 0})
+    note = None
+    note_item = next((i for i in items if i.get("source") == "note" and i.get("note_id")), None)
+    if note_item:
+        note = await db.notes.find_one({"id": note_item["note_id"]}, {"_id": 0})
+
+    provider = (inv or {}).get("attending_provider") or (note or {}).get("attending_provider") or ""
+    icd = (inv or {}).get("icd10") or (note or {}).get("icd10") or ""
+    diagnosis = c.get("diagnosis_narrative") or icd
+    cpt_desc = ""
+    if inv and inv.get("items"):
+        it0 = inv["items"][0]
+        cpt_desc = f"{it0.get('cpt_code', '')} - {it0.get('description', '')}".strip(" -")
+    elif note:
+        cpt_desc = note.get("cpt_code", "") or ""
+    inv_no = (inv or {}).get("invoice_number", "")
+    amount = (inv or {}).get("total")
+    svc_date = fmt_date(c.get("claim_number")) or ((inv or {}).get("service_date") or "")
+    pay = "Provider payment requested - Provider box on VA Form 10-7959f-2" \
+        if (c.get("payment_to") or "provider") == "provider" else "Veteran payment requested"
+
+    pdf = new_pdf()
+    pdf.set_font(FONT, "B", 15)
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, 8, "Foreign Medical Program (FMP) Fully Developed Claim Packet")
+    pdf.ln(2)
+
+    def row(label, val):
+        pdf.set_x(pdf.l_margin)
+        y0 = pdf.get_y()
+        pdf.set_font(FONT, "B", 10)
+        pdf.multi_cell(54, 7, label)
+        pdf.set_xy(pdf.l_margin + 54, y0)
+        pdf.set_font(FONT, "", 10)
+        pdf.multi_cell(0, 7, str(val or "-"))
+
+    row("Veteran:", vet_name)
+    row("Date of Birth:", fmt_date(dob) if dob else "")
+    row("SSN / VA Claim File No.:", f"{ssn or '-'} / {c.get('va_claim_number') or '-'}")
+    row("Claim / Service Date:", svc_date)
+    row("Provider:", f"{provider}, {clinic}" if provider else clinic)
+    row("Clinic Address:", clinic_addr)
+    row("Diagnosis Treated:", diagnosis)
+    row("CPT Code / Service:", cpt_desc)
+    row("Invoice:", inv_no)
+    row("Amount Billed:", f"${amount:.2f}" if amount is not None else "-")
+    row("Payment Direction:", pay)
+    if c.get("veteran_physical_address"):
+        row("Veteran Physical Address:", c.get("veteran_physical_address"))
+    if c.get("veteran_mailing_address"):
+        row("Veteran Mailing Address:", c.get("veteran_mailing_address"))
+
+    # ---- Checklist page ----
+    pdf.add_page()
+    pdf.set_font(FONT, "B", 14)
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, 8, "FMP Fully Developed Claim Checklist")
+    pdf.ln(2)
+    cats = set()
+    for it in items:
+        if it.get("source") == "invoice":
+            cats.add("invoice")
+        elif it.get("source") == "note":
+            cats.add("progress_note")
+        if it.get("category"):
+            cats.add(it["category"])
+    for cat, label in FMP_CHECKLIST:
+        pdf.set_x(pdf.l_margin)
+        y0 = pdf.get_y()
+        pdf.set_font(FONT, "B", 11)
+        pdf.multi_cell(12, 7, "[X]" if cat in cats else "[  ]")
+        pdf.set_xy(pdf.l_margin + 12, y0)
+        pdf.set_font(FONT, "", 10)
+        pdf.multi_cell(0, 7, label)
+    pdf.ln(3)
+    pdf.set_font(FONT, "", 9)
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, 5, "Suggested packet order for submission: 1) Claim summary & checklist; "
+                         "2) FMP Claim Cover Sheet; 3) Invoice; 4) Clinical progress note; "
+                         "5) VA disability verification; 6) FMP registration; 7) Provider credentials.")
+
+    cover_bytes = pdf_bytes(pdf)
+
+    writer = PdfWriter()
+    for page in PdfReader(io.BytesIO(cover_bytes)).pages:
+        writer.add_page(page)
+    for item in items:
+        try:
+            data, _ = get_object(item["storage_path"])
+            fn = item["filename"].lower()
+            if fn.endswith(".pdf"):
+                for page in PdfReader(io.BytesIO(data)).pages:
+                    writer.add_page(page)
+            elif fn.rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp"):
+                img = Image.open(io.BytesIO(data)).convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format="PDF")
+                for page in PdfReader(io.BytesIO(buf.getvalue())).pages:
+                    writer.add_page(page)
+        except Exception as e:
+            logger.error(f"packet merge skip {item.get('filename')}: {e}")
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
 @router.get("/claims")
 async def list_claims(user: dict = Depends(require_roles("admin"))):
     packets = await db.claim_packets.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
@@ -124,6 +271,7 @@ async def create_claim(data: ClaimInput, user: dict = Depends(require_roles("adm
     doc = {"id": str(uuid.uuid4()), "name": data.name, "patient_id": data.patient_id,
            "patient_name": await _patient_name(data.patient_id), "claim_number": data.claim_number,
            "status": data.status, "notes": data.notes, "items": [],
+           **{f: getattr(data, f) for f in _COVER_FIELDS},
            "created_at": now_iso(), "created_by": user["name"]}
     await db.claim_packets.insert_one(doc)
     doc.pop("_id", None)
@@ -222,7 +370,9 @@ async def update_claim(cid: str, data: ClaimInput, user: dict = Depends(require_
         raise HTTPException(status_code=400, detail="Invalid status")
     updates = {"name": data.name, "patient_id": data.patient_id,
                "patient_name": await _patient_name(data.patient_id), "claim_number": data.claim_number,
-               "status": data.status, "notes": data.notes, "updated_at": now_iso()}
+               "status": data.status, "notes": data.notes,
+               **{f: getattr(data, f) for f in _COVER_FIELDS},
+               "updated_at": now_iso()}
     res = await db.claim_packets.update_one({"id": cid}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Claim packet not found")
@@ -367,7 +517,7 @@ async def merged_pdf(cid: str, user: dict = Depends(require_roles("admin"))):
     c = await db.claim_packets.find_one({"id": cid})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
-    pdf = _merge_items_pdf(c.get("items", []))
+    pdf = await _build_packet_pdf(c)
     await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail="merged PDF · marked complete")
     fname = (c.get("name") or "claim_packet").replace('"', "").replace(" ", "_")[:60]
@@ -376,20 +526,25 @@ async def merged_pdf(cid: str, user: dict = Depends(require_roles("admin"))):
 
 
 class ItemRename(BaseModel):
-    filename: str
+    filename: Optional[str] = None
+    category: Optional[str] = None
 
 
 @router.put("/claims/{cid}/items/{item_id}")
 async def rename_item(cid: str, item_id: str, data: ItemRename, user: dict = Depends(require_roles("admin"))):
-    name = (data.filename or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Name is required")
+    sets = {"updated_at": now_iso()}
+    if data.filename is not None:
+        name = data.filename.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Name is required")
+        sets["items.$.filename"] = name[:120]
+    if data.category is not None:
+        sets["items.$.category"] = data.category.strip()[:40]
     res = await db.claim_packets.update_one(
-        {"id": cid, "items.id": item_id},
-        {"$set": {"items.$.filename": name[:120], "updated_at": now_iso()}})
+        {"id": cid, "items.id": item_id}, {"$set": sets})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Item not found")
-    await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"rename item {name}")
+    await log_audit("update", "claim", actor=user, resource_id=cid, detail="edit item")
     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
 
 
@@ -468,7 +623,7 @@ async def send_packet_email(cid: str, data: SendPacket, user: dict = Depends(req
     c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
-    pdf = _merge_items_pdf(c.get("items", []))
+    pdf = await _build_packet_pdf(c)
     fname = (c.get("name") or "FMP_Claim").replace('"', "").replace(" ", "_")[:60] + ".pdf"
     ok = send_email(to, f"{c.get('name') or 'FMP Claim'}",
                     f"Attached is the merged claim packet: {c.get('name') or 'FMP Claim'}.",
@@ -493,7 +648,7 @@ async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))
     p = await db.patients.find_one({"id": pid}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
-    pdf = _merge_items_pdf(c.get("items", []))
+    pdf = await _build_packet_pdf(c)
     ds = datetime.now(timezone.utc).strftime("%m-%d-%Y")
     name = (c.get("name") or "Claim Packet")[:40]
     item = await file_pdf_into_folder(pid, p["first_name"], pdf,

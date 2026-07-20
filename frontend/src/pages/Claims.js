@@ -11,7 +11,8 @@ import { toast } from "sonner";
 
 const sourceIcon = { form: FileText, invoice: ReceiptText, upload: Upload, note: FileText };
 const sourceTone = { form: "green", invoice: "amber", upload: "tan", note: "green" };
-const blankForm = { name: "", patient_id: "", claim_number: "", status: "draft", notes: "" };
+const blankForm = { name: "", patient_id: "", claim_number: "", status: "draft", notes: "",
+  va_claim_number: "", veteran_physical_address: "", veteran_mailing_address: "", diagnosis_narrative: "", payment_to: "provider" };
 
 export default function Claims() {
   const { t } = useLang();
@@ -55,7 +56,10 @@ export default function Claims() {
   const openEdit = (p) => {
     setEditing(p);
     setForm({ name: p.name || "", patient_id: p.patient_id || "", claim_number: p.claim_number || "",
-      status: p.status || "draft", notes: p.notes || "" });
+      status: p.status || "draft", notes: p.notes || "",
+      va_claim_number: p.va_claim_number || "", veteran_physical_address: p.veteran_physical_address || "",
+      veteran_mailing_address: p.veteran_mailing_address || "", diagnosis_narrative: p.diagnosis_narrative || "",
+      payment_to: p.payment_to || "provider" });
     setModalOpen(true);
   };
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -170,7 +174,7 @@ export default function Claims() {
   const saveRename = async (e) => {
     e.preventDefault();
     try {
-      const r = await api.put(`/claims/${selected.id}/items/${renameItem.id}`, { filename: renameItem.filename });
+      const r = await api.put(`/claims/${selected.id}/items/${renameItem.id}`, { filename: renameItem.filename, category: renameItem.category || "" });
       setSelected(r.data); setRenameItem(null); toast.success(t("saved"));
     } catch (err) { toast.error(apiErr(err)); }
   };
@@ -300,7 +304,7 @@ export default function Claims() {
                               <button onClick={() => reorderItem(i, 1)} disabled={i === items.length - 1} data-testid={`claim-item-down-${it.id}`} className="text-stone-400 hover:text-moneygreen-600 disabled:opacity-30" title={t("moveDown")}><ArrowDown className="w-3.5 h-3.5" /></button>
                             </div>
                             <Btn variant="ghost" onClick={() => previewItem(it)} data-testid={`claim-item-view-${it.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
-                            <Btn variant="ghost" onClick={() => setRenameItem({ id: it.id, filename: it.filename })} data-testid={`claim-item-edit-${it.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>
+                            <Btn variant="ghost" onClick={() => setRenameItem({ id: it.id, filename: it.filename, category: it.category || "" })} data-testid={`claim-item-edit-${it.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>
                             <Btn variant="ghost" onClick={() => moveItemToFolder(it)} data-testid={`claim-item-move-${it.id}`} className="!px-2 !text-moneygreen-700" title={t("moveToFolderTitle")}><FolderInput className="w-4 h-4" /></Btn>
                             <Btn variant="ghost" onClick={() => authedDownload(`/claims/${selected.id}/items/${it.id}/download`, it.filename)} data-testid={`claim-item-download-${it.id}`} className="!px-2" title={t("saveAsPdf")}><Download className="w-4 h-4" /></Btn>
                             <Btn variant="ghost" onClick={() => removeItem(it.id)} data-testid={`claim-item-remove-${it.id}`} className="!px-2 !text-destructive" title={t("removeFromPacket")}><Trash2 className="w-4 h-4" /></Btn>
@@ -335,6 +339,19 @@ export default function Claims() {
               <Field label={t("filename")}>
                 <input required value={renameItem.filename} onChange={(e) => setRenameItem({ ...renameItem, filename: e.target.value })} className={inputCls} data-testid="claim-item-rename-input" />
               </Field>
+              <Field label={t("documentCategory")}>
+                <select value={renameItem.category} onChange={(e) => setRenameItem({ ...renameItem, category: e.target.value })} className={inputCls} data-testid="claim-item-category">
+                  <option value="">{t("catNone")}</option>
+                  <option value="cover_sheet">{t("catCoverSheet")}</option>
+                  <option value="invoice">{t("catInvoice")}</option>
+                  <option value="progress_note">{t("catProgressNote")}</option>
+                  <option value="va_disability_letter">{t("catVaLetter")}</option>
+                  <option value="fmp_registration">{t("catFmpRegistration")}</option>
+                  <option value="provider_exequatur">{t("catExequatur")}</option>
+                  <option value="provider_diploma">{t("catDiploma")}</option>
+                </select>
+              </Field>
+              <p className="text-xs text-stone-400">{t("categoryHint")}</p>
               <div className="flex justify-end gap-2 pt-2">
                 <Btn variant="outline" type="button" onClick={() => setRenameItem(null)}>{t("cancel")}</Btn>
                 <Btn type="submit" data-testid="claim-item-rename-save">{t("save")}</Btn>
@@ -458,6 +475,21 @@ function PacketModal({ open, onClose, editing, form, set, save, patients, t, set
           </Field>
         </div>
         <Field label={t("claimName")}><input required value={form.name} onChange={set("name")} className={inputCls} data-testid="cf-name" /></Field>
+        <div className="pt-2 mt-1 border-t border-border">
+          <p className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2 mt-2">{t("fmpCoverDetails")}</p>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t("vaClaimNumber")}><input value={form.va_claim_number} onChange={set("va_claim_number")} className={inputCls} data-testid="cf-va-number" /></Field>
+            <Field label={t("paymentTo")}>
+              <select value={form.payment_to} onChange={set("payment_to")} className={inputCls} data-testid="cf-payment-to">
+                <option value="provider">{t("payProvider")}</option>
+                <option value="veteran">{t("payVeteran")}</option>
+              </select>
+            </Field>
+          </div>
+          <Field label={t("veteranPhysicalAddress")}><input value={form.veteran_physical_address} onChange={set("veteran_physical_address")} className={inputCls} data-testid="cf-vet-physical" /></Field>
+          <Field label={t("veteranMailingAddress")}><input value={form.veteran_mailing_address} onChange={set("veteran_mailing_address")} className={inputCls} data-testid="cf-vet-mailing" /></Field>
+          <Field label={t("diagnosisNarrative")}><textarea rows={2} value={form.diagnosis_narrative} onChange={set("diagnosis_narrative")} className={inputCls} data-testid="cf-diagnosis" /></Field>
+        </div>
         <Field label={t("extraNotes")}><textarea rows={3} value={form.notes} onChange={set("notes")} className={inputCls} data-testid="cf-notes" /></Field>
         <div className="flex justify-end gap-2 pt-2">
           <Btn variant="outline" type="button" onClick={onClose}>{t("cancel")}</Btn>

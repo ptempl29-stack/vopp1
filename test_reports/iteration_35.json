@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 35: Validated all Iter35 features end-to-end. Backend: 7/7 pytest tests PASSED (invoice MB-0025 floor & advance, public/settings & PUT settings usd_to_dop persistence, claim cover fields persistence, item category tagging, FMP merged PDF structure with cover + checklist + doc pages, status→complete on merge). Frontend: Claims edit modal shows/persists all 5 cover fields; item edit modal category dropdown lists 7 FMP options and saves; completed packets show green rows + Complete badge; Merge & Save PDF button present. Billing Reports EN shows $, ES shows RD$; CEO Clinic Letterhead lh-usd-dop saves and public/settings reflects new rate.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Billing Reports (ES)", "issues": ["RD$ values rendered without thousands separators or a space, e.g. 'RD$39000.00' instead of 'RD$ 39,000.00'. Minor readability issue for large amounts."]},
+      {"screen": "New/Edit Packet modal cf-status <select>", "issues": ["Hydration warning persists (from iter34): <span> inside <option> child in dynamic select (forms/invoices options wrap translated labels in <span>). Cosmetic — does not affect functionality."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration_35_fmp.py",
+    "/app/test_reports/pytest/iter35.xml"
+  ],
+  "action_items": [
+    "(Optional polish) Format RD$ amounts with thousands separators and a space, e.g., 'RD$ 39,000.00'. Update the money() helper in /app/frontend/src/pages/BillingReports.js to use Intl.NumberFormat when lang==='es'.",
+    "(Cosmetic) Remove <span> wrappers inside <option> children (Claims.js line 251 area) to silence the React hydration warning."
+  ],
+  "critical_code_review_comments": [
+    "claims.py _build_packet_pdf: cover-page invoice/CPT lookup uses the FIRST item with source='invoice'. If a packet has multiple invoice items, only the first one populates cover Invoice/Amount rows — consider summing amounts or iterating.",
+    "claims.py GET /claims/{cid}/merged unconditionally sets status='complete' before the StreamingResponse finishes. If the download aborts mid-stream the packet is still marked complete (already noted iter34).",
+    "billing.py _compute_next_number relies on distinct('invoice_number') and re-parses on every call — race prone under concurrent invoice creation. Consider a MongoDB counter document or unique index.",
+    "settings PUT uses full SettingsInput replacement; partial updates rely on client sending the entire settings body. usd_to_dop default handled correctly via schema."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration_35_fmp.py (new)"],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100% (all target flows verified)"},
+  "test_credentials": "usvopp@yahoo.com / Football2023? (admin)",
+  "seed_data_creation": "Reused existing 'Test Patient 07/15/2026 FMP Claim' packet (1 progress-note item). Ran cover-field PUT, item category PUT, and GET /merged which set status=complete. usd_to_dop temporarily set to 65 during CEO letterhead test, then restored to 60 by the test cleanup path (verified via public settings during test).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run backend tests with: `REACT_APP_BACKEND_URL=https://veteran-care-portal.preview.emergentagent.com python -m pytest backend/tests/test_iteration_35_fmp.py -v -p no:xdist -o addopts=''`. The pytest.ini addopts includes -n auto which breaks module-scoped fixtures — override with -p no:xdist. Login endpoint returns {token, user}; use Bearer header. Test Patient id: 6fa0fdd7-8ecf-4619-bb59-03265cbe7834. FMP checklist categories: cover_sheet, invoice, progress_note, va_disability_letter, fmp_registration, provider_exequatur, provider_diploma. Merged PDF page count = 2 (cover + checklist) + sum of doc pages.",
+  "verified_flows": [
+    "Backend: GET /api/invoices/next-number returns MB-0026 (advanced from 25 because MB-0025 already exists)",
+    "Backend: POST /api/invoices without invoice_number assigns next MB-xxxx and next-number advances by 1",
+    "Backend: GET /api/public/settings exposes usd_to_dop; PUT /api/settings persists new rate; public endpoint reflects it",
+    "Backend: PUT /api/claims/{cid} persists va_claim_number, veteran_physical_address, veteran_mailing_address, diagnosis_narrative, payment_to",
+    "Backend: PUT /api/claims/{cid}/items/{iid} with category='va_disability_letter' saves items.$.category",
+    "Backend: GET /api/claims/{cid}/merged returns application/pdf; first page text contains 'Foreign Medical Program (FMP) Fully Developed Claim Packet' with Veteran/Diagnosis/Payment Direction rows; second page 'FMP Fully Developed Claim Checklist' with [X] rows including auto-checked progress_note and tagged va_disability_letter; page count == 2 + doc pages; status becomes 'complete'",
+    "Frontend: Login as admin → Claim Packets sidebar link → 2 packet rows visible (both complete, green-tinted with 'Complete' badge)",
+    "Frontend: Edit modal (claim-edit-<id>) shows cf-va-number, cf-payment-to, cf-vet-physical, cf-vet-mailing, cf-diagnosis; values persist on Save & reopen",
+    "Frontend: Packet detail → claim-item-edit-<iid> opens modal with claim-item-category select containing 8 options (— none — + 7 FMP rows); save via claim-item-rename-save triggers success toast",
+    "Frontend: claim-download-merged button present on detail view header",
+    "Frontend: Billing Reports EN mode shows '$' amounts; toggling to ES via language button (top-right) switches all monetary values (cards, table, charts) to 'RD$X.XX'; sample RD$ values captured (RD$39000.00 … RD$156000.00 = USD 650…2600 × 60)",
+    "Frontend: CEO tab → Clinic Letterhead modal → lh-usd-dop input editable; setting to 65 saves; GET /api/public/settings returns 65 immediately; restored to 60"
+  ]
+}

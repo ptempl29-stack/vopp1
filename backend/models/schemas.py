@@ -136,6 +136,7 @@ class SettingsInput(BaseModel):
     mailing_address: Optional[str] = ""
     primary_insurance: Optional[str] = ""
     logo: Optional[str] = ""
+    usd_to_dop: Optional[float] = 60.0
 
 
 class FormSubmission(BaseModel):
