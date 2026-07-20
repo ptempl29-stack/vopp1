@@ -5,7 +5,7 @@ import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import {
   FolderArchive, Plus, Pencil, Trash2, ChevronLeft, Download, FileText,
-  ReceiptText, Upload, FilePlus, CalendarClock,
+  ReceiptText, Upload, FilePlus, CalendarClock, Eye, FolderInput, Send, ArrowUp, ArrowDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,6 +30,11 @@ export default function Claims() {
   const [fromDateOpen, setFromDateOpen] = useState(false);
   const [fromDate, setFromDate] = useState({ patient_id: "", date: "" });
   const [building, setBuilding] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [renameItem, setRenameItem] = useState(null);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendTo, setSendTo] = useState("");
+  const [sendBusy, setSendBusy] = useState(false);
 
   const load = useCallback(async () => {
     try { setPackets((await api.get("/claims")).data); } catch (e) { toast.error(apiErr(e)); }
@@ -148,6 +153,58 @@ export default function Claims() {
     } catch (e) { toast.error(apiErr(e)); }
   };
 
+  const previewItem = async (it) => {
+    try {
+      const r = await api.get(`/claims/${selected.id}/items/${it.id}/download`, { responseType: "blob" });
+      const fn = (it.filename || "").toLowerCase();
+      const isPdf = fn.endsWith(".pdf");
+      const isImg = /\.(png|jpe?g|webp)$/.test(fn);
+      const blob = new Blob([r.data], { type: isPdf ? "application/pdf" : (isImg ? "image/*" : "application/octet-stream") });
+      const url = URL.createObjectURL(blob);
+      if (isPdf || isImg) setPreview({ label: it.filename, kind: isPdf ? "pdf" : "img", url });
+      else { authedDownload(`/claims/${selected.id}/items/${it.id}/download`, it.filename); URL.revokeObjectURL(url); }
+    } catch (e) { toast.error(apiErr(e)); }
+  };
+  const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null); };
+
+  const saveRename = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api.put(`/claims/${selected.id}/items/${renameItem.id}`, { filename: renameItem.filename });
+      setSelected(r.data); setRenameItem(null); toast.success(t("saved"));
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const moveItemToFolder = async (it) => {
+    try {
+      const r = await api.post(`/claims/${selected.id}/items/${it.id}/to-folder`);
+      toast.success(`${t("savedToFolder")} · ${r.data.subfolder}`);
+    } catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const reorderItem = async (idx, dir) => {
+    const items = [...(selected.items || [])];
+    const j = idx + dir;
+    if (j < 0 || j >= items.length) return;
+    [items[idx], items[j]] = [items[j], items[idx]];
+    setSelected({ ...selected, items });
+    try { await api.put(`/claims/${selected.id}/items-order`, { ids: items.map((x) => x.id) }); }
+    catch (e) { toast.error(apiErr(e)); refreshSelected(selected.id); }
+  };
+
+  const sendPacket = async (e) => {
+    e.preventDefault();
+    setSendBusy(true);
+    try {
+      await api.post(`/claims/${selected.id}/send-email`, { to: sendTo });
+      toast.success(`${t("sent")} ${sendTo}`);
+      setSendOpen(false); refreshSelected(selected.id);
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setSendBusy(false); }
+  };
+
+  const statusTone = (s) => (s === "complete" ? "green" : s === "submitted" ? "tan" : "amber");
+
   // ---------- Detail view ----------
   if (selected) {
     const items = selected.items || [];
@@ -159,7 +216,8 @@ export default function Claims() {
             <div className="flex flex-wrap gap-2">
               <Btn variant="outline" onClick={() => { setSelected(null); load(); }} data-testid="claim-back"><ChevronLeft className="w-4 h-4" />{t("backToPackets")}</Btn>
               <Btn variant="outline" onClick={() => openEdit(selected)} data-testid="claim-edit-detail"><Pencil className="w-4 h-4" />{t("edit")}</Btn>
-              <Btn onClick={() => { api.post(`/claims/${selected.id}/to-folder`).then((r) => toast.success(t("savedToFolder"))).catch(() => {}); authedDownload(`/claims/${selected.id}/merged`, "claim_packet.pdf"); }} data-testid="claim-download-merged"><Download className="w-4 h-4" />{t("downloadMergedPdf")}</Btn>
+              <Btn variant="outline" onClick={() => { setSendTo(""); setSendOpen(true); }} data-testid="claim-send"><Send className="w-4 h-4" />{t("send")}</Btn>
+              <Btn onClick={() => { api.post(`/claims/${selected.id}/to-folder`).then((r) => toast.success(t("savedToFolder"))).catch(() => {}); authedDownload(`/claims/${selected.id}/merged`, "claim_packet.pdf"); setTimeout(() => refreshSelected(selected.id), 800); }} data-testid="claim-download-merged"><Download className="w-4 h-4" />{t("mergeSavePdf")}</Btn>
             </div>} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
@@ -169,7 +227,7 @@ export default function Claims() {
           </Card>
           <Card className="p-4">
             <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("packetStatus")}</p>
-            <div className="mt-1"><Badge tone={selected.status === "submitted" ? "green" : "amber"}>{t(selected.status)}</Badge></div>
+            <div className="mt-1"><Badge tone={statusTone(selected.status)}>{t(selected.status)}</Badge></div>
           </Card>
           <Card className="p-4">
             <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("createdBy")}</p>
@@ -236,8 +294,15 @@ export default function Claims() {
                         <td className="px-5 py-3"><Badge tone={sourceTone[it.source] || "gray"}>{t(`src_${it.source}`)}</Badge></td>
                         <td className="px-5 py-3 text-stone-700"><span className="inline-flex items-center gap-2"><Icon className="w-4 h-4 text-stone-400" />{it.filename}</span></td>
                         <td className="px-5 py-3">
-                          <div className="flex justify-end gap-1">
-                            <Btn variant="ghost" onClick={() => authedDownload(`/claims/${selected.id}/items/${it.id}/download`, it.filename)} data-testid={`claim-item-download-${it.id}`} className="!px-2" title={t("download")}><Download className="w-4 h-4" /></Btn>
+                          <div className="flex justify-end items-center gap-1">
+                            <div className="flex flex-col mr-1">
+                              <button onClick={() => reorderItem(i, -1)} disabled={i === 0} data-testid={`claim-item-up-${it.id}`} className="text-stone-400 hover:text-moneygreen-600 disabled:opacity-30" title={t("moveUp")}><ArrowUp className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => reorderItem(i, 1)} disabled={i === items.length - 1} data-testid={`claim-item-down-${it.id}`} className="text-stone-400 hover:text-moneygreen-600 disabled:opacity-30" title={t("moveDown")}><ArrowDown className="w-3.5 h-3.5" /></button>
+                            </div>
+                            <Btn variant="ghost" onClick={() => previewItem(it)} data-testid={`claim-item-view-${it.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
+                            <Btn variant="ghost" onClick={() => setRenameItem({ id: it.id, filename: it.filename })} data-testid={`claim-item-edit-${it.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>
+                            <Btn variant="ghost" onClick={() => moveItemToFolder(it)} data-testid={`claim-item-move-${it.id}`} className="!px-2 !text-moneygreen-700" title={t("moveToFolderTitle")}><FolderInput className="w-4 h-4" /></Btn>
+                            <Btn variant="ghost" onClick={() => authedDownload(`/claims/${selected.id}/items/${it.id}/download`, it.filename)} data-testid={`claim-item-download-${it.id}`} className="!px-2" title={t("saveAsPdf")}><Download className="w-4 h-4" /></Btn>
                             <Btn variant="ghost" onClick={() => removeItem(it.id)} data-testid={`claim-item-remove-${it.id}`} className="!px-2 !text-destructive" title={t("removeFromPacket")}><Trash2 className="w-4 h-4" /></Btn>
                           </div>
                         </td>
@@ -253,6 +318,43 @@ export default function Claims() {
         <PacketModal open={modalOpen} onClose={() => setModalOpen(false)} editing={editing}
           form={form} set={set} save={save} patients={patients} t={t}
           setClaimPatient={setClaimPatient} setClaimDate={setClaimDate} />
+
+        <Modal open={!!preview} onClose={closePreview} title={preview?.label || t("preview")} wide>
+          {preview && (
+            <div className="rounded-lg overflow-hidden border border-border bg-stone-50">
+              {preview.kind === "img"
+                ? <img src={preview.url} alt={preview.label} className="max-h-[70vh] w-auto mx-auto" />
+                : <iframe title={preview.label} src={preview.url} className="w-full h-[70vh]" />}
+            </div>
+          )}
+        </Modal>
+
+        <Modal open={!!renameItem} onClose={() => setRenameItem(null)} title={t("rename")}>
+          {renameItem && (
+            <form onSubmit={saveRename} className="space-y-4">
+              <Field label={t("filename")}>
+                <input required value={renameItem.filename} onChange={(e) => setRenameItem({ ...renameItem, filename: e.target.value })} className={inputCls} data-testid="claim-item-rename-input" />
+              </Field>
+              <div className="flex justify-end gap-2 pt-2">
+                <Btn variant="outline" type="button" onClick={() => setRenameItem(null)}>{t("cancel")}</Btn>
+                <Btn type="submit" data-testid="claim-item-rename-save">{t("save")}</Btn>
+              </div>
+            </form>
+          )}
+        </Modal>
+
+        <Modal open={sendOpen} onClose={() => setSendOpen(false)} title={t("sendMergedPacket")}>
+          <form onSubmit={sendPacket} className="space-y-4">
+            <p className="text-sm text-stone-500">{t("sendPacketHint")}</p>
+            <Field label={t("recipientEmail")}>
+              <input type="email" required value={sendTo} onChange={(e) => setSendTo(e.target.value)} className={inputCls} data-testid="claim-send-input" placeholder="recipient@email.com" />
+            </Field>
+            <div className="flex justify-end gap-2 pt-2">
+              <Btn variant="outline" type="button" onClick={() => setSendOpen(false)}>{t("cancel")}</Btn>
+              <Btn type="submit" disabled={sendBusy || !sendTo} data-testid="claim-send-submit"><Send className="w-4 h-4" />{t("send")}</Btn>
+            </div>
+          </form>
+        </Modal>
       </div>
     );
   }
@@ -285,15 +387,15 @@ export default function Claims() {
                 {packets.map((p, i) => (
                   <motion.tr key={p.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
                     data-testid={`claim-row-${p.id}`}
-                    className={`border-b border-border/60 hover:bg-tan-50 transition-colors duration-200 cursor-pointer ${i % 2 ? "bg-tan-50/40" : ""}`}
+                    className={`border-b border-border/60 hover:bg-tan-50 transition-colors duration-200 cursor-pointer ${p.status === "complete" ? "bg-moneygreen-50" : (i % 2 ? "bg-tan-50/40" : "")}`}
                     onClick={() => refreshSelected(p.id)}>
                     <td className="px-5 py-3">
-                      <span className="inline-flex items-center gap-2 font-semibold text-moneygreen-800"><FolderArchive className="w-4 h-4 text-moneygreen-500" />{p.name}</span>
+                      <span className="inline-flex items-center gap-2 font-semibold text-moneygreen-800"><FolderArchive className={`w-4 h-4 ${p.status === "complete" ? "text-moneygreen-600" : "text-moneygreen-500"}`} />{p.name}</span>
                     </td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{p.patient_name || "—"}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-500 font-mono text-xs">{fmtDate(p.claim_number) || "—"}</td>
                     <td className="px-5 py-3 text-stone-600">{(p.items || []).length}</td>
-                    <td className="px-5 py-3"><Badge tone={p.status === "submitted" ? "green" : "amber"}>{t(p.status)}</Badge></td>
+                    <td className="px-5 py-3"><Badge tone={statusTone(p.status)}>{t(p.status)}</Badge></td>
                     <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <Btn variant="outline" onClick={() => refreshSelected(p.id)} data-testid={`claim-open-${p.id}`}>{t("view")}</Btn>
@@ -351,6 +453,7 @@ function PacketModal({ open, onClose, editing, form, set, save, patients, t, set
             <select value={form.status} onChange={set("status")} className={inputCls} data-testid="cf-status">
               <option value="draft">{t("draft")}</option>
               <option value="submitted">{t("submitted")}</option>
+              <option value="complete">{t("complete")}</option>
             </select>
           </Field>
         </div>

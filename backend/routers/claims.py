@@ -60,7 +60,7 @@ def _invoice_pdf(inv: dict, clinic: str) -> bytes:
         pdf.multi_cell(0, 6, f"Notes: {inv['notes']}")
     return pdf_bytes(pdf)
 
-CLAIM_STATUSES = {"draft", "submitted"}
+CLAIM_STATUSES = {"draft", "submitted", "complete"}
 UPLOAD_EXTS = {"pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "txt", "xls", "xlsx"}
 EXTRA_CT = {"xls": "application/vnd.ms-excel",
             "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
@@ -79,6 +79,35 @@ async def _patient_name(pid):
         return None
     p = await db.patients.find_one({"id": pid}, {"_id": 0})
     return f"{p['first_name']} {p['last_name']}" if p else None
+
+
+def _merge_items_pdf(items) -> bytes:
+    from pypdf import PdfWriter, PdfReader
+    from PIL import Image
+    writer = PdfWriter()
+    added = 0
+    for item in items:
+        try:
+            data, _ = get_object(item["storage_path"])
+            fn = item["filename"].lower()
+            if fn.endswith(".pdf"):
+                for page in PdfReader(io.BytesIO(data)).pages:
+                    writer.add_page(page)
+                added += 1
+            elif fn.rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp"):
+                img = Image.open(io.BytesIO(data)).convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format="PDF")
+                for page in PdfReader(io.BytesIO(buf.getvalue())).pages:
+                    writer.add_page(page)
+                added += 1
+        except Exception as e:
+            logger.error(f"merge skip {item.get('filename')}: {e}")
+    if added == 0:
+        raise HTTPException(status_code=400, detail="No PDF/image documents to merge in this packet")
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
 
 
 @router.get("/claims")
@@ -335,44 +364,124 @@ async def download_item(cid: str, item_id: str, user: dict = Depends(require_rol
 
 @router.get("/claims/{cid}/merged")
 async def merged_pdf(cid: str, user: dict = Depends(require_roles("admin"))):
-    from pypdf import PdfWriter, PdfReader
-    from PIL import Image
     c = await db.claim_packets.find_one({"id": cid})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
-    writer = PdfWriter()
-    added = 0
-    for item in c.get("items", []):
-        try:
-            data, _ = get_object(item["storage_path"])
-            fn = item["filename"].lower()
-            if fn.endswith(".pdf"):
-                for page in PdfReader(io.BytesIO(data)).pages:
-                    writer.add_page(page)
-                added += 1
-            elif fn.rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp"):
-                img = Image.open(io.BytesIO(data)).convert("RGB")
-                buf = io.BytesIO()
-                img.save(buf, format="PDF")
-                for page in PdfReader(io.BytesIO(buf.getvalue())).pages:
-                    writer.add_page(page)
-                added += 1
-        except Exception as e:
-            logger.error(f"merge skip {item.get('filename')}: {e}")
-    if added == 0:
-        raise HTTPException(status_code=400, detail="No PDF/image documents to merge in this packet")
-    out = io.BytesIO()
-    writer.write(out)
-    await log_audit("view", "claim", actor=user, resource_id=cid, detail="download merged PDF")
+    pdf = _merge_items_pdf(c.get("items", []))
+    await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
+    await log_audit("update", "claim", actor=user, resource_id=cid, detail="merged PDF · marked complete")
     fname = (c.get("name") or "claim_packet").replace('"', "").replace(" ", "_")[:60]
-    return StreamingResponse(io.BytesIO(out.getvalue()), media_type="application/pdf",
+    return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'})
+
+
+class ItemRename(BaseModel):
+    filename: str
+
+
+@router.put("/claims/{cid}/items/{item_id}")
+async def rename_item(cid: str, item_id: str, data: ItemRename, user: dict = Depends(require_roles("admin"))):
+    name = (data.filename or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    res = await db.claim_packets.update_one(
+        {"id": cid, "items.id": item_id},
+        {"$set": {"items.$.filename": name[:120], "updated_at": now_iso()}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Item not found")
+    await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"rename item {name}")
+    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+
+
+class ItemOrder(BaseModel):
+    ids: list
+
+
+@router.put("/claims/{cid}/items-order")
+async def reorder_items(cid: str, data: ItemOrder, user: dict = Depends(require_roles("admin"))):
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    items = c.get("items", [])
+    by_id = {i["id"]: i for i in items}
+    ordered = [by_id[i] for i in data.ids if i in by_id]
+    ordered += [i for i in items if i["id"] not in set(data.ids)]
+    await db.claim_packets.update_one({"id": cid}, {"$set": {"items": ordered, "updated_at": now_iso()}})
+    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+
+
+@router.post("/claims/{cid}/items/{item_id}/to-folder")
+async def item_to_folder(cid: str, item_id: str, user: dict = Depends(require_roles("admin"))):
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    pid = c.get("patient_id")
+    if not pid:
+        raise HTTPException(status_code=400, detail="Claim packet has no linked patient")
+    p = await db.patients.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    item = next((i for i in c.get("items", []) if i["id"] == item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    try:
+        data, _ = get_object(item["storage_path"])
+    except Exception as e:
+        logger.error(f"item to-folder read failed: {e}")
+        raise HTTPException(status_code=502, detail="Could not read document")
+    from core.folder_filing import _ensure_subfolder, fmt_date
+    ds = fmt_date(c.get("claim_number")) if c.get("claim_number") else None
+    from datetime import datetime, timezone
+    ds = ds or datetime.now(timezone.utc).strftime("%m-%d-%Y")
+    sub_name = f"{p['first_name']} {ds} FMP Claim"
+    sid = await _ensure_subfolder(pid, sub_name, user)
+    ext = item["filename"].rsplit(".", 1)[-1].lower() if "." in item["filename"] else "pdf"
+    path = f"{APP_NAME}/folders/{pid}/{uuid.uuid4()}.{ext}"
+    try:
+        result = put_object(path, data, item.get("content_type", "application/pdf"))
+    except Exception as e:
+        logger.error(f"item to-folder store failed: {e}")
+        raise HTTPException(status_code=502, detail="File storage failed")
+    doc = {"id": str(uuid.uuid4()), "patient_id": pid, "subfolder_id": sid,
+           "source": "upload", "form_id": None, "storage_path": result["path"],
+           "filename": item["filename"][:120], "label": item["filename"][:120],
+           "description": "Moved from FMP Claim", "content_type": item.get("content_type", "application/pdf"),
+           "size": result.get("size"), "created_at": now_iso(),
+           "created_by": user.get("name"), "created_by_id": user.get("id")}
+    await db.folder_items.insert_one(doc)
+    await log_audit("create", "folder", actor=user, resource_id=pid, detail=f"moved claim item to folder")
+    return {"ok": True, "patient_name": f"{p['first_name']} {p['last_name']}", "subfolder": sub_name}
+
+
+class SendPacket(BaseModel):
+    to: str
+
+
+@router.post("/claims/{cid}/send-email")
+async def send_packet_email(cid: str, data: SendPacket, user: dict = Depends(require_roles("admin"))):
+    from core.email_utils import send_email, email_configured
+    to = (data.to or "").strip()
+    if not to:
+        raise HTTPException(status_code=400, detail="Recipient email is required")
+    if not email_configured():
+        raise HTTPException(status_code=400, detail="Email is not configured on the server")
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    pdf = _merge_items_pdf(c.get("items", []))
+    fname = (c.get("name") or "FMP_Claim").replace('"', "").replace(" ", "_")[:60] + ".pdf"
+    ok = send_email(to, f"{c.get('name') or 'FMP Claim'}",
+                    f"Attached is the merged claim packet: {c.get('name') or 'FMP Claim'}.",
+                    attachments=[{"filename": fname, "content": pdf, "content_type": "application/pdf"}])
+    if not ok:
+        raise HTTPException(status_code=502, detail="Send failed — check the sender domain and recipient address")
+    await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
+    await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"emailed packet to {to} · marked complete")
+    return {"ok": True, "to": to}
 
 
 @router.post("/claims/{cid}/to-folder")
 async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))):
-    from pypdf import PdfWriter, PdfReader
-    from PIL import Image
     from datetime import datetime, timezone
     from core.folder_filing import file_pdf_into_folder
     c = await db.claim_packets.find_one({"id": cid})
@@ -384,32 +493,10 @@ async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))
     p = await db.patients.find_one({"id": pid}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
-    writer = PdfWriter()
-    added = 0
-    for item in c.get("items", []):
-        try:
-            data, _ = get_object(item["storage_path"])
-            fn = item["filename"].lower()
-            if fn.endswith(".pdf"):
-                for page in PdfReader(io.BytesIO(data)).pages:
-                    writer.add_page(page)
-                added += 1
-            elif fn.rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp"):
-                img = Image.open(io.BytesIO(data)).convert("RGB")
-                buf = io.BytesIO()
-                img.save(buf, format="PDF")
-                for page in PdfReader(io.BytesIO(buf.getvalue())).pages:
-                    writer.add_page(page)
-                added += 1
-        except Exception as e:
-            logger.error(f"merge skip {item.get('filename')}: {e}")
-    if added == 0:
-        raise HTTPException(status_code=400, detail="No PDF/image documents to merge in this packet")
-    out = io.BytesIO()
-    writer.write(out)
+    pdf = _merge_items_pdf(c.get("items", []))
     ds = datetime.now(timezone.utc).strftime("%m-%d-%Y")
     name = (c.get("name") or "Claim Packet")[:40]
-    item = await file_pdf_into_folder(pid, p["first_name"], out.getvalue(),
+    item = await file_pdf_into_folder(pid, p["first_name"], pdf,
                                       f"{name} {ds}", f"Claim_Packet_{ds}.pdf", user)
     if not item:
         raise HTTPException(status_code=502, detail="Could not file PDF")
