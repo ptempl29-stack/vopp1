@@ -22,6 +22,11 @@ from routers import (auth, settings, patients, appointments, notes,
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 for module in (auth, settings, patients, appointments, notes,
                billing, messages, forms, folders, dashboard, audit, telehealth, claims, invites, assistant,
                users, roles):
