@@ -3,7 +3,10 @@ from fastapi import APIRouter, HTTPException, Depends
 from core.db import db
 from core.config import DEFAULT_SETTINGS
 from core.security import get_current_user, require_roles
+from core.email_utils import send_email, email_configured
 from models.schemas import SettingsInput
+
+import os
 
 router = APIRouter()
 
@@ -30,3 +33,22 @@ async def update_settings(data: SettingsInput, current: dict = Depends(require_r
         raise HTTPException(status_code=400, detail="Logo image too large (max ~650KB)")
     await db.settings.update_one({"key": "clinic"}, {"$set": {**payload, "key": "clinic"}}, upsert=True)
     return await get_settings_doc()
+
+
+@router.post("/settings/test-email")
+async def send_test_email(payload: dict, current: dict = Depends(require_roles("admin"))):
+    to = (payload.get("to") or "").strip()
+    if not to:
+        raise HTTPException(status_code=400, detail="Recipient email is required")
+    if not email_configured():
+        raise HTTPException(status_code=400, detail="Email is not configured on the server")
+    sender = os.environ.get("SENDER_EMAIL", "")
+    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    ok = send_email(
+        to,
+        f"Test email from {clinic}",
+        f"This is a test email confirming that {clinic} can send patient emails.\n\nSent from: {sender}",
+    )
+    if not ok:
+        raise HTTPException(status_code=502, detail="Send failed — check the sender domain is verified and the recipient address is valid")
+    return {"ok": True, "sender": sender, "to": to}

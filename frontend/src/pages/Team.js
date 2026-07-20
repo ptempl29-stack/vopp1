@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { roleLabel } from "../lib/perms";
-import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut } from "lucide-react";
+import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, MailCheck, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
@@ -37,6 +37,20 @@ export default function Team() {
   const [inviteForm, setInviteForm] = useState({ email: "", role: "receptionist", allowed_tabs: [] });
   const [createdLink, setCreatedLink] = useState("");
   const [roleTpl, setRoleTpl] = useState(null);
+  const [testOpen, setTestOpen] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
+  const [testBusy, setTestBusy] = useState(false);
+
+  const sendTest = async (e) => {
+    e.preventDefault();
+    setTestBusy(true);
+    try {
+      const r = await api.post("/settings/test-email", { to: testEmail });
+      toast.success(`${t("testEmailSent")} ${r.data.sender}`);
+      setTestOpen(false);
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setTestBusy(false); }
+  };
 
   const loadMeta = () => api.get("/meta/tabs").then((r) => { setRoles(r.data.roles); setDefaults(r.data.defaults); }).catch(() => {});
 
@@ -168,6 +182,7 @@ export default function Team() {
       <PageHeader title={t("settings")} subtitle={t("settingsSubtitle")}
         action={<div className="flex gap-2 flex-wrap">
           <Btn variant="outline" onClick={openLetterhead} data-testid="edit-letterhead-btn"><FileSignature className="w-4 h-4" />{t("letterhead")}</Btn>
+          {me?.role === "admin" && <Btn variant="outline" onClick={() => { setTestEmail(me?.email || ""); setTestOpen(true); }} data-testid="test-email-btn"><MailCheck className="w-4 h-4" />{t("sendTestEmail")}</Btn>}
           <Btn variant="outline" onClick={openInvite} data-testid="invite-staff-btn"><Mail className="w-4 h-4" />{t("inviteStaff")}</Btn>
           <Btn onClick={() => navigate("/enroll")} data-testid="add-user-btn"><UserPlus className="w-4 h-4" />{t("enrollStaff")}</Btn>
         </div>} />
@@ -464,6 +479,18 @@ export default function Team() {
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="outline" type="button" onClick={() => setLhOpen(false)}>{t("cancel")}</Btn>
             <Btn type="submit" data-testid="save-letterhead-btn">{t("save")}</Btn>
+          </div>
+        </form>
+      </Modal>
+      <Modal open={testOpen} onClose={() => setTestOpen(false)} title={t("sendTestEmail")}>
+        <form onSubmit={sendTest} className="space-y-4">
+          <p className="text-sm text-stone-500">{t("testEmailHint")}</p>
+          <Field label={t("recipientEmail")}>
+            <input type="email" required value={testEmail} onChange={(e) => setTestEmail(e.target.value)} className={inputCls} data-testid="test-email-input" placeholder="you@email.com" />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="outline" type="button" onClick={() => setTestOpen(false)}>{t("cancel")}</Btn>
+            <Btn type="submit" disabled={testBusy || !testEmail} data-testid="send-test-email-btn"><Send className="w-4 h-4" />{t("sendTestEmail")}</Btn>
           </div>
         </form>
       </Modal>
