@@ -50,7 +50,7 @@ async def delete_cpt(cid: str, user: dict = Depends(require_roles("biller"))):
 async def list_invoices(user: dict = Depends(require_roles("biller", "receptionist"))):
     invoices = await db.invoices.find({}, {"_id": 0, "ssn": 0, "policy_number": 0}).sort("created_at", -1).to_list(500)
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}"
-                async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1})}
+                async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).limit(5000)}
     for inv in invoices:
         inv["patient_name"] = patients.get(inv.get("patient_id")) or inv.get("patient_name") or "Unknown"
     await log_audit("view", "invoice", actor=user, detail=f"list ({len(invoices)})")
@@ -245,7 +245,7 @@ async def billing_report(start: Optional[str] = None, end: Optional[str] = None,
         invoices = [i for i in invoices if i.get("patient_id") in pts]
 
     patients_map = {p["id"]: f"{p['first_name']} {p['last_name']}"
-                    async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1})}
+                    async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).limit(5000)}
     pname = lambda i: i.get("patient_name") or patients_map.get(i.get("patient_id"), "Unknown")
 
     total_billed = sum(i.get("total", 0) for i in invoices)
@@ -310,7 +310,7 @@ async def billing_export(start: Optional[str] = None, end: Optional[str] = None,
     if end:
         invoices = [i for i in invoices if _inv_date(i) <= end]
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}"
-                async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1})}
+                async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).limit(5000)}
 
     out = io.StringIO()
     w = csv.writer(out)
