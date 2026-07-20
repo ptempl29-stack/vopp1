@@ -201,7 +201,7 @@ export default function Claims() {
     setSendBusy(true);
     try {
       await api.post(`/claims/${selected.id}/send-email`, { to: sendTo });
-      toast.success(`${t("sent")} ${sendTo}`);
+      toast.success(`${t("sentTo")} ${sendTo}`);
       setSendOpen(false); refreshSelected(selected.id);
     } catch (err) { toast.error(apiErr(err)); }
     finally { setSendBusy(false); }

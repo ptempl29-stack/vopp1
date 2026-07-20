@@ -23,6 +23,7 @@ import AcceptInvite from "./pages/AcceptInvite";
 import AIAssistant from "./pages/AIAssistant";
 import AuditLog from "./pages/AuditLog";
 import Claims from "./pages/Claims";
+import Mailbox from "./pages/Mailbox";
 import ChangePassword from "./pages/ChangePassword";
 import StaffEnrollment from "./pages/StaffEnrollment";
 import { Loader2 } from "lucide-react";
@@ -67,6 +68,7 @@ function App() {
               <Route path="/enroll" element={<Protected tab="team"><StaffEnrollment /></Protected>} />
               <Route path="/audit" element={<Protected tab="audit"><AuditLog /></Protected>} />
               <Route path="/claims" element={<Protected tab="claims"><Claims /></Protected>} />
+              <Route path="/mailbox" element={<Protected tab="mailbox"><Mailbox /></Protected>} />
             </Routes>
           </BrowserRouter>
           </PrivacyProvider>
