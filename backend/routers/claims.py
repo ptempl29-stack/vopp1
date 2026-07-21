@@ -136,7 +136,7 @@ async def _build_packet_pdf(c) -> bytes:
     from pypdf import PdfWriter, PdfReader
     from PIL import Image
     from core.pdf_utils import new_pdf, pdf_bytes, FONT
-    from core.folder_filing import fmt_date
+    from core.folder_filing import fmt_date, disp_date
 
     settings = await get_settings_doc()
     clinic = settings.get("clinic_name", "Veterans of Puerto Plata")
@@ -168,7 +168,7 @@ async def _build_packet_pdf(c) -> bytes:
         cpt_desc = note.get("cpt_code", "") or ""
     inv_no = (inv or {}).get("invoice_number", "")
     amount = (inv or {}).get("total")
-    svc_date = fmt_date(c.get("claim_number")) or ((inv or {}).get("service_date") or "")
+    svc_date = disp_date(c.get("claim_number")) or disp_date((inv or {}).get("service_date")) or ""
     pay = "Provider payment requested - Provider box on VA Form 10-7959f-2" \
         if (c.get("payment_to") or "provider") == "provider" else "Veteran payment requested"
 
@@ -188,7 +188,7 @@ async def _build_packet_pdf(c) -> bytes:
         pdf.multi_cell(0, 7, str(val or "-"))
 
     row("Veteran:", vet_name)
-    row("Date of Birth:", fmt_date(dob) if dob else "")
+    row("Date of Birth:", disp_date(dob) if dob else "")
     row("SSN / VA Claim File No.:", f"{ssn or '-'} / {c.get('va_claim_number') or '-'}")
     row("Claim / Service Date:", svc_date)
     row("Provider:", f"{provider}, {clinic}" if provider else clinic)

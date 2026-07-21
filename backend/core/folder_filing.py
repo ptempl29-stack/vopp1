@@ -15,6 +15,14 @@ def fmt_date(d) -> str:
     return f"{m.group(2)}-{m.group(3)}-{m.group(1)}" if m else s
 
 
+def disp_date(d) -> str:
+    """Return a date as MM/DD/YYYY for document display. Passes through non-date strings."""
+    s = str(d or "").strip()[:10]
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
+    return f"{m.group(2)}/{m.group(3)}/{m.group(1)}" if m else str(d or "")
+
+
+
 async def _ensure_subfolder(patient_id: str, name: str, user: dict) -> str:
     sf = await db.folder_subfolders.find_one({"patient_id": patient_id, "name": name}, {"_id": 0})
     if sf:
@@ -72,8 +80,8 @@ def invoice_pdf(inv: dict, clinic: str) -> bytes:
             pdf.cell(0, 7, str(val), ln=True)
 
     row("Patient:", inv.get("patient_name"))
-    row("DOB:", inv.get("dob"))
-    row("Service Date:", inv.get("service_date"))
+    row("DOB:", disp_date(inv.get("dob")))
+    row("Service Date:", disp_date(inv.get("service_date")))
     row("Provider:", inv.get("provider"))
     row("Visit Reason:", inv.get("visit_reason"))
     row("ICD-10:", inv.get("icd10"))
@@ -118,8 +126,8 @@ def note_pdf(note: dict, clinic: str) -> bytes:
 
     vd = note.get("visit_date")
     row("Patient:", note.get("patient_name"))
-    row("DOB:", note.get("dob"))
-    row("Date of Session:", vd)
+    row("DOB:", disp_date(note.get("dob")))
+    row("Date of Session:", disp_date(vd))
     row("Provider:", note.get("attending_provider") or note.get("author"))
     row("ICD-10:", note.get("icd10"))
     row("CPT:", note.get("cpt_code"))

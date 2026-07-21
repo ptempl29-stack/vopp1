@@ -7,6 +7,7 @@ import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { fmtDate } from "../lib/date";
 import { Plus, Video, Trash2, Clock, MapPin, Filter, X, LayoutGrid, List, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
@@ -176,7 +177,7 @@ export default function Appointments() {
                         {isTele(a) ? t("telehealth") : t("inPerson")}
                       </Badge>
                     </td>
-                    <td className="px-5 py-3 text-stone-600">{a.date}</td>
+                    <td className="px-5 py-3 text-stone-600">{fmtDate(a.date)}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{a.time || "—"}</td>
                     <td className="px-5 py-3"><Badge tone={toneMap[a.status]}>{t(a.status)}</Badge></td>
                     <td className="px-5 py-3 text-right">

@@ -9,6 +9,7 @@ import { useLang } from "../context/LanguageContext";
 import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import { PageHeader, Btn, Card, Field, inputCls, Empty } from "../components/ui-kit";
+import { fmtDate } from "../lib/date";
 import { Download, DollarSign, CheckCircle2, AlertCircle, FileText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -226,7 +227,7 @@ export default function BillingReports() {
                       </td>
                       <td className="px-5 py-3 font-mono font-semibold text-moneygreen-700">{v.invoice_number || "—"}</td>
                       <td className="px-5 py-3 text-stone-700"><Private value={v.patient_name} /></td>
-                      <td className="px-5 py-3 hidden md:table-cell text-stone-600">{v.service_date}</td>
+                      <td className="px-5 py-3 hidden md:table-cell text-stone-600">{fmtDate(v.service_date)}</td>
                       <td className="px-5 py-3">
                         <select value={STATUSES.includes(v.status) ? v.status : "in_transit"} onChange={(e) => changeStatus(v.id, e.target.value)}
                           data-testid={`report-invoice-status-${v.id}`}

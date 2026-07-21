@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { fmtDate } from "../lib/date";
 import { Plus, Search, Pencil, Trash2, Eye, Video, MapPin, CalendarClock, FileText, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 
@@ -104,7 +105,7 @@ export default function Patients() {
                       <p className="text-xs text-stone-500">{p.email || "—"}</p>
                     </td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{p.phone || "—"}</td>
-                    <td className="px-5 py-3 hidden md:table-cell text-stone-600"><Private value={p.dob} /></td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600"><Private value={fmtDate(p.dob)} /></td>
                     <td className="px-5 py-3"><Badge tone={p.status === "active" ? "green" : "gray"}>{t(p.status === "active" ? "active" : "inactive")}</Badge></td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-1">
@@ -155,7 +156,7 @@ export default function Patients() {
           <div className="space-y-5" data-testid="patient-detail">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-3 rounded-md bg-tan-50 border border-border">
-                <p className="text-xs text-stone-500">{t("dob")}</p><p className="font-semibold text-moneygreen-800"><Private value={detail.dob} /></p>
+                <p className="text-xs text-stone-500">{t("dob")}</p><p className="font-semibold text-moneygreen-800"><Private value={fmtDate(detail.dob)} /></p>
               </div>
               <div className="p-3 rounded-md bg-tan-50 border border-border">
                 <p className="text-xs text-stone-500">{t("socialSecurity")}</p><p className="font-semibold text-moneygreen-800"><Private value={detail.ssn} /></p>
@@ -187,7 +188,7 @@ export default function Patients() {
                   {filteredAppts.length === 0 ? <Empty text={t("noRecords")} /> : filteredAppts.map((a) => (
                     <div key={a.id} className="p-2.5 rounded-md border border-border text-sm" data-testid={`detail-appt-${a.id}`}>
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-moneygreen-800">{a.date} {a.time && `· ${a.time}`}</span>
+                        <span className="font-semibold text-moneygreen-800">{fmtDate(a.date)} {a.time && `· ${a.time}`}</span>
                         <Badge tone={(a.appointment_type || "in_person") === "telehealth" ? "green" : "tan"} className="flex items-center gap-1">
                           {(a.appointment_type || "in_person") === "telehealth" ? <Video className="w-3 h-3" /> : <MapPin className="w-3 h-3" />}
                           {(a.appointment_type || "in_person") === "telehealth" ? t("telehealth") : t("inPerson")}
@@ -202,7 +203,7 @@ export default function Patients() {
                   {filteredNotes.length === 0 ? <Empty text={t("noRecords")} /> : filteredNotes.map((n) => (
                     <div key={n.id} className="p-2.5 rounded-md border border-border text-sm" data-testid={`detail-note-${n.id}`}>
                       <p className="font-semibold text-moneygreen-800 line-clamp-1">{n.title}</p>
-                      <p className="text-stone-500 text-xs">{n.visit_date || (n.created_at || "").slice(0, 10)} · {n.attending_provider || n.author}</p>
+                      <p className="text-stone-500 text-xs">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))} · {n.attending_provider || n.author}</p>
                     </div>
                   ))}
                 </Section>

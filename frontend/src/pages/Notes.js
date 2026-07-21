@@ -10,16 +10,12 @@ import { PageHeader, Modal, Btn, Empty, Card, inputCls } from "../components/ui-
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
+import { fmtDate } from "../lib/date";
 import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X } from "lucide-react";
 import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
 const riskKey = { Low: "riskLow", Moderate: "riskModerate", High: "riskHigh", Imminent: "riskImminent" };
-const fmtDate = (d) => {
-  if (!d) return "";
-  const m = String(d).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m ? `${m[2]}/${m[3]}/${m[1]}` : d;
-};
 
 const blank = {
   patient_id: "", title: "", content: "", note_type: "free",
@@ -226,7 +222,7 @@ export default function Notes() {
       <div className="rounded-lg border border-border border-l-4 border-l-moneygreen-600 bg-white p-5">
         <div className="space-y-1 max-w-md text-sm">
           <ReadRow label={t("patientName")} value={patientName(form.patient_id)} />
-          <ReadRow label={t("dob")} value={form.dob} />
+          <ReadRow label={t("dob")} value={fmtDate(form.dob)} />
           <ReadRow label={t("socialSecurity")} value={form.ssn} />
           <ReadRow label={t("dateOfSession")} value={fmtDate(form.visit_date)} />
           <ReadRow label={t("icd10Code")} value={form.icd10} />
@@ -245,7 +241,7 @@ export default function Notes() {
       <div className="rounded-lg border border-border border-l-4 border-l-moneygreen-600 bg-white p-5">
         <div className="space-y-1 max-w-md text-sm">
           <ReadRow label={t("patientName")} value={<Private value={patientName(n.patient_id)} />} />
-          <ReadRow label={t("dob")} value={<Private value={curPatient(n.patient_id).dob || n.dob} />} />
+          <ReadRow label={t("dob")} value={<Private value={fmtDate(curPatient(n.patient_id).dob || n.dob)} />} />
           <ReadRow label={t("socialSecurity")} value={<Private value={curPatient(n.patient_id).ssn || n.ssn} />} />
           <ReadRow label={t("dateOfSession")} value={fmtDate(n.visit_date)} />
           <ReadRow label={t("icd10Code")} value={n.icd10} />

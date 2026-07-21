@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { fmtDate } from "../lib/date";
 import {
   FolderArchive, Plus, Pencil, Trash2, ChevronLeft, Download, FileText,
   ReceiptText, Upload, FilePlus, CalendarClock, Eye, FolderInput, Send, ArrowUp, ArrowDown,
@@ -64,11 +65,6 @@ export default function Claims() {
   };
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
-  const fmtDate = (d) => {
-    if (!d) return "";
-    const m = String(d).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return m ? `${m[2]}/${m[3]}/${m[1]}` : d;
-  };
   const buildName = (pid, dateStr) => {
     const p = patients.find((x) => x.id === pid);
     return [p ? p.name : "", fmtDate(dateStr), "FMP Claim"].filter(Boolean).join(" ");

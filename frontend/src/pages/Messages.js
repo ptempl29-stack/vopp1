@@ -5,6 +5,7 @@ import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
+import { fmtDateTime } from "../lib/date";
 import { Plus, Mail, MailOpen, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -82,7 +83,7 @@ export default function Messages() {
                         <p className="font-semibold text-moneygreen-800 text-sm">
                           {incoming ? `${t("from")}: ${m.from_name}` : `${t("to")}: ${m.to_name}`}
                         </p>
-                        <span className="text-xs text-stone-400 shrink-0">{new Date(m.created_at).toLocaleDateString()}</span>
+                        <span className="text-xs text-stone-400 shrink-0">{fmtDateTime(m.created_at)}</span>
                       </div>
                       {m.subject && <p className="text-sm font-medium text-stone-700">{m.subject}</p>}
                       <p className="text-sm text-stone-500 line-clamp-2">{m.body}</p>

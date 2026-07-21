@@ -4,6 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { Private } from "../context/PrivacyContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { fmtDate } from "../lib/date";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import {
   Folder, FolderOpen, FolderPlus, ChevronLeft, Download, FileText, Upload,
@@ -353,7 +354,7 @@ export default function PatientFolders() {
                   </div>
                   <div className="min-w-0">
                     <p className="font-heading font-bold text-moneygreen-800 truncate"><Private value={p.name} /></p>
-                    <p className="text-xs text-stone-500 mt-0.5"><Private value={p.dob || "—"} /></p>
+                    <p className="text-xs text-stone-500 mt-0.5"><Private value={fmtDate(p.dob) || "—"} /></p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 mt-4 text-xs text-stone-500">

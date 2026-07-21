@@ -3,6 +3,7 @@ import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Btn, Card, inputCls } from "../components/ui-kit";
+import { fmtDate } from "../lib/date";
 import { Video, Calendar, Save, Link2, Mail, ShieldCheck, ExternalLink, Loader2, Copy, LayoutGrid, List } from "lucide-react";
 import { toast } from "sonner";
 
@@ -113,7 +114,7 @@ export default function Telehealth() {
                 ) : activeAppts.map((a, i) => (
                   <tr key={a.id} data-testid={`tele-row-${a.id}`} className={`border-b border-border/60 ${i % 2 ? "bg-tan-50/40" : ""}`}>
                     <td className="px-5 py-3 font-semibold text-moneygreen-800">{a.patient_name}</td>
-                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{a.date}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-stone-600">{fmtDate(a.date)}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{a.time || "—"}</td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-1">

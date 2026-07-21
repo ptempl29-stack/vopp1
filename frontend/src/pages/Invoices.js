@@ -7,6 +7,7 @@ import { printSection } from "../lib/print";
 import { useLang } from "../context/LanguageContext";
 import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
+import { fmtDate } from "../lib/date";
 import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy } from "lucide-react";
 import { toast } from "sonner";
 
@@ -366,8 +367,8 @@ export default function Invoices() {
                       </td>
                       <td className="px-5 py-3 font-mono font-semibold text-moneygreen-700 cursor-pointer hover:underline" onClick={() => viewInvoice(v.id)} data-testid={`open-invoice-${v.id}`}>{v.invoice_number || "—"}</td>
                       <td className="px-5 py-3 text-stone-700 cursor-pointer" onClick={() => viewInvoice(v.id)}><Private value={v.patient_name} /></td>
-                      <td className="px-5 py-3 hidden md:table-cell text-stone-600 cursor-pointer" onClick={() => viewInvoice(v.id)}>{v.service_date || (v.created_at || "").slice(0, 10)}</td>
-                      <td className="px-5 py-3 hidden lg:table-cell text-stone-600" data-testid={`invoice-completed-${v.id}`}>{v.completed_at ? v.completed_at.slice(0, 10) : "—"}</td>
+                      <td className="px-5 py-3 hidden md:table-cell text-stone-600 cursor-pointer" onClick={() => viewInvoice(v.id)}>{fmtDate(v.service_date || (v.created_at || "").slice(0, 10))}</td>
+                      <td className="px-5 py-3 hidden lg:table-cell text-stone-600" data-testid={`invoice-completed-${v.id}`}>{v.completed_at ? fmtDate(v.completed_at.slice(0, 10)) : "—"}</td>
                       <td className="px-5 py-3">
                         <select value={STATUSES.includes(v.status) ? v.status : "in_transit"} onChange={(e) => changeStatus(v.id, e.target.value)}
                           data-testid={`invoice-status-${v.id}`} title={t("changeStatus")}
@@ -402,7 +403,7 @@ export default function Invoices() {
               <div className="flex items-center justify-between mt-3">
                 <div>
                   <p className="font-mono font-bold text-moneygreen-700">{viewing.invoice_number}</p>
-                  <p className="text-sm text-stone-500">{viewing.service_date || (viewing.created_at || "").slice(0, 10)}</p>
+                  <p className="text-sm text-stone-500">{fmtDate(viewing.service_date || (viewing.created_at || "").slice(0, 10))}</p>
                 </div>
                 <Badge tone={statusTone[viewing.status] || "gray"}>{statusLabel(viewing.status)}</Badge>
               </div>
@@ -421,8 +422,8 @@ export default function Invoices() {
                   <h4 className="font-heading text-xs font-bold uppercase tracking-[0.2em] text-moneygreen-600 border-b border-border pb-1.5 mb-2">{t("invoiceInformation")}</h4>
                   <div className="space-y-1 text-sm">
                     <VRow label={t("invoiceNumber")} value={viewing.invoice_number} />
-                    <VRow label={t("serviceDate")} value={viewing.service_date} />
-                    <VRow label={t("completed")} value={viewing.completed_at ? (viewing.completed_at || "").slice(0, 10) : ""} />
+                    <VRow label={t("serviceDate")} value={fmtDate(viewing.service_date)} />
+                    <VRow label={t("completed")} value={viewing.completed_at ? fmtDate((viewing.completed_at || "").slice(0, 10)) : ""} />
                     <VRow label={t("status")} value={statusLabel(viewing.status)} />
                     <VRow label={t("visitReason")} value={viewing.visit_reason} />
                     <VRow label="ICD-10-CM" value={viewing.icd10} />
@@ -491,7 +492,7 @@ export default function Invoices() {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <Badge tone="green">{t("session")}</Badge>
-                        <span className="text-xs font-mono text-stone-500">{n.visit_date || (n.created_at || "").slice(0, 10)}</span>
+                        <span className="text-xs font-mono text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</span>
                         {n.icd10 && <span className="text-xs text-stone-500">· ICD-10 {n.icd10}</span>}
                       </div>
                       <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-moneygreen-600 shrink-0" />

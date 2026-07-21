@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import api from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Card, Badge, Empty, Btn, inputCls } from "../components/ui-kit";
+import { fmtDateTime } from "../lib/date";
 import { ShieldCheck, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 
 const PAGE = 25;
@@ -42,7 +43,7 @@ export default function AuditLog() {
   const reset = () => { setPage(0); setF({ resource: "", action: "", start: "", end: "" }); };
 
   const totalPages = Math.max(1, Math.ceil(data.total / PAGE));
-  const fmt = (iso) => (iso || "").replace("T", " ").slice(0, 19);
+  const fmt = (iso) => fmtDateTime(iso);
 
   return (
     <div data-testid="audit-page">
