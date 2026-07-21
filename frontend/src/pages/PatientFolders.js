@@ -8,7 +8,7 @@ import { fmtDate } from "../lib/date";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import {
   Folder, FolderOpen, FolderPlus, ChevronLeft, Download, FileText, Upload,
-  Pencil, Trash2, Search, Plus, MoveRight, ClipboardList, Users, Eye, UploadCloud,
+  Pencil, Trash2, Search, Plus, MoveRight, ClipboardList, Users, Eye, UploadCloud, CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -71,6 +71,16 @@ export default function PatientFolders() {
       toast.success(t("delete") + " ✓");
       if (activeSub === sid) setActiveSub("all");
       refresh();
+    } catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const toggleReady = async () => {
+    const next = !openFolder.ready;
+    try {
+      await api.put(`/folders/${openFolder.patient_id}/ready`, { ready: next });
+      setOpenFolder({ ...openFolder, ready: next });
+      toast.success(next ? t("folderReadyToast") : t("folderNotReadyToast"));
+      loadPatients();
     } catch (e) { toast.error(apiErr(e)); }
   };
 
@@ -183,11 +193,12 @@ export default function PatientFolders() {
             </div>
           </div>
         )}
-        <PageHeader title={<Private value={openFolder.patient_name} />} subtitle={`${items.length} ${t("documents")}`}
+        <PageHeader title={<span className="inline-flex items-center gap-2"><Private value={openFolder.patient_name} />{openFolder.ready && <Badge tone="green" data-testid="folder-ready-badge"><span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{t("folderReady")}</span></Badge>}</span>} subtitle={`${items.length} ${t("documents")}`}
           action={
             <div className="flex flex-wrap gap-2">
               <Btn variant="outline" onClick={() => { setOpenFolder(null); loadPatients(); }} data-testid="folder-back"><ChevronLeft className="w-4 h-4" />{t("backToFolders")}</Btn>
               <Btn variant="outline" onClick={() => setSubModal({ name: "" })} data-testid="new-subfolder-btn"><FolderPlus className="w-4 h-4" />{t("newSubfolder")}</Btn>
+              <Btn variant={openFolder.ready ? "outline" : "primary"} onClick={toggleReady} data-testid="folder-ready-toggle"><CheckCircle2 className="w-4 h-4" />{openFolder.ready ? t("markNotReady") : t("markReady")}</Btn>
             </div>} />
 
         {/* Subfolder chips */}
@@ -356,6 +367,7 @@ export default function PatientFolders() {
                     <p className="font-heading font-bold text-moneygreen-800 truncate"><Private value={p.name} /></p>
                     <p className="text-xs text-stone-500 mt-0.5"><Private value={fmtDate(p.dob) || "—"} /></p>
                   </div>
+                  {p.ready && <div className="ml-auto shrink-0"><Badge tone="green" data-testid={`folder-ready-${p.id}`}><span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{t("folderReady")}</span></Badge></div>}
                 </div>
                 <div className="flex items-center gap-4 mt-4 text-xs text-stone-500">
                   <span className="inline-flex items-center gap-1"><FileText className="w-3.5 h-3.5" />{p.item_count} {t("documents")}</span>

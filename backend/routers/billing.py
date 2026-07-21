@@ -57,7 +57,7 @@ async def list_invoices(user: dict = Depends(require_roles("biller", "receptioni
     return invoices
 
 
-INVOICE_SEQ_BASE = 25
+INVOICE_SEQ_BASE = 29
 
 
 async def _compute_next_number() -> str:

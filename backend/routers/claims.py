@@ -124,7 +124,6 @@ FMP_CHECKLIST = [
     ("invoice", "Itemized Invoice"),
     ("progress_note", "Signed Clinical Progress Note / Initial Evaluation"),
     ("va_disability_letter", "VA Disability Verification Letter"),
-    ("fmp_registration", "FMP Registration Form (VA Form 10-7959f-1)"),
     ("provider_exequatur", "Provider Exequatur"),
     ("provider_diploma", "Provider Diploma"),
 ]
@@ -172,43 +171,101 @@ async def _build_packet_pdf(c) -> bytes:
     pay = "Provider payment requested - Provider box on VA Form 10-7959f-2" \
         if (c.get("payment_to") or "provider") == "provider" else "Veteran payment requested"
 
+    # ================= Professional cover + checklist =================
+    GREEN = (25, 90, 60)
+    GREEN_LT = (232, 243, 237)
+    TAN_LT = (247, 242, 232)
+    INK = (38, 38, 38)
+    GREY = (105, 105, 105)
+
     pdf = new_pdf()
-    pdf.set_font(FONT, "B", 15)
-    pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(0, 8, "Foreign Medical Program (FMP) Fully Developed Claim Packet")
-    pdf.ln(2)
+    content_w = pdf.w - pdf.l_margin - pdf.r_margin
 
-    def row(label, val):
-        pdf.set_x(pdf.l_margin)
+    def band(title, subtitle=None):
         y0 = pdf.get_y()
-        pdf.set_font(FONT, "B", 10)
-        pdf.multi_cell(54, 7, label)
-        pdf.set_xy(pdf.l_margin + 54, y0)
-        pdf.set_font(FONT, "", 10)
-        pdf.multi_cell(0, 7, str(val or "-"))
+        pdf.set_fill_color(*GREEN)
+        pdf.rect(pdf.l_margin, y0, content_w, 20, style="F")
+        pdf.set_xy(pdf.l_margin + 4, y0 + 3.5)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font(FONT, "B", 9)
+        pdf.cell(content_w - 8, 4.5, (clinic or "").upper()[:80], ln=True)
+        pdf.set_x(pdf.l_margin + 4)
+        pdf.set_font(FONT, "B", 14)
+        pdf.cell(content_w - 8, 8, title, ln=True)
+        pdf.set_y(y0 + 20)
+        if subtitle:
+            pdf.set_x(pdf.l_margin)
+            pdf.set_fill_color(*TAN_LT)
+            pdf.set_text_color(*GREY)
+            pdf.set_font(FONT, "", 8.5)
+            pdf.cell(content_w, 7, "  " + subtitle, ln=True, fill=True)
+        pdf.set_text_color(*INK)
+        pdf.ln(5)
 
-    row("Veteran:", vet_name)
-    row("Date of Birth:", disp_date(dob) if dob else "")
-    row("SSN / VA Claim File No.:", f"{ssn or '-'} / {c.get('va_claim_number') or '-'}")
-    row("Claim / Service Date:", svc_date)
-    row("Provider:", f"{provider}, {clinic}" if provider else clinic)
-    row("Clinic Address:", clinic_addr)
-    row("Diagnosis Treated:", diagnosis)
-    row("CPT Code / Service:", cpt_desc)
-    row("Invoice:", inv_no)
-    row("Amount Billed:", f"${amount:.2f}" if amount is not None else "-")
-    row("Payment Direction:", pay)
+    def section_title(txt):
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font(FONT, "B", 10.5)
+        pdf.set_text_color(*GREEN)
+        pdf.cell(0, 7, txt, ln=True)
+        y = pdf.get_y()
+        pdf.set_draw_color(*GREEN)
+        pdf.set_line_width(0.4)
+        pdf.line(pdf.l_margin, y, pdf.l_margin + content_w, y)
+        pdf.set_text_color(*INK)
+        pdf.ln(2)
+
+    lw, lh = 58, 6
+    vw = content_w - lw
+
+    def prow(label, val, idx):
+        val = str(val or "-")
+        pdf.set_font(FONT, "", 9)
+        n = max(1, len(pdf.multi_cell(vw - 4, lh, val, dry_run=True, output="LINES")))
+        rh = n * lh + 2
+        y0 = pdf.get_y()
+        if y0 + rh > pdf.h - pdf.b_margin:
+            pdf.add_page()
+            y0 = pdf.get_y()
+        pdf.set_fill_color(*(GREEN_LT if idx % 2 == 0 else (255, 255, 255)))
+        pdf.rect(pdf.l_margin, y0, content_w, rh, style="F")
+        pdf.set_xy(pdf.l_margin + 2, y0 + 1)
+        pdf.set_font(FONT, "B", 8.5)
+        pdf.set_text_color(*GREY)
+        pdf.multi_cell(lw - 2, lh, label)
+        pdf.set_xy(pdf.l_margin + lw + 2, y0 + 1)
+        pdf.set_font(FONT, "", 9)
+        pdf.set_text_color(*INK)
+        pdf.multi_cell(vw - 4, lh, val)
+        pdf.set_y(y0 + rh)
+
+    band("Foreign Medical Program - Fully Developed Claim",
+         f"Claim Packet  ·  {vet_name or 'Veteran'}  ·  {svc_date or ''}")
+
+    section_title("Claim Summary")
+    rows = [
+        ("Veteran", vet_name),
+        ("Date of Birth", disp_date(dob) if dob else ""),
+        ("SSN / VA Claim File No.", f"{ssn or '-'}  /  {c.get('va_claim_number') or '-'}"),
+        ("Date of Service", svc_date),
+        ("Provider", f"{provider}, {clinic}" if provider else clinic),
+        ("Clinic Address", clinic_addr),
+        ("Diagnosis Treated", diagnosis),
+        ("CPT Code / Service", cpt_desc),
+        ("Invoice No.", inv_no),
+        ("Amount Billed", f"${amount:.2f}" if amount is not None else "-"),
+        ("Payment Direction", pay),
+    ]
     if c.get("veteran_physical_address"):
-        row("Veteran Physical Address:", c.get("veteran_physical_address"))
+        rows.append(("Veteran Physical Address", c.get("veteran_physical_address")))
     if c.get("veteran_mailing_address"):
-        row("Veteran Mailing Address:", c.get("veteran_mailing_address"))
+        rows.append(("Veteran Mailing Address", c.get("veteran_mailing_address")))
+    for i, (l, v) in enumerate(rows):
+        prow(l, v, i)
 
     # ---- Checklist page ----
     pdf.add_page()
-    pdf.set_font(FONT, "B", 14)
-    pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(0, 8, "FMP Fully Developed Claim Checklist")
-    pdf.ln(2)
+    band("FMP Fully Developed Claim - Document Checklist",
+         "Enclosed documents are marked complete below")
     cats = set()
     for it in items:
         if it.get("source") == "invoice":
@@ -217,20 +274,42 @@ async def _build_packet_pdf(c) -> bytes:
             cats.add("progress_note")
         if it.get("category"):
             cats.add(it["category"])
-    for cat, label in FMP_CHECKLIST:
-        pdf.set_x(pdf.l_margin)
+
+    section_title("Required Documents")
+    box, rh = 5, 9
+    for idx, (cat, label) in enumerate(FMP_CHECKLIST):
+        present = cat in cats
         y0 = pdf.get_y()
-        pdf.set_font(FONT, "B", 11)
-        pdf.multi_cell(12, 7, "[X]" if cat in cats else "[  ]")
+        pdf.set_fill_color(*(GREEN_LT if idx % 2 == 0 else (255, 255, 255)))
+        pdf.rect(pdf.l_margin, y0, content_w, rh, style="F")
+        bx, by = pdf.l_margin + 3, y0 + (rh - box) / 2
+        pdf.set_draw_color(*GREEN)
+        pdf.set_line_width(0.3)
+        if present:
+            pdf.set_fill_color(*GREEN)
+            pdf.rect(bx, by, box, box, style="DF")
+            pdf.set_xy(bx, by - 1.1)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font(FONT, "B", 8)
+            pdf.cell(box, box + 2, "X", align="C")
+        else:
+            pdf.rect(bx, by, box, box, style="D")
         pdf.set_xy(pdf.l_margin + 12, y0)
-        pdf.set_font(FONT, "", 10)
-        pdf.multi_cell(0, 7, label)
-    pdf.ln(3)
-    pdf.set_font(FONT, "", 9)
+        pdf.set_text_color(*INK)
+        pdf.set_font(FONT, "B" if present else "", 9.5)
+        pdf.cell(content_w - 14, rh, label, ln=True)
+        pdf.set_y(y0 + rh)
+
+    pdf.ln(5)
+    section_title("Suggested Submission Order")
+    pdf.set_font(FONT, "", 8.5)
+    pdf.set_text_color(*GREY)
     pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(0, 5, "Suggested packet order for submission: 1) Claim summary & checklist; "
-                         "2) FMP Claim Cover Sheet; 3) Invoice; 4) Clinical progress note; "
-                         "5) VA disability verification; 6) FMP registration; 7) Provider credentials.")
+    pdf.multi_cell(content_w, 5,
+                   "1) Claim summary & checklist    2) FMP Claim Cover Sheet (VA Form 10-7959f-2)    "
+                   "3) Itemized invoice    4) Signed clinical progress note    "
+                   "5) VA disability verification letter    6) Provider credentials (exequatur & diploma).")
+    pdf.set_text_color(*INK)
 
     cover_bytes = pdf_bytes(pdf)
 

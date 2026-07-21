@@ -280,6 +280,13 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Patients**: SSN field; Name/DOB/SSN flow into invoices/notes; privacy masking applies.
 - Verified: testing_agent iterations 29-31, all 100%. Known: ~25 legacy orphan invoices (null number/date) render '—' gracefully — optional cleanup.
 
+## Iteration 44 (2026-06) — Folder "ready" status, FMP packet polish, invoice floor MB-0029
+- **Patient Folders "Mark as Ready"**: per-patient folder now has a ready flag (stored on patient doc: `folder_ready`/`folder_ready_at`/`folder_ready_by`). New `PUT /api/folders/{patient_id}/ready`. Detail header toggle button (`folder-ready-toggle`) + green "Ready" badge in header and on each folder card in the list. Included in `GET /folders/patients` and `GET /folders/{id}`.
+- **FMP checklist**: removed the "FMP Registration Form (VA Form 10-7959f-1)" line from `FMP_CHECKLIST` and the suggested-order text.
+- **Professional FMP packet & checklist** (`_build_packet_pdf`): green header bands (clinic + title + tan subtitle strip), green section titles with underline rules, alternating-row Claim Summary table (wrap-aware via fpdf2 dry_run line measure + page-break guard), and a real checkbox checklist (filled green box + white X when present). Unicode-safe (José/Muñoz OK). Verified 2-page PDF renders.
+- **Invoice numbering floor → MB-0029** (`INVOICE_SEQ_BASE=29` in billing.py). Verified `GET /invoices/next-number` returns MB-0029 (no existing MB- invoices in DB).
+- Verified: backend curl (invoice next-number, folder ready toggle round-trip via list+detail) + PDF render test. Frontend compiles clean.
+
 ## In progress / Pending
 - (none active)
 

@@ -47,13 +47,14 @@ async def _patient_name(pid):
 
 @router.get("/folders/patients")
 async def list_patient_folders(user: dict = Depends(require_roles(*FOLDERS_ROLES))):
-    pts = await db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "dob": 1}).to_list(2000)
+    pts = await db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "dob": 1, "folder_ready": 1}).to_list(2000)
     counts, subcounts = {}, {}
     async for it in db.folder_items.find({}, {"_id": 0, "patient_id": 1}):
         counts[it["patient_id"]] = counts.get(it["patient_id"], 0) + 1
     async for sf in db.folder_subfolders.find({}, {"_id": 0, "patient_id": 1}):
         subcounts[sf["patient_id"]] = subcounts.get(sf["patient_id"], 0) + 1
     result = [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob"),
+               "ready": bool(p.get("folder_ready")),
                "item_count": counts.get(p["id"], 0), "subfolder_count": subcounts.get(p["id"], 0)} for p in pts]
     result.sort(key=lambda x: x["name"].lower())
     await log_audit("view", "folder", actor=user, detail=f"list ({len(result)})")
@@ -71,13 +72,32 @@ async def attachable_forms(user: dict = Depends(require_roles(*FOLDERS_ROLES))):
 
 @router.get("/folders/{patient_id}")
 async def get_patient_folder(patient_id: str, user: dict = Depends(require_roles(*FOLDERS_ROLES))):
-    name = await _patient_name(patient_id)
-    if not name:
+    p = await db.patients.find_one({"id": patient_id}, {"_id": 0, "first_name": 1, "last_name": 1, "folder_ready": 1})
+    if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
+    name = f"{p['first_name']} {p['last_name']}"
     subs = await db.folder_subfolders.find({"patient_id": patient_id}, {"_id": 0}).sort("name", 1).to_list(500)
     items = await db.folder_items.find({"patient_id": patient_id}, {"_id": 0}).sort("created_at", -1).to_list(2000)
     await log_audit("view", "folder", actor=user, resource_id=patient_id, detail=name)
-    return {"patient_id": patient_id, "patient_name": name, "subfolders": subs, "items": items}
+    return {"patient_id": patient_id, "patient_name": name, "ready": bool(p.get("folder_ready")),
+            "subfolders": subs, "items": items}
+
+
+class ReadyInput(BaseModel):
+    ready: bool
+
+
+@router.put("/folders/{patient_id}/ready")
+async def set_folder_ready(patient_id: str, data: ReadyInput, user: dict = Depends(require_roles(*FOLDERS_ROLES))):
+    if not await _patient_name(patient_id):
+        raise HTTPException(status_code=404, detail="Patient not found")
+    await db.patients.update_one({"id": patient_id}, {"$set": {
+        "folder_ready": data.ready,
+        "folder_ready_at": now_iso() if data.ready else None,
+        "folder_ready_by": user["name"] if data.ready else None}})
+    await log_audit("update", "folder", actor=user, resource_id=patient_id,
+                    detail=f"folder {'ready' if data.ready else 'not ready'}")
+    return {"ok": True, "ready": data.ready}
 
 
 @router.post("/folders/{patient_id}/subfolders")
