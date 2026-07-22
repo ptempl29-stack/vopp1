@@ -25,8 +25,10 @@ export default function Claims() {
   const [patients, setPatients] = useState([]);
   const [forms, setForms] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [notes, setNotes] = useState([]);
   const [pickForm, setPickForm] = useState("");
   const [pickInvoice, setPickInvoice] = useState("");
+  const [pickNote, setPickNote] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
   const [fromDateOpen, setFromDateOpen] = useState(false);
@@ -47,6 +49,7 @@ export default function Claims() {
     api.get("/claims/options/patients").then((r) => setPatients(r.data)).catch(() => {});
     api.get("/claims/options/forms").then((r) => setForms(r.data)).catch(() => {});
     api.get("/claims/options/invoices").then((r) => setInvoices(r.data)).catch(() => {});
+    api.get("/claims/options/notes").then((r) => setNotes(r.data)).catch(() => {});
   }, [load]);
 
   const refreshSelected = async (cid) => {
@@ -122,6 +125,11 @@ export default function Claims() {
   const attachInvoice = async () => {
     if (!pickInvoice) return;
     try { setSelected((await api.post(`/claims/${selected.id}/attach-invoice`, { invoice_id: pickInvoice })).data); setPickInvoice(""); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
+  const attachNote = async () => {
+    if (!pickNote) return;
+    try { setSelected((await api.post(`/claims/${selected.id}/attach-note`, { note_id: pickNote })).data); setPickNote(""); }
     catch (e) { toast.error(apiErr(e)); }
   };
   const onUpload = async (e) => {
@@ -238,7 +246,7 @@ export default function Claims() {
 
         {/* Add-to-packet toolbar */}
         <Card className="p-4 mb-5">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("attachExistingForm")}</label>
               <div className="flex gap-2 mt-1.5">
@@ -257,6 +265,16 @@ export default function Claims() {
                   {invoices.map((i) => <option key={i.id} value={i.id}>{i.invoice_number} · {i.patient_name} · ${i.total}</option>)}
                 </select>
                 <Btn variant="outline" onClick={attachInvoice} disabled={!pickInvoice} data-testid="claim-attach-invoice" className="!px-3"><Plus className="w-4 h-4" /></Btn>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("attachNote")}</label>
+              <div className="flex gap-2 mt-1.5">
+                <select value={pickNote} onChange={(e) => setPickNote(e.target.value)} className={inputCls} data-testid="claim-pick-note">
+                  <option value="">{t("selectNote")}</option>
+                  {notes.map((n) => <option key={n.id} value={n.id}>{n.patient_name} · {fmtDate(n.date)}{n.reason ? ` · ${n.reason}` : ""}</option>)}
+                </select>
+                <Btn variant="outline" onClick={attachNote} disabled={!pickNote} data-testid="claim-attach-note" className="!px-3"><Plus className="w-4 h-4" /></Btn>
               </div>
             </div>
             <div>

@@ -18,6 +18,7 @@ router = APIRouter()
 
 
 def _invoice_pdf(inv: dict, clinic: str) -> bytes:
+    from core.folder_filing import disp_date
     pdf = new_pdf()
     pdf.set_font(FONT, "B", 18)
     pdf.cell(0, 12, (clinic or "")[:60], ln=True)
@@ -32,8 +33,8 @@ def _invoice_pdf(inv: dict, clinic: str) -> bytes:
             pdf.cell(0, 7, str(val), ln=True)
 
     row("Patient:", inv.get("patient_name"))
-    row("DOB:", inv.get("dob"))
-    row("Service Date:", inv.get("service_date"))
+    row("DOB:", disp_date(inv.get("dob")) if inv.get("dob") else "")
+    row("Service Date:", disp_date(inv.get("service_date")) if inv.get("service_date") else "")
     row("Provider:", inv.get("provider"))
     row("Visit Reason:", inv.get("visit_reason"))
     row("ICD-10:", inv.get("icd10"))
@@ -531,6 +532,19 @@ async def attachable_invoices(user: dict = Depends(require_roles("admin"))):
              "status": i.get("status"), "service_date": i.get("service_date")} for i in invoices]
 
 
+@router.get("/claims/options/notes")
+async def attachable_notes(user: dict = Depends(require_roles("admin"))):
+    notes = await db.notes.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    patients = {p["id"]: f"{p['first_name']} {p['last_name']}" async for p in db.patients.find({}, {"_id": 0})}
+    out = []
+    for n in notes:
+        out.append({"id": n["id"],
+                    "patient_name": patients.get(n.get("patient_id")) or n.get("patient_name") or "-",
+                    "date": n.get("visit_date") or (n.get("created_at") or "")[:10],
+                    "note_type": n.get("note_type"), "reason": n.get("reason_for_visit")})
+    return out
+
+
 @router.get("/claims/options/patients")
 async def attachable_patients(user: dict = Depends(require_roles("admin"))):
     pts = await db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).to_list(1000)
@@ -563,6 +577,40 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
             "size": result.get("size")}
     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach invoice {inv.get('invoice_number')}")
+    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+
+
+@router.post("/claims/{cid}/attach-note")
+async def attach_note(cid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
+    from core.folder_filing import note_pdf, disp_date
+    c = await db.claim_packets.find_one({"id": cid})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    n = await db.notes.find_one({"id": payload.get("note_id")}, {"_id": 0})
+    if not n:
+        raise HTTPException(status_code=404, detail="Note not found")
+    p = await db.patients.find_one({"id": n.get("patient_id")}, {"_id": 0}) if n.get("patient_id") else None
+    pname = (f"{p['first_name']} {p['last_name']}" if p else n.get("patient_name")) or ""
+    note = {**n, "patient_name": pname, "dob": (p or {}).get("dob") or n.get("dob"), "ssn": (p or {}).get("ssn")}
+    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    try:
+        pdf = note_pdf(note, clinic)
+    except Exception as e:
+        logger.error(f"note pdf failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not render note PDF")
+    vd = n.get("visit_date") or (n.get("created_at") or "")[:10]
+    fname = f"Progress_Note_{disp_date(vd).replace('/', '-')}.pdf" if vd else "Progress_Note.pdf"
+    path = f"{APP_NAME}/claims/{cid}/{uuid.uuid4()}.pdf"
+    try:
+        result = put_object(path, pdf, "application/pdf")
+    except Exception as e:
+        logger.error(f"note storage failed: {e}")
+        raise HTTPException(status_code=502, detail="File storage failed")
+    item = {"id": str(uuid.uuid4()), "source": "note", "form_id": None, "note_id": n["id"],
+            "storage_path": result["path"], "filename": fname, "content_type": "application/pdf",
+            "size": result.get("size")}
+    await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+    await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach note {fname}")
     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
 
 

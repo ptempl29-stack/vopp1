@@ -223,7 +223,10 @@ export default function Invoices() {
                     </select>
                   </CField>
                 </div>
-                <CField label={t("dob")}><input type="date" value={inv.dob || ""} onChange={setF("dob")} className={cellCls} data-testid="inv-dob" /></CField>
+                <CField label={t("dob")}>
+                  <input type="date" value={inv.dob || ""} onChange={setF("dob")} className={`${cellCls} no-print`} data-testid="inv-dob" />
+                  <span className="print-only text-sm text-moneygreen-800">{fmtDate(inv.dob) || "—"}</span>
+                </CField>
                 <CField label="SSN"><input value={inv.ssn || ""} onChange={setF("ssn")} className={cellCls} data-testid="inv-ssn" placeholder="XXX-XX-XXXX" /></CField>
                 <CField label={t("policyNumber")}><input value={inv.policy_number || ""} onChange={setF("policy_number")} className={cellCls} data-testid="inv-policy" /></CField>
                 <CField label={t("gender")}>
@@ -238,7 +241,10 @@ export default function Invoices() {
               <h3 className="font-heading text-xs font-bold uppercase tracking-[0.2em] text-moneygreen-600 border-b border-border pb-2 mb-3">{t("invoiceInformation")}</h3>
               <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                 <CField label={t("invoiceNumber")}><input value={inv.invoice_number} onChange={setF("invoice_number")} className={cellCls} data-testid="inv-number" /></CField>
-                <CField label={t("serviceDate")}><input type="date" value={inv.service_date} onChange={setF("service_date")} className={cellCls} data-testid="inv-service-date" /></CField>
+                <CField label={t("serviceDate")}>
+                  <input type="date" value={inv.service_date} onChange={setF("service_date")} className={`${cellCls} no-print`} data-testid="inv-service-date" />
+                  <span className="print-only text-sm text-moneygreen-800">{fmtDate(inv.service_date) || "—"}</span>
+                </CField>
                 <CField label={t("visitReason")}>
                   <select value={inv.visit_reason || ""} onChange={setF("visit_reason")} className={cellCls} data-testid="inv-reason">
                     <option value="">—</option>
