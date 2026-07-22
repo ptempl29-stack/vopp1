@@ -287,6 +287,12 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - **Invoice numbering floor → MB-0029** (`INVOICE_SEQ_BASE=29` in billing.py). Verified `GET /invoices/next-number` returns MB-0029 (no existing MB- invoices in DB).
 - Verified: backend curl (invoice next-number, folder ready toggle round-trip via list+detail) + PDF render test. Frontend compiles clean.
 
+## Iteration 45 (2026-06) — Claim "Attach Progress Note" dropbox + invoice PDF dates mm/dd/yyyy
+- **FMP Claim → Attach Progress Note**: claim detail toolbar now has a 4th control, a progress-note dropdown (`claim-pick-note` + `claim-attach-note`) matching the Form/Invoice attach UX. New backend `GET /api/claims/options/notes` (lists all notes: patient, date, reason) and `POST /api/claims/{cid}/attach-note` (renders the note via `note_pdf`, stores as packet item source `note`, filename `Progress_Note_MM-DD-YYYY.pdf`). Toolbar grid → md:2 / lg:4 cols. i18n: `attachNote`, `selectNote` (EN/ES).
+- **Invoice dates mm/dd/yyyy on Save-as-PDF**: the invoice EDITOR's Save-as-PDF printed native `<input type=date>` values (browser-locale). Added print-only `fmtDate()` spans (mm/dd/yyyy) beside DOB + Service Date inputs (`no-print` on the input, `print-only` on the span). Saved list + view modal already used `fmtDate`. Also formatted DOB/Service Date in claims.py `_invoice_pdf` via `disp_date`.
+- Verified: testing_agent iteration_36 — 100% backend + frontend (note dropbox lists 3 notes, attaches item source 'Progress Note'; invoice list + modal show mm/dd/yyyy, 0 ISO strings). Backend also curl-verified.
+- Note (pre-existing, unrelated): several legacy seed invoices render '—' for number/patient/completed.
+
 ## In progress / Pending
 - (none active)
 
