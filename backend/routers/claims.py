@@ -67,6 +67,26 @@ EXTRA_CT = {"xls": "application/vnd.ms-excel",
             "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
 
 
+# Keyword -> FMP checklist category (matched against the lowercased filename).
+_CATEGORY_KEYWORDS = [
+    ("provider_diploma", ("diploma", "titulo", "título", "degree")),
+    ("provider_exequatur", ("exequatur", "exequátur", "exequator")),
+    ("cover_sheet", ("cover", "caratula", "carátula", "7959f-2", "7959f2", "10-7959f-2")),
+    ("fmp_registration", ("registration", "registro", "7959f-1", "7959f1", "10-7959f-1", "enroll")),
+    ("va_disability_letter", ("disability", "discapacidad", "disabilidad", "rating", "va letter", "va-letter")),
+    ("invoice", ("invoice", "factura")),
+    ("progress_note", ("progress", "nota de progreso", "progress note", "clinical note")),
+]
+
+
+def _guess_category(filename: str) -> str:
+    fn = (filename or "").lower()
+    for cat, kws in _CATEGORY_KEYWORDS:
+        if any(k in fn for k in kws):
+            return cat
+    return ""
+
+
 class ClaimInput(BaseModel):
     name: str
     patient_id: Optional[str] = None
@@ -483,7 +503,8 @@ async def attach_form(cid: str, payload: dict, user: dict = Depends(require_role
     att = form["attachment"]
     item = {"id": str(uuid.uuid4()), "source": "form", "form_id": form["id"],
             "storage_path": att["storage_path"], "filename": att["filename"],
-            "content_type": att.get("content_type", "application/octet-stream"), "size": att.get("size")}
+            "content_type": att.get("content_type", "application/octet-stream"), "size": att.get("size"),
+            "category": _guess_category(att["filename"])}
     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach form {att['filename']}")
     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
@@ -509,7 +530,7 @@ async def upload_to_claim(cid: str, file: UploadFile = File(...), user: dict = D
         raise HTTPException(status_code=502, detail="File storage failed")
     item = {"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
             "storage_path": result["path"], "filename": file.filename, "content_type": safe_ct,
-            "size": result.get("size")}
+            "size": result.get("size"), "category": _guess_category(file.filename)}
     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"upload {file.filename}")
     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})

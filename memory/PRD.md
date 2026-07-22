@@ -296,6 +296,11 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 ## In progress / Pending
 - (none active)
 
+## Iteration 46 (2026-06) — Claim item category = visible type + filename auto-detect
+- Claim items table now shows the **category label** (e.g. Provider Exequatur / Provider Diploma / FMP Cover Sheet) as the green Type badge when a category is set (falls back to source). Updates instantly after editing an item's category. `categoryLabelKey` map in Claims.js; badge testid `claim-item-type-{id}`.
+- **Filename auto-detect** (`_guess_category` in claims.py): uploads + attached forms auto-assign a category from the filename (diploma→provider_diploma, exequatur→provider_exequatur, cover/7959f-2→cover_sheet, registration/7959f-1→fmp_registration, disability/rating→va_disability_letter, invoice/factura→invoice, progress→progress_note). Unrecognized names stay uncategorized (manually editable). Bilingual keyword matching.
+- Verified via curl: category round-trips on items; uploads named Diploma/Exequatur/Cover_Sheet_7959f-2 auto-tagged correctly, random name left blank. Frontend compiles clean.
+
 ## Iteration 35 (2026-06) — Patient Folders (per-patient document management)
 - New **Patient Folders** tab (tab key `folders`, `/folders`, icon FolderTree). One folder auto per patient; inside each, create custom **sub-folders** (e.g., Insurance, Lab Results). Items = **uploaded files** (pdf/img/doc/docx/txt/xls/xlsx ≤15MB, Emergent object storage) + **existing patient Forms** attached from the Forms tab (references the form's stored attachment; deleting the folder-item never deletes the shared form file).
 - Item actions: **view/download**, **edit** (rename label + description), **move** (within same patient's sub-folders AND to a different patient's folder), single **delete** + **bulk delete** (Select all/Deselect all, NO confirmation — matches app pattern). Sub-folder chips filter items (All Items / Unfiled / each sub-folder); deleting a sub-folder moves its items to Unfiled (never deletes documents). Sub-folder rename/delete inline on chips (delete has a confirm).
