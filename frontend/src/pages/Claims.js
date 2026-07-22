@@ -12,6 +12,11 @@ import { toast } from "sonner";
 
 const sourceIcon = { form: FileText, invoice: ReceiptText, upload: Upload, note: FileText };
 const sourceTone = { form: "green", invoice: "amber", upload: "tan", note: "green" };
+const categoryLabelKey = {
+  cover_sheet: "catCoverSheet", invoice: "catInvoice", progress_note: "catProgressNote",
+  va_disability_letter: "catVaLetter", fmp_registration: "catFmpRegistration",
+  provider_exequatur: "catExequatur", provider_diploma: "catDiploma",
+};
 const blankForm = { name: "", patient_id: "", claim_number: "", status: "draft", notes: "",
   va_claim_number: "", veteran_physical_address: "", veteran_mailing_address: "", diagnosis_narrative: "", payment_to: "provider" };
 
@@ -309,7 +314,7 @@ export default function Claims() {
                       <motion.tr key={it.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
                         data-testid={`claim-item-${it.id}`}
                         className={`border-b border-border/60 ${i % 2 ? "bg-tan-50/40" : ""}`}>
-                        <td className="px-5 py-3"><Badge tone={sourceTone[it.source] || "gray"}>{t(`src_${it.source}`)}</Badge></td>
+                        <td className="px-5 py-3"><Badge tone={it.category ? "green" : (sourceTone[it.source] || "gray")} data-testid={`claim-item-type-${it.id}`}>{it.category ? t(categoryLabelKey[it.category] || `src_${it.source}`) : t(`src_${it.source}`)}</Badge></td>
                         <td className="px-5 py-3 text-stone-700"><span className="inline-flex items-center gap-2"><Icon className="w-4 h-4 text-stone-400" />{it.filename}</span></td>
                         <td className="px-5 py-3">
                           <div className="flex justify-end items-center gap-1">
