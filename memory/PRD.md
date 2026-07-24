@@ -293,8 +293,27 @@ Bilingual (EN/ES) health clinic web app for managing patients, appointments, pro
 - Verified: testing_agent iteration_36 — 100% backend + frontend (note dropbox lists 3 notes, attaches item source 'Progress Note'; invoice list + modal show mm/dd/yyyy, 0 ISO strings). Backend also curl-verified.
 - Note (pre-existing, unrelated): several legacy seed invoices render '—' for number/patient/completed.
 
+## Iteration 47 (2026-06) — FMP Claim Packet Automation System (Phase 1) + provider exequatur on notes
+**Header entry point:** money-green **$** button beside Privacy (`claim-automation-btn`), visible to admin + billing, opens new `/claim-builder`.
+
+**New backend `routers/fmp.py`** (roles: admin, biller), uses **PyMuPDF (fitz)** added to requirements:
+- Per-patient cover-sheet templates (`fmp_templates` collection): `POST /api/fmp/templates/{pid}` (upload PDF, versioned, archives prior active, original never overwritten), `GET /api/fmp/templates/{pid}`, `GET /api/fmp/templates/{pid}/preview.png` (rasterized 1st page for the draw-box UI), `PUT /api/fmp/templates/{tid}/date-field` (fractional coords fx/fy/fw/fh + date_format + font_size), `POST /api/fmp/templates/{tid}/archive`.
+- `GET /api/fmp/visits/{pid}` — patient progress notes each with linked invoice (matched by date), signed flag, provider, codes.
+- `POST /api/fmp/generate` — resolves date-of-service (invoice service date → signed note date → manual), **stamps ONLY the date** onto a fresh copy of the cover sheet (`_stamp_date`, fitz insert_textbox), generates invoice PDF + note PDF, assembles a `claim_packet` with `validation{status,issues}` (ready/review/blocked), `cover_review`, duplicate detection. Blocks on date mismatch / missing template / missing date field.
+- `POST /api/fmp/claims/{cid}/approve` — requires `confirm_cover_date`, refuses when blocked; sets approved + status complete.
+
+**New frontend `pages/ClaimBuilder.js`**: patient picker → template panel (upload/replace/version/date-field status) + **draw-box modal** (drag a rectangle on the rendered PDF → fractional coords, date format + font size) → visit picker → Generate → **Review screen** (validation badge, document table, issues list, Cover-Sheet Update panel with confirm checkbox, Download merged PDF, Approve with gating). Full EN/ES i18n.
+
+**Provider Exequatur No.**: added `exequatur_number` to `NoteInput`, user profile (RegisterInput + Staff Enrollment field `en-exequatur`) and minimized `/users` projection. Notes editor field `nf-exequatur` near Provider (auto-fills from selected provider's profile); rendered near the provider signature in the note card, view, editor, and in `note_pdf` (folder/claims PDFs).
+
+**Invoice numbering floor → MB-0036** (billing.py).
+
+**Skipped per user:** all of §13 (encryption/MFA/infra). **Deferred to Phase 2:** AI/OCR date extraction from scanned PDFs (user answer 2b), full patient-record section placement, and the expanded claim dashboard status lifecycle (§10).
+
+Verified: backend curl (template upload→date-field→generate→stamp→approve gating; exequatur persistence + PDF) and testing_agent iteration_37 (**100% frontend, no bugs**).
+
 ## In progress / Pending
-- (none active)
+- (none active — Phase 2 items above are backlog)
 
 ## Iteration 46 (2026-06) — Claim item category = visible type + filename auto-detect
 - Claim items table now shows the **category label** (e.g. Provider Exequatur / Provider Diploma / FMP Cover Sheet) as the green Type badge when a category is set (falls back to source). Updates instantly after editing an item's category. `categoryLabelKey` map in Claims.js; badge testid `claim-item-type-{id}`.
