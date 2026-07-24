@@ -20,7 +20,7 @@ const riskKey = { Low: "riskLow", Moderate: "riskModerate", High: "riskHigh", Im
 const blank = {
   patient_id: "", title: "", content: "", note_type: "free",
   dob: "", gender: "", ssn: "", visit_date: new Date().toISOString().slice(0, 10),
-  icd10: "", cpt_code: "", risk_level: "", attending_provider: "", signature: "",
+  icd10: "", cpt_code: "", risk_level: "", attending_provider: "", exequatur_number: "", signature: "",
   summary: "", ai_summarized: false,
 };
 
@@ -126,6 +126,7 @@ export default function Notes() {
       content: n.content || "",
       icd10: n.icd10 || "", cpt_code: n.cpt_code || "", risk_level: n.risk_level || "",
       attending_provider: n.attending_provider || "",
+      exequatur_number: n.exequatur_number || "",
       dob: p.dob || n.dob || "", ssn: p.ssn || n.ssn || "", gender: p.gender || n.gender || "",
       visit_date: new Date().toISOString().slice(0, 10),
       signature: user?.default_signature || "",
@@ -205,10 +206,18 @@ export default function Notes() {
             </select>
           </HRow>
           <HRow label={t("provider")}>
-            <select value={form.attending_provider || ""} onChange={set("attending_provider")} className={headerInputCls} data-testid="nf-provider">
+            <select value={form.attending_provider || ""} onChange={(e) => {
+                const name = e.target.value;
+                const prov = providers.find((u) => u.name === name);
+                setForm((f) => ({ ...f, attending_provider: name,
+                  exequatur_number: (prov && prov.exequatur_number) ? prov.exequatur_number : f.exequatur_number }));
+              }} className={headerInputCls} data-testid="nf-provider">
               <option value="">{t("selectProvider")}</option>
               {providers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
             </select>
+          </HRow>
+          <HRow label={t("exequaturNo")}>
+            <input value={form.exequatur_number || ""} onChange={set("exequatur_number")} className={headerInputCls} data-testid="nf-exequatur" placeholder={t("exequaturPlaceholder")} />
           </HRow>
         </div>
       </div>
@@ -381,6 +390,7 @@ export default function Notes() {
                   <div className="mt-3 pt-3 border-t border-border">
                     <img src={n.signature} alt="signature" className="h-12 object-contain my-1" data-testid={`note-sig-${n.id}`} />
                     <p className="text-sm"><span className="font-bold text-moneygreen-800">{t("providerSignature")}</span> <span className="text-stone-500">· {fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</span></p>
+                    {n.exequatur_number && <p className="text-xs text-stone-500" data-testid={`note-exequatur-${n.id}`}>{t("exequaturNo")}: {n.exequatur_number}</p>}
                   </div>
                 )}
                 <div className="mt-3 pt-3 border-t border-border flex justify-end gap-2">
@@ -415,6 +425,7 @@ export default function Notes() {
               <div className="pt-3 border-t border-border">
                 <img src={form.signature} alt="signature" className="h-14 object-contain my-1" />
                 <p className="text-sm"><span className="font-bold text-moneygreen-800">{t("providerSignature")}</span> <span className="text-stone-500">· {fmtDate(form.visit_date)}</span></p>
+                {form.exequatur_number && <p className="text-xs text-stone-500">{t("exequaturNo")}: {form.exequatur_number}</p>}
               </div>
             )}
           </div>
@@ -468,6 +479,7 @@ export default function Notes() {
                 <div className="pt-3 border-t border-border">
                   <img src={viewing.signature} alt="signature" className="h-14 object-contain my-1" />
                   <p className="text-sm"><span className="font-bold text-moneygreen-800">{t("providerSignature")}</span> <span className="text-stone-500">· {fmtDate(viewing.visit_date)}</span></p>
+                  {viewing.exequatur_number && <p className="text-xs text-stone-500" data-testid="view-note-exequatur">{t("exequaturNo")}: {viewing.exequatur_number}</p>}
                 </div>
               )}
             </div>

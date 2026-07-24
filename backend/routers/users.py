@@ -16,7 +16,7 @@ async def list_users(user: dict = Depends(get_current_user)):
         for u in users:
             u["allowed_tabs"] = effective_tabs(u)
         return users
-    users = await db.users.find({}, {"_id": 0, "id": 1, "name": 1, "role": 1}).to_list(200)
+    users = await db.users.find({}, {"_id": 0, "id": 1, "name": 1, "role": 1, "title": 1, "exequatur_number": 1}).to_list(200)
     return users
 
 

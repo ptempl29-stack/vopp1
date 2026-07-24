@@ -19,7 +19,7 @@ function genPassword() {
 
 const blank = {
   name: "", email: "", role: "receptionist", password: genPassword(),
-  require_password_change: true, phone: "", title: "", license_number: "", doxy_room: "",
+  require_password_change: true, phone: "", title: "", license_number: "", exequatur_number: "", doxy_room: "",
 };
 
 export default function StaffEnrollment() {
@@ -135,6 +135,7 @@ export default function StaffEnrollment() {
             <Field label={t("phone")}><input value={form.phone} onChange={set("phone")} className={inputCls} data-testid="en-phone" /></Field>
             <Field label={t("professionalTitle")}><input value={form.title} onChange={set("title")} className={inputCls} data-testid="en-title" placeholder="MD, RN, LCSW…" /></Field>
             <Field label={t("licenseNumber")}><input value={form.license_number} onChange={set("license_number")} className={inputCls} data-testid="en-license" /></Field>
+            <Field label={t("exequaturNo")}><input value={form.exequatur_number} onChange={set("exequatur_number")} className={inputCls} data-testid="en-exequatur" placeholder={t("exequaturPlaceholder")} /></Field>
             <Field label={t("doxyRoom")}><input value={form.doxy_room} onChange={set("doxy_room")} className={inputCls} data-testid="en-doxy" placeholder="dr-lastname" /></Field>
           </div>
         </Card>

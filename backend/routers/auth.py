@@ -68,7 +68,7 @@ async def register(data: RegisterInput, current: dict = Depends(require_roles("a
             "password_hash": hash_password(data.password), "name": data.name,
             "role": data.role, "allowed_tabs": tabs, "active": True, "token_version": 0,
             "must_change_password": bool(data.require_password_change), "created_at": now_iso()}
-    for fld in ("phone", "title", "license_number", "doxy_room"):
+    for fld in ("phone", "title", "license_number", "exequatur_number", "doxy_room"):
         val = getattr(data, fld, None)
         if val:
             user[fld] = val.strip()

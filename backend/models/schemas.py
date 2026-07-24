@@ -17,6 +17,7 @@ class RegisterInput(BaseModel):
     phone: Optional[str] = None
     title: Optional[str] = None
     license_number: Optional[str] = None
+    exequatur_number: Optional[str] = None
     doxy_room: Optional[str] = None
 
 
@@ -68,6 +69,7 @@ class NoteInput(BaseModel):
     reason_for_visit: Optional[str] = None
     attending_provider: Optional[str] = None
     referring_provider: Optional[str] = None
+    exequatur_number: Optional[str] = None
     icd10: Optional[str] = None
     cpt_code: Optional[str] = None
     risk_level: Optional[str] = None

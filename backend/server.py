@@ -17,7 +17,7 @@ from data.seed import CPT_LIBRARY, DEMO_USERS
 
 from routers import (auth, settings, patients, appointments, notes,
                      billing, messages, forms, folders, dashboard, audit, telehealth, claims, invites, assistant,
-                     users, roles, mailbox)
+                     users, roles, mailbox, fmp)
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -29,7 +29,7 @@ async def health():
 
 for module in (auth, settings, patients, appointments, notes,
                billing, messages, forms, folders, dashboard, audit, telehealth, claims, invites, assistant,
-               users, roles, mailbox):
+               users, roles, mailbox, fmp):
     api_router.include_router(module.router)
 
 

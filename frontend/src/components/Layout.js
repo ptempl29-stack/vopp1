@@ -6,7 +6,7 @@ import { usePrivacy } from "../context/PrivacyContext";
 import {
   LayoutDashboard, Users, CalendarDays, FileText, ReceiptText,
   ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages, Hash,
-  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff, FolderTree, Mail,
+  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff, FolderTree, Mail, DollarSign,
 } from "lucide-react";
 
 const nav = [
@@ -99,6 +99,14 @@ export default function Layout({ children }) {
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500">{t("tagline")}</p>
           </div>
           <div className="flex items-center gap-2">
+            {(user?.role === "admin" || (user?.allowed_tabs || []).includes("claims")) && (
+              <button onClick={() => navigate("/claim-builder")} data-testid="claim-automation-btn"
+                title={t("claimBuilder")}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-moneygreen-600 text-white border border-moneygreen-600 text-sm font-semibold hover:bg-moneygreen-700 transition-colors duration-200 shadow-sm">
+                <DollarSign className="w-4 h-4" />
+                <span className="hidden sm:inline">{t("claimBuilder")}</span>
+              </button>
+            )}
             <button onClick={togglePrivacy} data-testid="privacy-toggle"
               title={t("privacyMode")}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-sm font-semibold transition-colors duration-200 ${
