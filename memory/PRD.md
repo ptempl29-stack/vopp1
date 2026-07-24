@@ -315,6 +315,12 @@ Verified: backend curl (template upload→date-field→generate→stamp→approv
 ## In progress / Pending
 - (none active — Phase 2 items above are backlog)
 
+## Iteration 48 (2026-06) — Dr. Saday Cabrera Rodríguez signature replacement
+- Extracted the handwritten blue-ink signature from the uploaded PDF (excluded the printed "Exequatur Num: 49061" line), removed the white background → transparent 640×97 PNG (~45KB).
+- Set it as `default_signature` on the operating provider account (usvopp@yahoo.com / "CEO") in the PREVIEW DB. Verified it renders on the note PDF above "Provider Signature" with "Exequatur No.: 49061" below.
+- Hosted a downloadable copy at `/saday-cabrera-signature.png` (frontend/public) for the user to apply in PRODUCTION (separate DB) via Notes → signature pad → Upload → "Save as default signature".
+- NOTE: historical signed notes retain their original embedded signature; only new notes pick up the new default.
+
 ## Iteration 46 (2026-06) — Claim item category = visible type + filename auto-detect
 - Claim items table now shows the **category label** (e.g. Provider Exequatur / Provider Diploma / FMP Cover Sheet) as the green Type badge when a category is set (falls back to source). Updates instantly after editing an item's category. `categoryLabelKey` map in Claims.js; badge testid `claim-item-type-{id}`.
 - **Filename auto-detect** (`_guess_category` in claims.py): uploads + attached forms auto-assign a category from the filename (diploma→provider_diploma, exequatur→provider_exequatur, cover/7959f-2→cover_sheet, registration/7959f-1→fmp_registration, disability/rating→va_disability_letter, invoice/factura→invoice, progress→progress_note). Unrecognized names stay uncategorized (manually editable). Bilingual keyword matching.
