@@ -11,7 +11,7 @@ API = f"{BASE_URL}/api"
 pytestmark = pytest.mark.xdist_group(name="patient_folders")
 
 ADMIN_EMAIL = "usvopp@yahoo.com"
-ADMIN_PASSWORD = "Football2023?"
+ADMIN_PASSWORD = __import__("os").getenv("TEST_ADMIN_PASSWORD", "Football2023?")
 
 
 @pytest.fixture(scope="module")

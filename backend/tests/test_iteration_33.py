@@ -7,7 +7,7 @@ import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 ADMIN_EMAIL = "usvopp@yahoo.com"
-ADMIN_PASSWORD = "Football2023?"
+ADMIN_PASSWORD = __import__("os").getenv("TEST_ADMIN_PASSWORD", "Football2023?")
 
 
 @pytest.fixture(scope="module")

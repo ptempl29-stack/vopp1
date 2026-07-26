@@ -1,6 +1,8 @@
 // Robust multi-page printing: clone the target node into a top-level holder
 // so content flows across pages (avoids overlap caused by absolutely
 // positioned content inside scrollable modals).
+import DOMPurify from "dompurify";
+
 export function printSection(nodeId) {
   const src = document.getElementById(nodeId);
   if (!src) { window.print(); return; }
@@ -8,7 +10,7 @@ export function printSection(nodeId) {
   if (existing) existing.remove();
   const holder = document.createElement("div");
   holder.id = "print-holder";
-  holder.innerHTML = src.innerHTML;
+  holder.innerHTML = DOMPurify.sanitize(src.innerHTML, { ADD_ATTR: ["target"] });
   document.body.appendChild(holder);
   document.body.classList.add("printing");
   const cleanup = () => {

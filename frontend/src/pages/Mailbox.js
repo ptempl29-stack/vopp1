@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import DOMPurify from "dompurify";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
@@ -206,7 +207,7 @@ export default function Mailbox() {
               <div className="text-xs text-stone-400">{selected.date}</div>
             </div>
             {selected.body_html
-              ? <div className="prose prose-sm max-w-none text-stone-700 max-h-[50vh] overflow-y-auto" dangerouslySetInnerHTML={{ __html: selected.body_html }} />
+              ? <div className="prose prose-sm max-w-none text-stone-700 max-h-[50vh] overflow-y-auto" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selected.body_html, { ADD_ATTR: ["target"] }) }} />
               : <pre className="whitespace-pre-wrap text-sm text-stone-700 font-sans max-h-[50vh] overflow-y-auto">{selected.body_text}</pre>}
             {selected.attachments?.length > 0 && (
               <div className="pt-3 border-t border-border">

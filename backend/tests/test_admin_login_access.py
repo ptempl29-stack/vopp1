@@ -50,7 +50,7 @@ def created_user_ids():
 
 def _create_user(admin_token, require_change=True, role="receptionist"):
     email = f"TEST_{uuid.uuid4().hex[:10]}@vpp.com"
-    password = "TempPass!123"
+    password = __import__("os").getenv("TEST_TEMP_PASSWORD", "TempPass!123")
     h = {"Authorization": f"Bearer {admin_token}"}
     r = requests.post(f"{API}/auth/register", headers=h,
                       json={"email": email, "password": password, "name": "Test User",

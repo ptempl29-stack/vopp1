@@ -315,6 +315,22 @@ Verified: backend curl (template upload→date-field→generate→stamp→approv
 ## In progress / Pending
 - (none active — Phase 2 items above are backlog)
 
+## Iteration 51 (2026-06) — Code review fixes (safe subset applied; risky refactors deferred)
+Applied:
+- **XSS**: added `dompurify`; sanitized external email HTML in `Mailbox.js` (`DOMPurify.sanitize`) and cloned print content in `lib/print.js` (data-URI images/tables preserved).
+- **Empty catch blocks**: `HiddenOptionsContext.js` now logs errors (the Notes/Invoices/Forms/AuditLog catches already had explanatory comments — reviewer's own guideline #10 satisfied).
+- **Unstable keys**: `ClaimBuilder` issues list and `Invoices` view line-items now use stable composite keys (remaining flagged spots are append-only/read-only lists where index is safe).
+- **Nested ternary**: extracted invoice status→class into `statusSelectClass()` helper.
+- **Test secrets**: 6 `backend/tests/*` files read the admin/temp password from env (`TEST_ADMIN_PASSWORD`/`TEST_TEMP_PASSWORD`) with fallback.
+- **Python undefined vars (#5)**: pyflakes shows backend app code is CLEAN — no undefined names (review false positive).
+
+Deferred (high regression risk on a live production app, no functional gain — will do deliberately only if requested):
+- #3 auth localStorage → httpOnly cookies (full auth re-architecture + CSRF; needs integration_expert).
+- #4 blanket fix of 41 hook deps (risk of fetch loops).
+- #6 refactor `_build_packet_pdf`/`billing_report`/`generate_packet` (tested, working PDF output).
+- #7 split large page components.
+- Remainder of #8/#9 (index keys on append-only lists; cosmetic nested ternaries).
+
 ## Iteration 50 (2026-06) — Removable dropdown values (hide/restore) across the app
 - New reusable `components/ManagedSelect.js`: drop-in replacement for native `<select>` (parses `<option>` children, `onChange` still gets `{target:{value}}`). Renders a button + **portal** panel (avoids clipping in modals); hovering an option shows a **trash icon** to remove it from the list; a footer "N removed — manage" reveals removed items with a **restore** icon. Includes an offscreen `required` mirror input so native form validation still works.
 - New `context/HiddenOptionsContext.js` (app-wrapped) + backend `GET/POST /api/hidden-options` and `POST /api/hidden-options/restore` (stored in `settings` doc `key='hidden_options'`, map keyed per data-type). Hiding is per data-type, so removing e.g. a patient hides it from ALL patient dropdowns; the underlying record is untouched.

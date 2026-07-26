@@ -22,6 +22,12 @@ const emptyInvoice = {
 const reasons = ["General Consultation", "Physical Therapy", "Therapeutic Massage", "Relaxing Massage", "Evaluation", "Follow-up", "Re-evaluation", "Psychotherapy", "Group Therapy"];
 const STATUSES = ["in_transit", "paid", "denied"];
 const statusTone = { paid: "green", in_transit: "amber", denied: "red", unpaid: "amber", void: "gray", outstanding: "amber" };
+const STATUS_SELECT_CLASS = {
+  green: "bg-moneygreen-100 text-moneygreen-700 border-moneygreen-200",
+  red: "bg-red-100 text-red-700 border-red-200",
+  amber: "bg-amber-100 text-amber-700 border-amber-200",
+};
+const statusSelectClass = (status) => STATUS_SELECT_CLASS[statusTone[status]] || STATUS_SELECT_CLASS.amber;
 const statusKey = { in_transit: "inTransit", paid: "paid", denied: "denied", unpaid: "unpaid", void: "draft", outstanding: "outstanding" };
 
 const cellCls = "w-full px-2 py-1.5 rounded-md bg-white border border-border focus:outline-none focus:ring-2 focus:ring-moneygreen-500 text-sm";
@@ -379,7 +385,7 @@ export default function Invoices() {
                       <td className="px-5 py-3">
                         <select value={STATUSES.includes(v.status) ? v.status : "in_transit"} onChange={(e) => changeStatus(v.id, e.target.value)}
                           data-testid={`invoice-status-${v.id}`} title={t("changeStatus")}
-                          className={`px-2 py-1 rounded-md border text-xs font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-moneygreen-500 ${statusTone[v.status] === "green" ? "bg-moneygreen-100 text-moneygreen-700 border-moneygreen-200" : statusTone[v.status] === "red" ? "bg-red-100 text-red-700 border-red-200" : "bg-amber-100 text-amber-700 border-amber-200"}`}>
+                          className={`px-2 py-1 rounded-md border text-xs font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-moneygreen-500 ${statusSelectClass(v.status)}`}>
                           {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
                         </select>
                       </td>
@@ -452,7 +458,7 @@ export default function Invoices() {
                   </thead>
                   <tbody>
                     {(viewing.items || []).map((it, idx) => (
-                      <tr key={idx} className="border-t border-border">
+                      <tr key={`${it.cpt_code || "row"}-${idx}`} className="border-t border-border">
                         <td className="px-3 py-2 font-mono">{it.cpt_code || "—"}</td>
                         <td className="px-3 py-2">{it.description}</td>
                         <td className="px-3 py-2">{it.quantity}</td>

@@ -13,7 +13,7 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://veteran-care-portal.
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "usvopp@yahoo.com"
-ADMIN_PASSWORD = "Football2023?"
+ADMIN_PASSWORD = __import__("os").getenv("TEST_ADMIN_PASSWORD", "Football2023?")
 
 TAG = f"TEST_{uuid.uuid4().hex[:8]}"
 

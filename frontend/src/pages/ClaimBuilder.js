@@ -211,7 +211,7 @@ export default function ClaimBuilder() {
           {val.issues.length > 0 && (
             <div className="space-y-2 mb-5" data-testid="cb-issues">
               {val.issues.map((iss, i) => (
-                <div key={i} className={`flex items-start gap-2 text-sm p-2.5 rounded-md ${iss.level === "blocked" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
+                <div key={`${iss.level}-${i}-${iss.message.slice(0, 12)}`} className={`flex items-start gap-2 text-sm p-2.5 rounded-md ${iss.level === "blocked" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
                   {iss.level === "blocked" ? <XCircle className="w-4 h-4 mt-0.5 shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />}
                   <span>{iss.message}</span>
                 </div>
