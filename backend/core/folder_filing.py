@@ -145,13 +145,15 @@ def note_pdf(note: dict, clinic: str) -> bytes:
         except Exception:
             pass
         date_disp = fmt_date(vd).replace("-", "/") if vd else ""
-        _mc(pdf, "Provider Signature" + (f" \u00b7 {date_disp}" if date_disp else ""), bold=True, size=9)
+        _mc(pdf, "Provider Signature", bold=True, size=9)
         if note.get("exequatur_number"):
-            _mc(pdf, f"Exequatur No.: {note['exequatur_number']}", size=9)
+            _mc(pdf, f"Exequatur Num: {note['exequatur_number']}", size=9)
+        if date_disp:
+            _mc(pdf, date_disp, size=9)
     elif note.get("exequatur_number"):
         pdf.ln(4)
         prov = note.get("attending_provider") or note.get("author") or ""
         if prov:
             _mc(pdf, prov, bold=True, size=9)
-        _mc(pdf, f"Exequatur No.: {note['exequatur_number']}", size=9)
+        _mc(pdf, f"Exequatur Num: {note['exequatur_number']}", size=9)
     return pdf_bytes(pdf)

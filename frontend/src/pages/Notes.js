@@ -389,8 +389,9 @@ export default function Notes() {
                 {n.signature && (
                   <div className="mt-3 pt-3 border-t border-border">
                     <img src={n.signature} alt="signature" className="h-12 object-contain my-1" data-testid={`note-sig-${n.id}`} />
-                    <p className="text-sm"><span className="font-bold text-moneygreen-800">{t("providerSignature")}</span> <span className="text-stone-500">· {fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</span></p>
-                    {n.exequatur_number && <p className="text-xs text-stone-500" data-testid={`note-exequatur-${n.id}`}>{t("exequaturNo")}: {n.exequatur_number}</p>}
+                    <p className="text-sm font-bold text-moneygreen-800">{t("providerSignature")}</p>
+                    {n.exequatur_number && <p className="text-xs text-stone-600" data-testid={`note-exequatur-${n.id}`}>Exequatur Num: {n.exequatur_number}</p>}
+                    <p className="text-xs text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</p>
                   </div>
                 )}
                 <div className="mt-3 pt-3 border-t border-border flex justify-end gap-2">
@@ -424,8 +425,9 @@ export default function Notes() {
             {form.signature && (
               <div className="pt-3 border-t border-border">
                 <img src={form.signature} alt="signature" className="h-14 object-contain my-1" />
-                <p className="text-sm"><span className="font-bold text-moneygreen-800">{t("providerSignature")}</span> <span className="text-stone-500">· {fmtDate(form.visit_date)}</span></p>
-                {form.exequatur_number && <p className="text-xs text-stone-500">{t("exequaturNo")}: {form.exequatur_number}</p>}
+                <p className="text-sm font-bold text-moneygreen-800">{t("providerSignature")}</p>
+                {form.exequatur_number && <p className="text-xs text-stone-600">Exequatur Num: {form.exequatur_number}</p>}
+                <p className="text-xs text-stone-500">{fmtDate(form.visit_date)}</p>
               </div>
             )}
           </div>
@@ -478,8 +480,9 @@ export default function Notes() {
               {viewing.signature && (
                 <div className="pt-3 border-t border-border">
                   <img src={viewing.signature} alt="signature" className="h-14 object-contain my-1" />
-                  <p className="text-sm"><span className="font-bold text-moneygreen-800">{t("providerSignature")}</span> <span className="text-stone-500">· {fmtDate(viewing.visit_date)}</span></p>
-                  {viewing.exequatur_number && <p className="text-xs text-stone-500" data-testid="view-note-exequatur">{t("exequaturNo")}: {viewing.exequatur_number}</p>}
+                  <p className="text-sm font-bold text-moneygreen-800">{t("providerSignature")}</p>
+                  {viewing.exequatur_number && <p className="text-xs text-stone-600" data-testid="view-note-exequatur">Exequatur Num: {viewing.exequatur_number}</p>}
+                  <p className="text-xs text-stone-500">{fmtDate(viewing.visit_date)}</p>
                 </div>
               )}
             </div>
