@@ -139,6 +139,7 @@ class SettingsInput(BaseModel):
     primary_insurance: Optional[str] = ""
     logo: Optional[str] = ""
     usd_to_dop: Optional[float] = 60.0
+    invoice_seq_base: Optional[int] = 36
 
 
 class FormSubmission(BaseModel):

@@ -57,10 +57,21 @@ async def list_invoices(user: dict = Depends(require_roles("biller", "receptioni
     return invoices
 
 
-INVOICE_SEQ_BASE = 36
+DEFAULT_INVOICE_SEQ_BASE = 36
+
+
+async def _get_seq_base() -> int:
+    """Starting invoice number, read from the settings collection (clinic doc)."""
+    s = await db.settings.find_one({"key": "clinic"}, {"_id": 0, "invoice_seq_base": 1})
+    try:
+        v = int((s or {}).get("invoice_seq_base"))
+        return v if v > 0 else DEFAULT_INVOICE_SEQ_BASE
+    except (TypeError, ValueError):
+        return DEFAULT_INVOICE_SEQ_BASE
 
 
 async def _compute_next_number() -> str:
+    base = await _get_seq_base()
     nums = await db.invoices.distinct("invoice_number")
     mx = 0
     for n in nums:
@@ -69,12 +80,30 @@ async def _compute_next_number() -> str:
                 mx = max(mx, int(n.split("-")[1]))
             except (ValueError, IndexError):
                 pass
-    return f"MB-{max(mx + 1, INVOICE_SEQ_BASE):04d}"
+    return f"MB-{max(mx + 1, base):04d}"
 
 
 @router.get("/invoices/next-number")
 async def next_invoice_number(user: dict = Depends(require_roles("biller", "receptionist"))):
     return {"invoice_number": await _compute_next_number()}
+
+
+@router.get("/invoices/seq-base")
+async def get_seq_base(user: dict = Depends(require_roles("biller", "receptionist", "admin"))):
+    return {"invoice_seq_base": await _get_seq_base(), "next_invoice_number": await _compute_next_number()}
+
+
+@router.put("/invoices/seq-base")
+async def set_seq_base(payload: dict, user: dict = Depends(require_roles("biller", "admin"))):
+    try:
+        base = int(payload.get("invoice_seq_base"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="invoice_seq_base must be a whole number")
+    if base < 1 or base > 999999:
+        raise HTTPException(status_code=400, detail="invoice_seq_base must be between 1 and 999999")
+    await db.settings.update_one({"key": "clinic"}, {"$set": {"invoice_seq_base": base, "key": "clinic"}}, upsert=True)
+    await log_audit("update", "settings", actor=user, detail=f"invoice_seq_base={base}")
+    return {"invoice_seq_base": base, "next_invoice_number": await _compute_next_number()}
 
 
 @router.get("/invoices/patient-code-history")

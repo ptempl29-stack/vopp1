@@ -315,6 +315,14 @@ Verified: backend curl (template upload→date-field→generate→stamp→approv
 ## In progress / Pending
 - (none active — Phase 2 items above are backlog)
 
+## Iteration 49 (2026-06) — Invoice starting number moved to settings collection
+- Removed hardcoded `INVOICE_SEQ_BASE`. `_compute_next_number()` now reads `invoice_seq_base` from the `settings` collection (clinic doc) via `_get_seq_base()`, falling back to `DEFAULT_INVOICE_SEQ_BASE=36` if unset/invalid.
+- Added `invoice_seq_base` to `SettingsInput` (persists through the existing `PUT /settings`).
+- New endpoints: `GET /api/invoices/seq-base` (biller/receptionist/admin) and `PUT /api/invoices/seq-base` (biller/admin, validated 1–999999) — audited.
+- CEO settings (Team.js letterhead modal): added **Starting Invoice Number (MB-)** field (`lh-invoice-base`) beside the USD→DOP rate, with a hint. Bilingual keys added.
+- Verified: setting via both the dedicated endpoint and the /settings flow updates the next number; invalid input rejected. Existing higher MB- numbers still respected (max+1 floor).
+- Signature note (iter 48): still pending user action to apply Dr. Saday Cabrera's signature in production DB.
+
 ## Iteration 48 (2026-06) — Dr. Saday Cabrera Rodríguez signature replacement
 - Extracted the handwritten blue-ink signature from the uploaded PDF (excluded the printed "Exequatur Num: 49061" line), removed the white background → transparent 640×97 PNG (~45KB).
 - Set it as `default_signature` on the operating provider account (usvopp@yahoo.com / "CEO") in the PREVIEW DB. Verified it renders on the note PDF above "Provider Signature" with "Exequatur No.: 49061" below.

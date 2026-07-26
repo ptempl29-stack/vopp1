@@ -476,7 +476,11 @@ export default function Team() {
             <Field label={t("email")}><input value={lh.email || ""} onChange={setLhField("email")} className={inputCls} data-testid="lh-email" /></Field>
           </div>
           <Field label={t("whatsapp")}><input value={lh.whatsapp || ""} onChange={setLhField("whatsapp")} className={inputCls} data-testid="lh-whatsapp" placeholder="+1 809 555 0100" /></Field>
-          <Field label={t("usdToDop")}><input type="number" step="0.01" min="1" value={lh.usd_to_dop ?? 60} onChange={setLhField("usd_to_dop")} className={inputCls} data-testid="lh-usd-dop" /></Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t("usdToDop")}><input type="number" step="0.01" min="1" value={lh.usd_to_dop ?? 60} onChange={setLhField("usd_to_dop")} className={inputCls} data-testid="lh-usd-dop" /></Field>
+            <Field label={t("invoiceStartNumber")}><input type="number" step="1" min="1" value={lh.invoice_seq_base ?? 36} onChange={setLhField("invoice_seq_base")} className={inputCls} data-testid="lh-invoice-base" /></Field>
+          </div>
+          <p className="text-xs text-stone-400 -mt-2">{t("invoiceStartHint")}</p>
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="outline" type="button" onClick={() => setLhOpen(false)}>{t("cancel")}</Btn>
             <Btn type="submit" data-testid="save-letterhead-btn">{t("save")}</Btn>
