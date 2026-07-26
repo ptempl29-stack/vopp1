@@ -425,6 +425,14 @@ Deferred (high regression risk on a live production app, no functional gain — 
 - Self-tested: backend dedup/invalid-filter/empty→400 via curl; frontend add/remove recipient inputs verified. Email still INACTIVE pending valid Yahoo App Password.
 
 
+## Iteration 39b (2026-06-26) — Claim Builder dropdown fix + auto-invoice + editable DOS
+- **Fixed the ManagedSelect dropdown scroll bug** (production blocker): the patient dropdown now opens a fixed-position portal panel that stays open and is scrollable inside its list. `onScroll` early-returns when the scroll target is inside `panelRef` (`components/ManagedSelect.js`), so scrolling the patient list no longer closes the menu.
+- **Auto-invoice in Claim Builder**: `POST /api/fmp/generate` auto-creates an invoice when a visit has no linked invoice and the note has a CPT code — exactly **4 units** matched to that CPT (`routers/fmp.py` ~line 261). Invoice number floor is **MB-0039** (`invoice_seq_base=39` in settings; `billing._compute_next_number`).
+- **Editable date of service on FMP cover sheet**: review screen has a date input + "Apply date" (`cb-edit-date` / `cb-apply-date`) that regenerates the packet stamping the new DOS on a copy of the cover sheet.
+- **Day-files selection**: `GET /api/fmp/day-files/{patient_id}?date=` lists documents already filed for that patient/day as selectable checkboxes; checked files are attached to the packet.
+- Added i18n keys (EN/ES): `dayFilesTitle, dayFilesHint, changeDate, applyDate`.
+- Verified by testing agent iteration_39.json (100% backend + frontend). Deployed to production veteransofpuertoplata.com.
+
 ## Backlog / Next (superseded)
 
 ## Earlier backlog
