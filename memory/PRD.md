@@ -315,6 +315,13 @@ Verified: backend curl (template upload→date-field→generate→stamp→approv
 ## In progress / Pending
 - (none active — Phase 2 items above are backlog)
 
+## Iteration 50 (2026-06) — Removable dropdown values (hide/restore) across the app
+- New reusable `components/ManagedSelect.js`: drop-in replacement for native `<select>` (parses `<option>` children, `onChange` still gets `{target:{value}}`). Renders a button + **portal** panel (avoids clipping in modals); hovering an option shows a **trash icon** to remove it from the list; a footer "N removed — manage" reveals removed items with a **restore** icon. Includes an offscreen `required` mirror input so native form validation still works.
+- New `context/HiddenOptionsContext.js` (app-wrapped) + backend `GET/POST /api/hidden-options` and `POST /api/hidden-options/restore` (stored in `settings` doc `key='hidden_options'`, map keyed per data-type). Hiding is per data-type, so removing e.g. a patient hides it from ALL patient dropdowns; the underlying record is untouched.
+- Converted all data-record dropdowns (patient / provider / form / invoice / note / CPT / subfolder / user) across Invoices, Notes, Appointments, Claims, ClaimBuilder, Messages, BillingReports, Patients, Forms, PatientFolders. Enum/system dropdowns (status, role, type, gender, form_type, date format) intentionally left as native (hiding fixed values would break flows).
+- Verified: testing_agent iteration_38 = **100% frontend, no bugs** (open/select/hide/restore, cross-dropdown consistency, record preserved, required validation intact).
+- Minor deferred polish: offscreen required-input can cause slight scroll on empty submit (works correctly; cosmetic).
+
 ## Iteration 49 (2026-06) — Invoice starting number moved to settings collection
 - Removed hardcoded `INVOICE_SEQ_BASE`. `_compute_next_number()` now reads `invoice_seq_base` from the `settings` collection (clinic doc) via `_get_seq_base()`, falling back to `DEFAULT_INVOICE_SEQ_BASE=36` if unset/invalid.
 - Added `invoice_seq_base` to `SettingsInput` (persists through the existing `PUT /settings`).
