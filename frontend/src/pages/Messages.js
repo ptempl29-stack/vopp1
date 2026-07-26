@@ -5,6 +5,7 @@ import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
+import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDateTime } from "../lib/date";
 import { Plus, Mail, MailOpen, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -103,12 +104,12 @@ export default function Messages() {
       <Modal open={open} onClose={() => setOpen(false)} title={t("newMessage")}>
         <form onSubmit={send} className="space-y-4">
           <Field label={t("to")}>
-            <select required value={form.to_user_id} onChange={set("to_user_id")} className={inputCls} data-testid="mf-to">
+            <ManagedSelect listKey="users" required value={form.to_user_id} onChange={set("to_user_id")} className={inputCls} data-testid="mf-to">
               <option value="">—</option>
               {users.filter((u) => u.id !== user.id).map((u) => (
                 <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
               ))}
-            </select>
+            </ManagedSelect>
           </Field>
           <Field label={t("subject")}><input value={form.subject} onChange={set("subject")} className={inputCls} data-testid="mf-subject" /></Field>
           <Field label={t("body")}><textarea required value={form.body} onChange={set("body")} rows={4} className={inputCls} data-testid="mf-body" /></Field>

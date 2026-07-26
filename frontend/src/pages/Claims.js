@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
 import {
   FolderArchive, Plus, Pencil, Trash2, ChevronLeft, Download, FileText,
@@ -255,30 +256,30 @@ export default function Claims() {
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("attachExistingForm")}</label>
               <div className="flex gap-2 mt-1.5">
-                <select value={pickForm} onChange={(e) => setPickForm(e.target.value)} className={inputCls} data-testid="claim-pick-form">
+                <ManagedSelect listKey="claim-forms" value={pickForm} onChange={(e) => setPickForm(e.target.value)} className={inputCls} data-testid="claim-pick-form">
                   <option value="">{t("selectForm")}</option>
                   {forms.map((f) => <option key={f.id} value={f.id}>{f.title} · {f.patient_name}</option>)}
-                </select>
+                </ManagedSelect>
                 <Btn variant="outline" onClick={attachForm} disabled={!pickForm} data-testid="claim-attach-form" className="!px-3"><Plus className="w-4 h-4" /></Btn>
               </div>
             </div>
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("attachInvoice")}</label>
               <div className="flex gap-2 mt-1.5">
-                <select value={pickInvoice} onChange={(e) => setPickInvoice(e.target.value)} className={inputCls} data-testid="claim-pick-invoice">
+                <ManagedSelect listKey="claim-invoices" value={pickInvoice} onChange={(e) => setPickInvoice(e.target.value)} className={inputCls} data-testid="claim-pick-invoice">
                   <option value="">{t("selectInvoice")}</option>
                   {invoices.map((i) => <option key={i.id} value={i.id}>{i.invoice_number} · {i.patient_name} · ${i.total}</option>)}
-                </select>
+                </ManagedSelect>
                 <Btn variant="outline" onClick={attachInvoice} disabled={!pickInvoice} data-testid="claim-attach-invoice" className="!px-3"><Plus className="w-4 h-4" /></Btn>
               </div>
             </div>
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("attachNote")}</label>
               <div className="flex gap-2 mt-1.5">
-                <select value={pickNote} onChange={(e) => setPickNote(e.target.value)} className={inputCls} data-testid="claim-pick-note">
+                <ManagedSelect listKey="claim-notes" value={pickNote} onChange={(e) => setPickNote(e.target.value)} className={inputCls} data-testid="claim-pick-note">
                   <option value="">{t("selectNote")}</option>
                   {notes.map((n) => <option key={n.id} value={n.id}>{n.patient_name} · {fmtDate(n.date)}{n.reason ? ` · ${n.reason}` : ""}</option>)}
-                </select>
+                </ManagedSelect>
                 <Btn variant="outline" onClick={attachNote} disabled={!pickNote} data-testid="claim-attach-note" className="!px-3"><Plus className="w-4 h-4" /></Btn>
               </div>
             </div>
@@ -455,10 +456,10 @@ export default function Claims() {
         <form onSubmit={buildFromDate} className="space-y-4">
           <p className="text-sm text-stone-500">{t("buildFromDateHint")}</p>
           <Field label={t("patient")}>
-            <select required value={fromDate.patient_id} onChange={(e) => setFromDate((f) => ({ ...f, patient_id: e.target.value }))} className={inputCls} data-testid="fd-patient">
+            <ManagedSelect listKey="patients" required value={fromDate.patient_id} onChange={(e) => setFromDate((f) => ({ ...f, patient_id: e.target.value }))} className={inputCls} data-testid="fd-patient">
               <option value="">{t("selectPatient")}</option>
               {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            </ManagedSelect>
           </Field>
           <Field label={t("serviceDate")}>
             <input required type="date" value={fromDate.date} onChange={(e) => setFromDate((f) => ({ ...f, date: e.target.value }))} className={inputCls} data-testid="fd-date" />
@@ -478,10 +479,10 @@ function PacketModal({ open, onClose, editing, form, set, save, patients, t, set
     <Modal open={open} onClose={onClose} title={editing ? t("editClaim") : t("newClaim")}>
       <form onSubmit={save} className="space-y-4">
         <Field label={t("patient")}>
-          <select value={form.patient_id} onChange={setClaimPatient} className={inputCls} data-testid="cf-patient">
+          <ManagedSelect listKey="patients" value={form.patient_id} onChange={setClaimPatient} className={inputCls} data-testid="cf-patient">
             <option value="">{t("selectPatient")}</option>
             {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </ManagedSelect>
         </Field>
         <div className="grid grid-cols-2 gap-4">
           <Field label={t("claimNo")}><input type="date" value={form.claim_number} onChange={setClaimDate} className={inputCls} data-testid="cf-number" /></Field>

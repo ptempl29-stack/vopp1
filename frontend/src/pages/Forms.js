@@ -6,6 +6,7 @@ import { useSelection, bulkDelete } from "../lib/bulk";
 import { useSearchParams } from "react-router-dom";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { ManagedSelect } from "../components/ManagedSelect";
 import { Letterhead } from "../components/Letterhead";
 import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown, FileText, FileSpreadsheet, MessageCircle, Send, Trash2, Mail, FolderInput, Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -354,10 +355,10 @@ export default function Forms() {
             </select>
           </Field>
           <Field label={t("patient")}>
-            <select value={form.patient_id} onChange={onPatientSelect} className={inputCls}>
+            <ManagedSelect listKey="patients" value={form.patient_id} onChange={onPatientSelect} className={inputCls}>
               <option value="">—</option>
               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-            </select>
+            </ManagedSelect>
           </Field>
           <Field label={t("emailFormLink")}>
             <input type="email" value={form.recipient_email || ""} onChange={set("recipient_email")} className={inputCls} data-testid="ff-recipient" placeholder="patient@email.com" />
@@ -387,10 +388,10 @@ export default function Forms() {
             </select>
           </Field>
           <Field label={t("patient")}>
-            <select value={upl.patient_id} onChange={(e) => setUpl({ ...upl, patient_id: e.target.value })} className={inputCls}>
+            <ManagedSelect listKey="patients" value={upl.patient_id} onChange={(e) => setUpl({ ...upl, patient_id: e.target.value })} className={inputCls}>
               <option value="">—</option>
               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-            </select>
+            </ManagedSelect>
           </Field>
           <Field label={t("uploadFromComputer")}>
             <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.txt" required
@@ -452,10 +453,10 @@ export default function Forms() {
                 </select>
               </Field>
               <Field label={t("patient")}>
-                <select value={formModal.patient_id} onChange={(e) => setFormModal({ ...formModal, patient_id: e.target.value })} className={inputCls} data-testid="fm-patient">
+                <ManagedSelect listKey="patients" value={formModal.patient_id} onChange={(e) => setFormModal({ ...formModal, patient_id: e.target.value })} className={inputCls} data-testid="fm-patient">
                   <option value="">—</option>
                   {patients.map((p) => <option key={p.id} value={p.id}>{`${p.first_name} ${p.last_name}`}</option>)}
-                </select>
+                </ManagedSelect>
               </Field>
               <Field label={t("status")}>
                 <select value={formModal.status} onChange={(e) => setFormModal({ ...formModal, status: e.target.value })} className={inputCls} data-testid="fm-status">
@@ -554,16 +555,16 @@ export default function Forms() {
           <form onSubmit={doMoveToFolder} className="space-y-4" data-testid="folder-move-modal">
             <p className="text-sm text-stone-600">{folderModal.title}</p>
             <Field label={t("targetPatient")}>
-              <select value={folderModal.patient_id} onChange={(e) => changeFolderPatient(e.target.value)} className={inputCls} data-testid="fm-move-patient">
+              <ManagedSelect listKey="patients" value={folderModal.patient_id} onChange={(e) => changeFolderPatient(e.target.value)} className={inputCls} data-testid="fm-move-patient">
                 <option value="">{t("selectPatient")}</option>
                 {patients.map((p) => <option key={p.id} value={p.id}>{`${p.first_name} ${p.last_name}`}</option>)}
-              </select>
+              </ManagedSelect>
             </Field>
             <Field label={t("targetFolder")}>
-              <select value={folderModal.subfolder_id} onChange={(e) => setFolderModal({ ...folderModal, subfolder_id: e.target.value })} className={inputCls} data-testid="fm-move-subfolder">
+              <ManagedSelect listKey="subfolders" value={folderModal.subfolder_id} onChange={(e) => setFolderModal({ ...folderModal, subfolder_id: e.target.value })} className={inputCls} data-testid="fm-move-subfolder">
                 <option value="">{t("unfiled")}</option>
                 {folderSubs.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+              </ManagedSelect>
             </Field>
             <div className="flex justify-end gap-2 pt-2">
               <Btn variant="outline" type="button" onClick={() => setFolderModal(null)}>{t("cancel")}</Btn>

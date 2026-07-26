@@ -1,0 +1,32 @@
+{
+  "summary": "Frontend E2E testing of the new ManagedSelect data-driven dropdowns with per-datatype hide/restore on Invoices, Appointments, and Claim Packet detail. All specified flows work as designed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_results": {
+    "login_admin": "PASS (usvopp@yahoo.com)",
+    "inv_patient_dropdown_opens": "PASS (data-testid=inv-patient opens data-testid=inv-patient-panel with option rows inv-patient-opt-<id>)",
+    "inv_patient_select_populates": "PASS (selecting Test Patient sets button label to 'Test Patient')",
+    "inv_patient_hide": "PASS (inv-patient-hide-<id> removes option from visible list; inv-patient-toggle-hidden shows '1 removed — manage'; selected value cleared to placeholder since selected==hidden)",
+    "patient_record_not_deleted": "PASS (Patients page still shows 'Test Patient' after hide)",
+    "cross_dropdown_consistency": "PASS (hidden patient no longer visible in Appointments af-patient panel; af-patient-toggle-hidden also present since same listKey='patients')",
+    "restore_flow": "PASS (inv-patient-toggle-hidden click reveals inv-patient-restore-<id>; clicking restore returns option to visible list — verified in reopen where Test Patient appears again as an option)",
+    "claim_pick_form": "PASS (opens panel, 4 options with hide buttons on each)",
+    "claim_pick_invoice": "PASS (opens panel, 26 options with hide buttons)",
+    "claim_pick_note": "PASS (opens panel, 3 options with hide buttons)",
+    "af_patient_required_blocks_submit": "PASS (Save with empty af-patient keeps New Appointment modal open — hidden required input enforces browser validation)",
+    "af_patient_populates_after_pick": "PASS (button text becomes 'Test Patient')"
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ManagedSelect renders the hide (Trash2) button with opacity-0 group-hover:opacity-100 which is correct for hover reveal, but automated tests must use force click since the button is not visually visible until hover. Not a defect, just note for future test authors.",
+    "The hidden <input required> mirror inside ManagedSelect works with native form submit validation, but note that when the panel is closed and value is empty, browsers will focus the offscreen input and may scroll oddly. Consider using aria-invalid + custom validity messaging in a follow-up polish pass."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "test_credentials": "admin/CEO: usvopp@yahoo.com / Football2023?",
+  "seed_data_creation": "Hidden Test Patient via inv-patient during test; restored at end so dataset is clean.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "ManagedSelect uses listKey per data-type (patients/providers/cpt/claim-forms/claim-invoices/claim-notes) and stores hidden values globally via /api/hidden-options. On /claims, the claim-pick-form/invoice/note dropdowns only appear inside a claim packet detail view (click 'View' from Claim Packets list first). af-patient required is enforced via a hidden required mirror input, so browser form validation blocks submit — verified by the New Appointment modal remaining open after Save with empty patient."
+}

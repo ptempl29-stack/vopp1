@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
 import { Plus, Search, Pencil, Trash2, Eye, Video, MapPin, CalendarClock, FileText, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
@@ -171,10 +172,10 @@ export default function Patients() {
 
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold text-stone-500">{t("filterBy")}:</span>
-              <select value={provFilter} onChange={(e) => setProvFilter(e.target.value)} data-testid="detail-filter-provider" className={inputCls + " !w-auto"}>
+              <ManagedSelect listKey="providers" value={provFilter} onChange={(e) => setProvFilter(e.target.value)} data-testid="detail-filter-provider" className={inputCls + " !w-auto"}>
                 <option value="">{t("allProviders")}</option>
                 {provOptions.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
+              </ManagedSelect>
               <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} data-testid="detail-filter-type" className={inputCls + " !w-auto"}>
                 <option value="">{t("allTypes")}</option>
                 <option value="in_person">{t("inPerson")}</option>

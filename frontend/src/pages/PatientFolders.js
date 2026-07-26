@@ -4,6 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { Private } from "../context/PrivacyContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import {
@@ -241,10 +242,10 @@ export default function PatientFolders() {
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("attachToFolder")}</label>
               <div className="flex gap-2 mt-1.5">
-                <select value={pickForm} onChange={(e) => setPickForm(e.target.value)} className={inputCls} data-testid="folder-pick-form">
+                <ManagedSelect listKey="claim-forms" value={pickForm} onChange={(e) => setPickForm(e.target.value)} className={inputCls} data-testid="folder-pick-form">
                   <option value="">{t("selectForm")}</option>
                   {attachOptions.map((f) => <option key={f.id} value={f.id}>{`${f.title} · ${f.patient_name}`}</option>)}
-                </select>
+                </ManagedSelect>
                 <Btn variant="outline" onClick={attachForm} disabled={!pickForm} data-testid="folder-attach-form" className="!px-3"><Plus className="w-4 h-4" /></Btn>
               </div>
             </div>
@@ -442,15 +443,15 @@ function MoveModal({ state, onClose, onSave, setState, t, patients }) {
       {state && (
         <form onSubmit={onSave} className="space-y-4">
           <Field label={t("targetPatient")}>
-            <select value={state.target_patient} onChange={(e) => changePatient(e.target.value)} className={inputCls} data-testid="move-patient-select">
+            <ManagedSelect listKey="patients" value={state.target_patient} onChange={(e) => changePatient(e.target.value)} className={inputCls} data-testid="move-patient-select">
               {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            </ManagedSelect>
           </Field>
           <Field label={t("targetFolder")}>
-            <select value={state.target_sub} onChange={(e) => setState({ ...state, target_sub: e.target.value })} className={inputCls} data-testid="move-subfolder-select">
+            <ManagedSelect listKey="subfolders" value={state.target_sub} onChange={(e) => setState({ ...state, target_sub: e.target.value })} className={inputCls} data-testid="move-subfolder-select">
               <option value="">{t("unfiled")}</option>
               {targetSubs.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+            </ManagedSelect>
           </Field>
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="outline" type="button" onClick={onClose}>{t("cancel")}</Btn>

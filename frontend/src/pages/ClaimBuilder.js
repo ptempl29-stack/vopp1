@@ -4,6 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { useLang } from "../context/LanguageContext";
 import { Private } from "../context/PrivacyContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
 import {
   DollarSign, UploadCloud, FileText, Wand2, CheckCircle2, AlertTriangle, XCircle,
@@ -106,10 +107,10 @@ export default function ClaimBuilder() {
       {/* Step 1: patient */}
       <Card className="p-5 mb-5">
         <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("patient")}</label>
-        <select value={patientId} onChange={onPatient} className={`${inputCls} mt-1.5 max-w-md`} data-testid="cb-patient">
+        <ManagedSelect listKey="patients" value={patientId} onChange={onPatient} className={`${inputCls} mt-1.5 max-w-md`} data-testid="cb-patient">
           <option value="">{t("selectPatient")}</option>
           {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        </ManagedSelect>
       </Card>
 
       {patientId && (

@@ -7,6 +7,7 @@ import { printSection } from "../lib/print";
 import { useLang } from "../context/LanguageContext";
 import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
+import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
 import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -217,10 +218,10 @@ export default function Invoices() {
               <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                 <div className="col-span-2">
                   <CField label={t("fullName")}>
-                    <select value={inv.patient_id} onChange={onPatient} className={cellCls} data-testid="inv-patient">
+                    <ManagedSelect listKey="patients" value={inv.patient_id} onChange={onPatient} className={cellCls} data-testid="inv-patient">
                       <option value="">{t("selectPatient")}</option>
                       {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-                    </select>
+                    </ManagedSelect>
                   </CField>
                 </div>
                 <CField label={t("dob")}>
@@ -258,10 +259,10 @@ export default function Invoices() {
                   </datalist>
                 </CField>
                 <CField label={t("attendingProvider")}>
-                  <select value={inv.provider || ""} onChange={setF("provider")} className={cellCls} data-testid="inv-provider">
+                  <ManagedSelect listKey="providers" value={inv.provider || ""} onChange={setF("provider")} className={cellCls} data-testid="inv-provider">
                     <option value="">—</option>
                     {providers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
-                  </select>
+                  </ManagedSelect>
                 </CField>
               </div>
             </div>
@@ -287,10 +288,10 @@ export default function Invoices() {
                   <tr key={it._uid} className="border-t border-border" data-testid={`inv-item-${idx}`}>
                     <td className="px-3 py-2 text-stone-500">{idx + 1}</td>
                     <td className="px-3 py-2">
-                      <select value={it.cpt_code} onChange={(e) => onCode(idx, e.target.value)} className={cellCls} data-testid={`inv-item-cpt-${idx}`}>
+                      <ManagedSelect listKey="cpt" value={it.cpt_code} onChange={(e) => onCode(idx, e.target.value)} className={cellCls} data-testid={`inv-item-cpt-${idx}`}>
                         <option value="">{t("selectCpt")}</option>
                         {cpt.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
-                      </select>
+                      </ManagedSelect>
                     </td>
                     <td className="px-3 py-2"><input value={it.description} onChange={(e) => setItem(idx, { description: e.target.value })} className={cellCls} data-testid={`inv-item-desc-${idx}`} /></td>
                     <td className="px-3 py-2"><input type="number" min="0" value={it.quantity} onChange={(e) => { const q = Math.max(0, +e.target.value || 0); setItem(idx, { quantity: q, minutes: q * 15 }); }} className={cellCls} data-testid={`inv-item-units-${idx}`} /></td>
@@ -483,10 +484,10 @@ export default function Invoices() {
           <p className="text-sm text-stone-500">{t("selectNoteHint")}</p>
           <div>
             <label className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500">{t("patient")}</label>
-            <select value={notePatient} onChange={onNotePatient} className={`${inputCls} mt-1.5`} data-testid="note-patient-select">
+            <ManagedSelect listKey="patients" value={notePatient} onChange={onNotePatient} className={`${inputCls} mt-1.5`} data-testid="note-patient-select">
               <option value="">{t("selectPatient")}</option>
               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-            </select>
+            </ManagedSelect>
           </div>
           {notePatient && (
             <div className="space-y-2 max-h-[45vh] overflow-y-auto custom-scroll" data-testid="billing-notes-list">

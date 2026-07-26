@@ -9,6 +9,7 @@ import { useLang } from "../context/LanguageContext";
 import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import { PageHeader, Btn, Card, Field, inputCls, Empty } from "../components/ui-kit";
+import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
 import { Download, DollarSign, CheckCircle2, AlertCircle, FileText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -94,16 +95,16 @@ export default function BillingReports() {
       <Card className="p-4 mb-6">
         <div className="flex flex-wrap items-end gap-3">
           <Field label={t("byPatient")}>
-            <select value={patientId} onChange={(e) => setPatientId(e.target.value)} className={inputCls + " !w-auto"} data-testid="report-filter-patient">
+            <ManagedSelect listKey="patients" value={patientId} onChange={(e) => setPatientId(e.target.value)} className={inputCls + " !w-auto"} data-testid="report-filter-patient">
               <option value="">{t("allPatients")}</option>
               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-            </select>
+            </ManagedSelect>
           </Field>
           <Field label={t("byDoctor")}>
-            <select value={provider} onChange={(e) => setProvider(e.target.value)} className={inputCls + " !w-auto"} data-testid="report-filter-doctor">
+            <ManagedSelect listKey="providers" value={provider} onChange={(e) => setProvider(e.target.value)} className={inputCls + " !w-auto"} data-testid="report-filter-doctor">
               <option value="">{t("allDoctors")}</option>
               {providers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
-            </select>
+            </ManagedSelect>
           </Field>
           <Field label={t("byAppointmentType")}>
             <select value={apptType} onChange={(e) => setApptType(e.target.value)} className={inputCls + " !w-auto"} data-testid="report-filter-appt-type">

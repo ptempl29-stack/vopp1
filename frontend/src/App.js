@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LanguageProvider } from "./context/LanguageContext";
 import { PrivacyProvider } from "./context/PrivacyContext";
+import { HiddenOptionsProvider } from "./context/HiddenOptionsContext";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -46,6 +47,7 @@ function App() {
       <LanguageProvider>
         <AuthProvider>
           <PrivacyProvider>
+          <HiddenOptionsProvider>
           <Toaster position="top-right" richColors />
           <BrowserRouter>
             <Routes>
@@ -73,6 +75,7 @@ function App() {
               <Route path="/mailbox" element={<Protected tab="mailbox"><Mailbox /></Protected>} />
             </Routes>
           </BrowserRouter>
+          </HiddenOptionsProvider>
           </PrivacyProvider>
         </AuthProvider>
       </LanguageProvider>

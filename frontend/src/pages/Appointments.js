@@ -7,6 +7,7 @@ import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
 import { Plus, Video, Trash2, Clock, MapPin, Filter, X, LayoutGrid, List, Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -104,16 +105,16 @@ export default function Appointments() {
           <option value="in_person">{t("inPerson")}</option>
           <option value="telehealth">{t("telehealth")}</option>
         </select>
-        <select value={providerFilter} onChange={(e) => setProviderFilter(e.target.value)} data-testid="filter-provider"
+        <ManagedSelect listKey="providers" value={providerFilter} onChange={(e) => setProviderFilter(e.target.value)} data-testid="filter-provider"
           className={inputCls + " !w-auto"}>
           <option value="">{t("allProviders")}</option>
           {providers.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
-        <select value={patientFilter} onChange={(e) => setPatientFilter(e.target.value)} data-testid="filter-patient"
+        </ManagedSelect>
+        <ManagedSelect listKey="patients" value={patientFilter} onChange={(e) => setPatientFilter(e.target.value)} data-testid="filter-patient"
           className={inputCls + " !w-auto"}>
           <option value="">{t("allPatients")}</option>
           {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-        </select>
+        </ManagedSelect>
         <div className="flex items-center gap-1">
           <input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} data-testid="filter-date"
             className={inputCls + " !w-auto"} title={t("filterDate")} />
@@ -243,10 +244,10 @@ export default function Appointments() {
       <Modal open={open} onClose={() => { setOpen(false); setEditId(null); }} title={editId ? t("edit") : t("newAppointment")}>
         <form onSubmit={save} className="space-y-4">
           <Field label={t("patient")}>
-            <select required value={form.patient_id} onChange={set("patient_id")} className={inputCls} data-testid="af-patient">
+            <ManagedSelect listKey="patients" required value={form.patient_id} onChange={set("patient_id")} className={inputCls} data-testid="af-patient">
               <option value="">—</option>
               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-            </select>
+            </ManagedSelect>
           </Field>
           <Field label={t("appointmentType")}>
             <div className="grid grid-cols-2 gap-2">
@@ -261,10 +262,10 @@ export default function Appointments() {
             </div>
           </Field>
           <Field label={t("provider")}>
-            <select value={form.provider} onChange={set("provider")} className={inputCls} data-testid="af-provider">
+            <ManagedSelect listKey="providers" value={form.provider} onChange={set("provider")} className={inputCls} data-testid="af-provider">
               <option value="">{t("selectProvider")}</option>
               {staff.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
-            </select>
+            </ManagedSelect>
           </Field>
           <div className="grid grid-cols-2 gap-4">
             <Field label={t("date")}><input type="date" required value={form.date} onChange={set("date")} className={inputCls} data-testid="af-date" /></Field>

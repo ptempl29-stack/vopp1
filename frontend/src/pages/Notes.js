@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Btn, Empty, Card, inputCls } from "../components/ui-kit";
+import { ManagedSelect } from "../components/ManagedSelect";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
@@ -164,10 +165,10 @@ export default function Notes() {
       <div className="rounded-lg border border-border border-l-4 border-l-moneygreen-600 bg-white p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
           <HRow label={t("patientName")}>
-            <select required value={form.patient_id} onChange={onPatient} className={headerInputCls} data-testid="nf-patient">
+            <ManagedSelect listKey="patients" required value={form.patient_id} onChange={onPatient} className={headerInputCls} data-testid="nf-patient">
               <option value="">{t("selectPatient")}</option>
               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-            </select>
+            </ManagedSelect>
           </HRow>
           <HRow label={t("dateOfSession")}><input type="date" value={form.visit_date || ""} onChange={set("visit_date")} className={headerInputCls} data-testid="nf-visit-date" /></HRow>
           <HRow label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={headerInputCls} data-testid="nf-dob" /></HRow>
@@ -206,7 +207,7 @@ export default function Notes() {
             </select>
           </HRow>
           <HRow label={t("provider")}>
-            <select value={form.attending_provider || ""} onChange={(e) => {
+            <ManagedSelect listKey="providers" value={form.attending_provider || ""} onChange={(e) => {
                 const name = e.target.value;
                 const prov = providers.find((u) => u.name === name);
                 setForm((f) => ({ ...f, attending_provider: name,
@@ -214,7 +215,7 @@ export default function Notes() {
               }} className={headerInputCls} data-testid="nf-provider">
               <option value="">{t("selectProvider")}</option>
               {providers.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
-            </select>
+            </ManagedSelect>
           </HRow>
           <HRow label={t("exequaturNo")}>
             <input value={form.exequatur_number || ""} onChange={set("exequatur_number")} className={headerInputCls} data-testid="nf-exequatur" placeholder={t("exequaturPlaceholder")} />
@@ -284,14 +285,14 @@ export default function Notes() {
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="flex items-center gap-1.5 text-stone-500 text-sm font-semibold"><Filter className="w-4 h-4" />{t("filterBy")}:</div>
-        <select value={providerFilter} onChange={(e) => setProviderFilter(e.target.value)} data-testid="notes-filter-provider" className={inputCls + " !w-auto"}>
+        <ManagedSelect listKey="providers" value={providerFilter} onChange={(e) => setProviderFilter(e.target.value)} data-testid="notes-filter-provider" className={inputCls + " !w-auto"}>
           <option value="">{t("allProviders")}</option>
           {providerOptions.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
-        <select value={patientFilter} onChange={(e) => setPatientFilter(e.target.value)} data-testid="notes-filter-patient" className={inputCls + " !w-auto"}>
+        </ManagedSelect>
+        <ManagedSelect listKey="patients" value={patientFilter} onChange={(e) => setPatientFilter(e.target.value)} data-testid="notes-filter-patient" className={inputCls + " !w-auto"}>
           <option value="">{t("allPatients")}</option>
           {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-        </select>
+        </ManagedSelect>
         <div className="flex items-center gap-1">
           <input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} data-testid="notes-filter-date"
             className={inputCls + " !w-auto"} title={t("filterDate")} />

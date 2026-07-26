@@ -35,6 +35,36 @@ async def update_settings(data: SettingsInput, current: dict = Depends(require_r
     return await get_settings_doc()
 
 
+@router.get("/hidden-options")
+async def get_hidden_options(user: dict = Depends(get_current_user)):
+    d = await db.settings.find_one({"key": "hidden_options"}, {"_id": 0, "map": 1})
+    return (d or {}).get("map", {})
+
+
+@router.post("/hidden-options")
+async def hide_option(payload: dict, user: dict = Depends(get_current_user)):
+    lst = (payload.get("list") or "").strip().replace(".", "_")
+    val = str(payload.get("value") or "").strip()
+    if not lst or not val:
+        raise HTTPException(status_code=400, detail="list and value are required")
+    await db.settings.update_one({"key": "hidden_options"},
+                                 {"$addToSet": {f"map.{lst}": val}, "$set": {"key": "hidden_options"}},
+                                 upsert=True)
+    d = await db.settings.find_one({"key": "hidden_options"}, {"_id": 0, "map": 1})
+    return (d or {}).get("map", {})
+
+
+@router.post("/hidden-options/restore")
+async def restore_option(payload: dict, user: dict = Depends(get_current_user)):
+    lst = (payload.get("list") or "").strip().replace(".", "_")
+    val = str(payload.get("value") or "").strip()
+    if not lst or not val:
+        raise HTTPException(status_code=400, detail="list and value are required")
+    await db.settings.update_one({"key": "hidden_options"}, {"$pull": {f"map.{lst}": val}})
+    d = await db.settings.find_one({"key": "hidden_options"}, {"_id": 0, "map": 1})
+    return (d or {}).get("map", {})
+
+
 @router.post("/settings/test-email")
 async def send_test_email(payload: dict, current: dict = Depends(require_roles("admin"))):
     to = (payload.get("to") or "").strip()
