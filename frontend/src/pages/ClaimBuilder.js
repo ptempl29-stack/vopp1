@@ -31,14 +31,24 @@ export default function ClaimBuilder() {
   const [packet, setPacket] = useState(null);
   const [coverConfirmed, setCoverConfirmed] = useState(false);
   const [dateModal, setDateModal] = useState(false);
+  const [dayFiles, setDayFiles] = useState([]);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [dateEdit, setDateEdit] = useState("");
   const fileRef = useRef(null);
 
   useEffect(() => {
-    api.get("/claims/options/patients").then((r) => setPatients(r.data)).catch(() => {});
+    api.get("/claims/options/patients").then((r) => setPatients(r.data)).catch((err) => console.error(err));
   }, []);
 
+  useEffect(() => {
+    if (!visit) { setDayFiles([]); setSelectedFiles([]); return; }
+    setDateEdit(visit.date || "");
+    api.get(`/fmp/day-files/${patientId}?date=${visit.date || ""}`)
+      .then((r) => setDayFiles(r.data || [])).catch(() => setDayFiles([]));
+  }, [visit, patientId]);
+
   const loadPatient = useCallback(async (pid) => {
-    setTemplate(null); setVisits([]); setVisit(null); setPacket(null);
+    setTemplate(null); setVisits([]); setVisit(null); setPacket(null); setDayFiles([]); setSelectedFiles([]);
     if (!pid) return;
     try {
       const tr = await api.get(`/fmp/templates/${pid}`);
@@ -62,18 +72,25 @@ export default function ClaimBuilder() {
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
   };
 
-  const generate = async () => {
+  const toggleFile = (id) =>
+    setSelectedFiles((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  const generateWith = async (manualDate) => {
     if (!visit) return;
     setBusy(true); setPacket(null); setCoverConfirmed(false);
     try {
       const r = await api.post("/fmp/generate", {
-        patient_id: patientId, note_id: visit.note_id, invoice_id: visit.invoice_id || null,
+        patient_id: patientId, note_id: visit.note_id,
+        invoice_id: (packet && packet.source_invoice_id) || visit.invoice_id || null,
+        manual_date: manualDate || null, attachment_item_ids: selectedFiles,
       });
       setPacket(r.data);
+      setDateEdit(r.data.claim_number || manualDate || visit.date || "");
       if (r.data.duplicate_of) toast.warning(t("dupWarning"));
     } catch (e) { toast.error(apiErr(e)); }
     finally { setBusy(false); }
   };
+  const generate = () => generateWith(dateEdit || null);
 
   const approve = async () => {
     try {
@@ -167,6 +184,22 @@ export default function ClaimBuilder() {
         </div>
       )}
 
+      {/* Files already on file for this patient / day */}
+      {visit && dayFiles.length > 0 && (
+        <Card className="p-5 mb-5" data-testid="cb-dayfiles">
+          <h3 className="font-heading font-bold text-moneygreen-800 mb-3 flex items-center gap-2"><FileText className="w-4 h-4" />{t("dayFilesTitle")} · {fmtDate(visit.date)}</h3>
+          <div className="grid sm:grid-cols-2 gap-2">
+            {dayFiles.map((f) => (
+              <label key={f.id} className="flex items-center gap-2 p-2 rounded-md border border-border hover:bg-tan-50 cursor-pointer" data-testid={`cb-dayfile-${f.id}`}>
+                <input type="checkbox" checked={selectedFiles.includes(f.id)} onChange={() => toggleFile(f.id)} className="w-4 h-4 accent-moneygreen-600" />
+                <span className="text-sm text-stone-700 truncate">{f.filename}</span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-stone-400 mt-2">{t("dayFilesHint")}</p>
+        </Card>
+      )}
+
       {patientId && (
         <div className="flex justify-center mb-6">
           <Btn onClick={generate} disabled={!canGenerate || busy} data-testid="cb-generate"
@@ -185,6 +218,15 @@ export default function ClaimBuilder() {
               <p className="text-sm text-stone-500"><Private value={packet.patient_name} /> · {t("dateOfService")}: {fmtDate(packet.claim_number) || "—"} · {packet.items.length} {t("items")}</p>
             </div>
             {meta && <Badge tone={meta.tone} data-testid="cb-validation-status"><span className="inline-flex items-center gap-1"><meta.Icon className="w-4 h-4" />{t(meta.key)}</span></Badge>}
+          </div>
+
+          {/* Editable date of service */}
+          <div className="flex flex-wrap items-end gap-2 mb-5">
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("changeDate")}</label>
+              <input type="date" value={dateEdit} onChange={(e) => setDateEdit(e.target.value)} className={`${inputCls} !w-auto mt-1.5`} data-testid="cb-edit-date" />
+            </div>
+            <Btn variant="outline" onClick={() => generateWith(dateEdit)} disabled={busy} data-testid="cb-apply-date"><CalendarClock className="w-4 h-4" />{t("applyDate")}</Btn>
           </div>
 
           {/* Document table */}

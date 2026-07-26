@@ -29,7 +29,10 @@ export function ManagedSelect({ listKey, value, onChange, children, className = 
       if (panelRef.current && panelRef.current.contains(e.target)) return;
       setOpen(false);
     };
-    const onScroll = () => setOpen(false);
+    const onScroll = (e) => {
+      if (panelRef.current && panelRef.current.contains(e.target)) return; // allow scrolling inside the list
+      setOpen(false);
+    };
     document.addEventListener("mousedown", close);
     window.addEventListener("resize", onScroll);
     window.addEventListener("scroll", onScroll, true);

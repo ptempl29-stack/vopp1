@@ -16,7 +16,8 @@ from core.audit import log_audit
 from core.storage import put_object, get_object, delete_object
 from core.folder_filing import disp_date, fmt_date
 from routers.settings import get_settings_doc
-from routers.claims import _invoice_pdf
+from routers.claims import _invoice_pdf, _guess_category
+from routers.billing import _compute_next_number
 
 router = APIRouter()
 
@@ -179,6 +180,7 @@ class GenerateInput(BaseModel):
     note_id: str
     invoice_id: Optional[str] = None
     manual_date: Optional[str] = None
+    attachment_item_ids: Optional[list] = None
 
 
 def _validate(patient, note, invoice, dos):
@@ -236,15 +238,36 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
     invoice = await db.invoices.find_one({"id": data.invoice_id}, {"_id": 0}) if data.invoice_id else None
 
     pname = f"{p['first_name']} {p['last_name']}"
-    # date of service priority: invoice service_date -> note visit_date -> manual
-    dos = _norm(invoice.get("service_date")) if invoice else ""
-    date_source = "invoice service date" if dos else ""
+    # date of service priority: manual override -> invoice -> signed note
+    dos = _norm(data.manual_date) if data.manual_date else ""
+    date_source = "manually confirmed" if dos else ""
+    if not dos and invoice:
+        dos = _norm(invoice.get("service_date"))
+        date_source = "invoice service date"
     if not dos:
         dos = _norm(note.get("visit_date"))
         date_source = "signed progress note" if dos else ""
-    if not dos and data.manual_date:
-        dos = _norm(data.manual_date)
-        date_source = "manually confirmed"
+
+    # If a manual date was set on an existing invoice, sync it
+    if invoice and data.manual_date and dos:
+        await db.invoices.update_one({"id": invoice["id"]}, {"$set": {"service_date": dos}})
+        invoice["service_date"] = dos
+
+    # Auto-create an invoice from the progress-note header when none is linked
+    if invoice is None and note.get("cpt_code"):
+        cpt = await db.cpt_codes.find_one({"code": note["cpt_code"]}, {"_id": 0})
+        unit = float((cpt or {}).get("amount") or 0)
+        item = {"cpt_code": note["cpt_code"], "description": (cpt or {}).get("description", ""),
+                "quantity": 4, "amount": unit}
+        number = await _compute_next_number()
+        invoice = {"id": str(uuid.uuid4()), "invoice_number": number, "patient_id": data.patient_id,
+                   "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn"),
+                   "service_date": dos, "icd10": note.get("icd10"), "provider": note.get("attending_provider"),
+                   "items": [item], "total": round(unit * 4, 2), "status": "in_transit", "notes": None,
+                   "completed_at": None, "created_at": now_iso(), "created_by": user["name"],
+                   "auto_generated": True, "source_note_id": data.note_id}
+        await db.invoices.insert_one(dict(invoice))
+        invoice.pop("_id", None)
 
     tpl = await _active_template(data.patient_id)
     issues, status = _validate(p, note, invoice, dos)
@@ -315,10 +338,20 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
     except Exception as e:
         logger.error(f"fmp note pdf failed: {e}")
 
+    # 4) supporting documents already filed for this patient/day (user-selected)
+    for fid in (data.attachment_item_ids or []):
+        fi = await db.folder_items.find_one({"id": fid, "patient_id": data.patient_id}, {"_id": 0})
+        if fi and fi.get("storage_path"):
+            items.append({"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
+                          "storage_path": fi["storage_path"],
+                          "filename": fi.get("filename") or fi.get("label") or "Document.pdf",
+                          "content_type": fi.get("content_type", "application/pdf"),
+                          "size": fi.get("size"), "category": _guess_category(fi.get("filename") or fi.get("label") or "")})
+
     packet = {"id": str(uuid.uuid4()), "name": f"{pname} {disp_date(dos) or ''} FMP Claim".strip(),
               "patient_id": data.patient_id, "patient_name": pname, "claim_number": dos,
               "status": "draft", "notes": None, "items": items,
-              "source_note_id": data.note_id, "source_invoice_id": data.invoice_id,
+              "source_note_id": data.note_id, "source_invoice_id": (invoice or {}).get("id"),
               "date_source": date_source, "validation": {"status": status, "issues": issues},
               "cover_review": cover_review, "approved": False,
               "created_at": now_iso(), "created_by": user["name"], "generated": True}
@@ -371,3 +404,15 @@ async def patient_visits(patient_id: str, user: dict = Depends(require_roles(*FM
             "invoice_total": inv.get("total") if inv else None,
         })
     return out
+
+
+@router.get("/fmp/day-files/{patient_id}")
+async def day_files(patient_id: str, date: str = "", user: dict = Depends(require_roles(*FMP_ROLES))):
+    """Documents already filed in the patient's folder for the given date of service."""
+    d = fmt_date(_norm(date)) if date else ""
+    subs = await db.folder_subfolders.find({"patient_id": patient_id}, {"_id": 0}).to_list(500)
+    sub_ids = [s["id"] for s in subs if (not d or (s.get("name") or "").endswith(d))]
+    items = await db.folder_items.find(
+        {"patient_id": patient_id, "subfolder_id": {"$in": sub_ids}}, {"_id": 0}).to_list(500)
+    return [{"id": it["id"], "filename": it.get("filename") or it.get("label") or "Document",
+             "label": it.get("label"), "content_type": it.get("content_type")} for it in items]
