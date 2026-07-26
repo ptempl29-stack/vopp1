@@ -1,0 +1,32 @@
+{
+  "summary": "E2E test of Claim Builder patient dropdown + auto-invoice + editable DOS. Backend auto-creates invoice MB-0039 with qty=4 matched to the note's CPT (99203, $110 → total $440). Frontend ManagedSelect portal opens, remains open while scrolling inside the panel (verified via both mouse wheel and direct scroll event), and allows selecting patient by name. All i18n keys (dayFilesTitle/dayFilesHint/changeDate/applyDate) render translated in EN. cb-review renders with cb-edit-date + cb-apply-date; changing date and applying regenerates the packet with the new claim_number.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_results": {
+    "login_admin": "PASS",
+    "claim_builder_route": "PASS (/claim-builder loads)",
+    "cb_patient_dropdown_opens": "PASS (cb-patient-panel appears via portal, options rendered as cb-patient-opt-<id>)",
+    "cb_patient_scroll_keeps_open": "PASS (panel remains after scrollTop=100 and mouse wheel inside the portal; ManagedSelect.onScroll early-return works)",
+    "cb_patient_select_by_name": "PASS ('Test Patient' selected; button label updates)",
+    "cb_visits_load": "PASS (3 visits shown, Signed / Unsigned badges)",
+    "cb_dayfiles_render": "PASS (cb-dayfiles section shows checkboxes; 07/15/2026 lists 5 items)",
+    "cb_generate": "PASS (cb-review appears with document table)",
+    "cb_edit_date_apply": "PASS (cb-edit-date fill + cb-apply-date regenerates packet with new claim_number)",
+    "auto_invoice_MB0039_qty4": "PASS (POST /fmp/generate for a signed note with cpt_code 99203, no linked invoice → created invoice MB-0039, qty=4, amount=110, total=440, auto_generated=true)",
+    "invoice_seq_base": "PASS (/api/invoices/seq-base returns 39; next-number=MB-0039)",
+    "i18n_no_raw_keys": "PASS (dayFilesTitle/dayFilesHint/changeDate/applyDate replaced with translated strings in EN)"
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ClaimBuilder.js line 218/245 uses fmtDate(packet.claim_number) — claim_number is being used as the DOS date. Naming is misleading; consider renaming to service_date/dos in the response payload for clarity.",
+    "fmp.py auto-invoice at line 261 hardcodes quantity:4. If this ever needs to be configurable per CPT, expose it via cpt_codes.default_units instead of a magic number."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin: usvopp@yahoo.com / Football2023?",
+  "seed_data_creation": "Auto-invoice MB-0039 created via /fmp/generate on note 536b02ac (07/14/2026 signed CPT 99203) then deleted post-verification. Also generated a review packet on note 91ae898c (07/15/2026) which persists as a claim_packet but has no auto-invoice (note lacks cpt_code — expected).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "For auto-invoice testing pick a signed note where cpt_code is populated AND no invoice exists on that service_date. The Test Patient has visit 07/14/2026 (note 536b02ac, CPT 99203) as a reliable trigger. seq_base is 39 so the first auto invoice always gets MB-0039. ManagedSelect scroll fix works: onScroll ignores events whose e.target is inside panelRef; verified with wheel + direct scroll dispatch."
+}
