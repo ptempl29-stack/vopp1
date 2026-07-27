@@ -152,7 +152,7 @@ export default function Invoices() {
         invoice_number: d.invoice_number || "", service_date: d.service_date || new Date().toISOString().slice(0, 10),
         visit_reason: d.visit_reason || "", icd10: d.icd10 || "", provider: d.provider || "", status: d.status || "in_transit",
       });
-      setItems((d.items || []).length ? d.items.map((it) => ({ _uid: `it-${seq++}`, ...it })) : [newItem()]);
+      setItems((d.items || []).length ? d.items.map((it) => ({ _uid: `it-${seq++}`, ...it, minutes: (Number(it.quantity) || 0) * 15 })) : [newItem()]);
       setViewing(null);
       loadIcdHistory(d.patient_id);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -175,7 +175,7 @@ export default function Invoices() {
         invoice_number: "", service_date: new Date().toISOString().slice(0, 10),
         visit_reason: d.visit_reason || "", icd10: d.icd10 || "", provider: d.provider || "", status: "in_transit",
       });
-      setItems((d.items || []).length ? d.items.map((it) => ({ _uid: `it-${seq++}`, ...it })) : [newItem()]);
+      setItems((d.items || []).length ? d.items.map((it) => ({ _uid: `it-${seq++}`, ...it, minutes: (Number(it.quantity) || 0) * 15 })) : [newItem()]);
       loadNumber();
       loadIcdHistory(d.patient_id);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -462,7 +462,7 @@ export default function Invoices() {
                         <td className="px-3 py-2 font-mono">{it.cpt_code || "—"}</td>
                         <td className="px-3 py-2">{it.description}</td>
                         <td className="px-3 py-2">{it.quantity}</td>
-                        <td className="px-3 py-2">{it.minutes}</td>
+                        <td className="px-3 py-2">{(Number(it.quantity) || 0) * 15}</td>
                         <td className="px-3 py-2">${(Number(it.amount) || 0).toFixed(2)}</td>
                         <td className="px-3 py-2 text-right font-semibold text-moneygreen-800">${((Number(it.amount) || 0) * (Number(it.quantity) || 0)).toFixed(2)}</td>
                       </tr>

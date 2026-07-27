@@ -258,7 +258,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
         cpt = await db.cpt_codes.find_one({"code": note["cpt_code"]}, {"_id": 0})
         unit = float((cpt or {}).get("amount") or 0)
         item = {"cpt_code": note["cpt_code"], "description": (cpt or {}).get("description", ""),
-                "quantity": 4, "amount": unit}
+                "quantity": 4, "minutes": 60, "amount": unit}
         number = await _compute_next_number()
         invoice = {"id": str(uuid.uuid4()), "invoice_number": number, "patient_id": data.patient_id,
                    "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn"),
