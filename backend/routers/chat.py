@@ -1,15 +1,62 @@
 import os
 import time
 import uuid
+from collections import deque
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
-from core.db import logger
+from core.db import db, logger
 
 router = APIRouter()
 
 CLAUDE_MODEL = "claude-sonnet-4-6"
+
+RATE_PER_MIN = int(os.environ.get("CHAT_RATE_PER_MIN", "30") or 30)
+MONTHLY_TOKEN_CAP = int(os.environ.get("CHAT_MONTHLY_TOKEN_CAP", "1000000") or 1000000)
+_hits = {}  # client_id -> deque[timestamps] (in-memory sliding window)
+
+
+def _client_id(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for", "")
+    return (xff.split(",")[0].strip() if xff else "") or (request.client.host if request.client else "unknown")
+
+
+def _rate_limit(request: Request):
+    if RATE_PER_MIN <= 0:
+        return
+    cid = _client_id(request)
+    now = time.time()
+    dq = _hits.setdefault(cid, deque())
+    while dq and now - dq[0] > 60:
+        dq.popleft()
+    if len(dq) >= RATE_PER_MIN:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded ({RATE_PER_MIN}/min). Please slow down.",
+                            headers={"Retry-After": "60"})
+    dq.append(now)
+
+
+def _month_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+async def _check_monthly_cap():
+    if MONTHLY_TOKEN_CAP <= 0:
+        return
+    doc = await db.chat_usage.find_one({"month": _month_key()}, {"_id": 0, "tokens": 1})
+    if doc and doc.get("tokens", 0) >= MONTHLY_TOKEN_CAP:
+        raise HTTPException(status_code=429,
+                            detail="Monthly usage limit reached for this endpoint. Try again next month.")
+
+
+async def _record_usage(prompt: str, reply: str):
+    est = (len(prompt) + len(reply)) // 4 + 1  # rough token estimate
+    await db.chat_usage.update_one(
+        {"month": _month_key()},
+        {"$inc": {"tokens": est, "requests": 1}, "$setOnInsert": {"month": _month_key()}},
+        upsert=True)
+
 DEFAULT_SYSTEM = (
     "You are the Veterans of Puerto Plata clinic assistant. Reply in the same language "
     "the user writes in (English or Spanish). Be concise, professional and accurate."
@@ -77,6 +124,8 @@ def _check_key(request: Request):
 
 async def _handle(request: Request):
     _check_key(request)
+    _rate_limit(request)
+    await _check_monthly_cap()
     try:
         body = await request.json()
     except Exception:
@@ -103,6 +152,7 @@ async def _handle(request: Request):
         raise HTTPException(status_code=502, detail="The assistant is unavailable right now. Please try again later.")
 
     reply = reply or ""
+    await _record_usage(system_msg + last_text, reply)
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
         "object": "chat.completion",
