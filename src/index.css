@@ -1,0 +1,57 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    font-family: "IBM Plex Sans", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #F7F5F0;
+    color: #1C2420;
+}
+
+h1, h2, h3, h4, .font-heading {
+    font-family: "Manrope", sans-serif;
+}
+
+@layer base {
+    :root {
+        --background: 44 30% 96%;
+        --foreground: 150 15% 12%;
+        --card: 0 0% 100%;
+        --card-foreground: 150 15% 12%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 150 15% 12%;
+        --primary: 145 33% 26%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 44 30% 90%;
+        --secondary-foreground: 150 15% 12%;
+        --muted: 44 25% 92%;
+        --muted-foreground: 150 6% 38%;
+        --accent: 145 20% 90%;
+        --accent-foreground: 145 33% 26%;
+        --destructive: 0 65% 51%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 42 22% 87%;
+        --input: 42 22% 87%;
+        --ring: 145 33% 26%;
+        --chart-1: 145 33% 30%;
+        --chart-2: 145 30% 50%;
+        --chart-3: 42 30% 60%;
+        --chart-4: 30 40% 55%;
+        --chart-5: 145 15% 70%;
+        --radius: 0.5rem;
+    }
+}
+
+@layer base {
+    * { @apply border-border; }
+    body { @apply bg-background text-foreground; }
+}
+
+::selection { background-color: #2D5A40; color: #fff; }
+
+.custom-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.custom-scroll::-webkit-scrollbar-thumb { background: #DCD3C0; border-radius: 4px; }
