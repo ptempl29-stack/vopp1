@@ -425,6 +425,12 @@ Deferred (high regression risk on a live production app, no functional gain — 
 - Self-tested: backend dedup/invalid-filter/empty→400 via curl; frontend add/remove recipient inputs verified. Email still INACTIVE pending valid Yahoo App Password.
 
 
+## Iteration 40 (2026-07-27) — Public /api/chat endpoint (Claude) + LLM key fix
+- **New POST `/api/chat`** (alias `/api/chat/completions`) in `routers/chat.py`: an external-tool-facing endpoint powered by **Claude `claude-sonnet-4-6`** via the Emergent key. Accepts flexible request bodies — OpenAI `{messages:[{role,content}]}`, Anthropic `{system, messages}` with block content, or simple `{message|prompt|input|text}`. Returns a HYBRID response (`choices[0].message.content` + `content[0].text` + top-level `reply`/`text`) so any client parser works. Multi-turn context supported (prior turns folded into the system message). Requested model `claude-3-5-sonnet-latest` is NOT available via Emergent; used `claude-sonnet-4-6` (closest current Sonnet).
+- Optional auth: if env `CHAT_API_KEY` is set, requests must send `Authorization: Bearer <key>` or `x-api-key`; if unset, the endpoint is OPEN (recommend setting a key on production to prevent LLM-credit abuse).
+- **Fixed stale `EMERGENT_LLM_KEY`** in backend `.env` (was `sk-...353083...`, invalid → all AI calls failed with "Invalid API key"). Updated to current universal key `sk-emergent-3D2D044Fa2918B27fB`. This restores the AI Assistant and progress-note summarization too. NOTE: production deployment env must also carry the correct EMERGENT_LLM_KEY.
+- Verified via curl (3 request shapes) against the preview URL; all return Claude replies.
+
 ## Iteration 39b (2026-06-26) — Claim Builder dropdown fix + auto-invoice + editable DOS
 - **Fixed the ManagedSelect dropdown scroll bug** (production blocker): the patient dropdown now opens a fixed-position portal panel that stays open and is scrollable inside its list. `onScroll` early-returns when the scroll target is inside `panelRef` (`components/ManagedSelect.js`), so scrolling the patient list no longer closes the menu.
 - **Auto-invoice in Claim Builder**: `POST /api/fmp/generate` auto-creates an invoice when a visit has no linked invoice and the note has a CPT code — exactly **4 units** matched to that CPT (`routers/fmp.py` ~line 261). Invoice number floor is **MB-0039** (`invoice_seq_base=39` in settings; `billing._compute_next_number`).
