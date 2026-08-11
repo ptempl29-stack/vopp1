@@ -87,6 +87,39 @@ def _guess_category(filename: str) -> str:
     return ""
 
 
+async def _auto_attach_credentials(items: list, patient_id: str, provider_name: str) -> list:
+    """Append provider exequatur/diploma (uploaded once per provider, on the
+    provider's user record) and the patient's VA disability letter (found by
+    filename in their folder), if not already present in the packet."""
+    have = {it.get("category") for it in items if it.get("category")}
+
+    if provider_name and ("provider_diploma" not in have or "provider_exequatur" not in have):
+        prov = await db.users.find_one({"name": provider_name}, {"_id": 0, "diploma_doc": 1, "exequatur_doc": 1})
+        if prov:
+            for kind, cat, label in (("diploma_doc", "provider_diploma", "Provider_Diploma"),
+                                     ("exequatur_doc", "provider_exequatur", "Provider_Exequatur")):
+                doc = prov.get(kind)
+                if doc and cat not in have:
+                    items.append({"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
+                                 "storage_path": doc["storage_path"],
+                                 "filename": doc.get("filename") or f"{label}.pdf",
+                                 "content_type": doc.get("content_type", "application/pdf"),
+                                 "size": doc.get("size"), "category": cat})
+                    have.add(cat)
+
+    if patient_id and "va_disability_letter" not in have:
+        docs = await db.folder_items.find({"patient_id": patient_id}, {"_id": 0}) \
+            .sort("created_at", -1).to_list(200)
+        match = next((d for d in docs if _guess_category(d.get("filename") or d.get("label") or "") == "va_disability_letter"), None)
+        if match:
+            items.append({"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
+                         "storage_path": match["storage_path"],
+                         "filename": match.get("filename") or match.get("label") or "VA_Disability_Letter.pdf",
+                         "content_type": match.get("content_type", "application/pdf"),
+                         "size": match.get("size"), "category": "va_disability_letter"})
+    return items
+
+
 class ClaimInput(BaseModel):
     name: str
     patient_id: Optional[str] = None
@@ -426,7 +459,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
             continue
         items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
                       "invoice_id": inv["id"], "storage_path": result["path"], "filename": fname,
-                      "content_type": "application/pdf", "size": result.get("size")})
+                      "content_type": "application/pdf", "size": result.get("size"), "category": "invoice"})
 
     for n in notes:
         note = {**n, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn")}
@@ -444,7 +477,11 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
             continue
         items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None, "note_id": n["id"],
                       "storage_path": result["path"], "filename": fname,
-                      "content_type": "application/pdf", "size": result.get("size")})
+                      "content_type": "application/pdf", "size": result.get("size"), "category": "progress_note"})
+
+    provider_name = next((n.get("attending_provider") for n in notes if n.get("attending_provider")), None) \
+        or next((i.get("attending_provider") or i.get("provider") for i in invs if i.get("attending_provider") or i.get("provider")), None)
+    items = await _auto_attach_credentials(items, data.patient_id, provider_name)
 
     doc = {"id": str(uuid.uuid4()), "name": packet_name, "patient_id": data.patient_id,
            "patient_name": pname, "claim_number": d, "status": "draft", "notes": None,

@@ -192,7 +192,7 @@ export default function ClaimBuilder() {
             {dayFiles.map((f) => (
               <label key={f.id} className="flex items-center gap-2 p-2 rounded-md border border-border hover:bg-tan-50 cursor-pointer" data-testid={`cb-dayfile-${f.id}`}>
                 <input type="checkbox" checked={selectedFiles.includes(f.id)} onChange={() => toggleFile(f.id)} className="w-4 h-4 accent-moneygreen-600" />
-                <span className="text-sm text-stone-700 truncate">{f.filename}</span>
+                <span className="text-sm text-stone-700 truncate">{f.category_label || f.filename}</span>
               </label>
             ))}
           </div>
@@ -235,6 +235,8 @@ export default function ClaimBuilder() {
               <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
                 <th className="py-2">{t("document")}</th>
                 <th className="py-2">{t("dateOfService")}</th>
+                <th className="py-2">{t("invoice")}</th>
+                <th className="py-2 text-right">{t("amount")}</th>
                 <th className="py-2 text-right">{t("status")}</th>
               </tr>
             </thead>
@@ -243,6 +245,8 @@ export default function ClaimBuilder() {
                 <tr key={it.id} className="border-b border-border/60" data-testid={`cb-doc-${it.category || it.source}`}>
                   <td className="py-2 font-medium text-moneygreen-800">{it.filename}</td>
                   <td className="py-2 text-stone-600">{fmtDate(packet.claim_number) || "—"}</td>
+                  <td className="py-2 text-stone-600">{it.invoice_number || "—"}</td>
+                  <td className="py-2 text-right text-stone-600">{typeof it.amount === "number" ? `$${it.amount.toFixed(2)}` : "—"}</td>
                   <td className="py-2 text-right"><Badge tone="green"><span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{t("included")}</span></Badge></td>
                 </tr>
               ))}

@@ -1,12 +1,17 @@
-from fastapi import APIRouter, HTTPException, Depends
+import uuid
 
-from core.db import db
-from core.config import ROLES, ALL_TABS
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+
+from core.db import db, now_iso, logger
+from core.config import ROLES, ALL_TABS, APP_NAME
 from core.security import hash_password, get_current_user, require_roles, effective_tabs
 from core.audit import log_audit
+from core.storage import put_object
 from models.schemas import UpdateUserInput
 
 router = APIRouter()
+
+CREDENTIAL_KINDS = ("diploma", "exequatur")
 
 
 @router.get("/users")
@@ -115,3 +120,44 @@ async def force_logout(uid: str, current: dict = Depends(require_roles("admin"))
     await db.users.update_one({"id": uid}, {"$inc": {"token_version": 1}})
     await log_audit("update", "user", actor=current, resource_id=uid, detail="force logout")
     return {"ok": True}
+
+
+# ---------------- provider credential documents ----------------
+# Uploaded once per provider (diploma / exequatur), then automatically
+# attached to every FMP claim packet for that provider — no need to
+# re-upload per patient or per claim.
+@router.get("/users/{uid}/credentials")
+async def get_credentials(uid: str, user: dict = Depends(require_roles("admin", "biller"))):
+    u = await db.users.find_one({"id": uid}, {"_id": 0, "diploma_doc": 1, "exequatur_doc": 1})
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"diploma_doc": u.get("diploma_doc"), "exequatur_doc": u.get("exequatur_doc")}
+
+
+@router.post("/users/{uid}/credentials/{kind}")
+async def upload_credential(uid: str, kind: str, file: UploadFile = File(...),
+                            user: dict = Depends(require_roles("admin"))):
+    if kind not in CREDENTIAL_KINDS:
+        raise HTTPException(status_code=400, detail="kind must be 'diploma' or 'exequatur'")
+    target = await db.users.find_one({"id": uid}, {"_id": 0, "name": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not (file.filename or "").lower().endswith((".pdf", ".png", ".jpg", ".jpeg")):
+        raise HTTPException(status_code=400, detail="Please upload a PDF or image file")
+    data = await file.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 15MB)")
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    ct = "application/pdf" if ext == "pdf" else f"image/{'jpeg' if ext in ('jpg', 'jpeg') else ext}"
+    path = f"{APP_NAME}/providers/{uid}/{kind}/{uuid.uuid4()}.{ext}"
+    try:
+        result = put_object(path, data, ct)
+    except Exception as e:
+        logger.error(f"credential upload failed: {e}")
+        raise HTTPException(status_code=502, detail="File storage failed")
+    doc = {"storage_path": result["path"], "filename": file.filename[:160],
+           "content_type": ct, "size": result.get("size"),
+           "uploaded_at": now_iso(), "uploaded_by": user["name"]}
+    await db.users.update_one({"id": uid}, {"$set": {f"{kind}_doc": doc}})
+    await log_audit("update", "user", actor=user, resource_id=uid, detail=f"{kind} credential uploaded")
+    return doc

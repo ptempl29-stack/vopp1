@@ -57,7 +57,7 @@ async def list_invoices(user: dict = Depends(require_roles("biller", "receptioni
     return invoices
 
 
-DEFAULT_INVOICE_SEQ_BASE = 36
+DEFAULT_INVOICE_SEQ_BASE = 63
 
 
 async def _get_seq_base() -> int:
