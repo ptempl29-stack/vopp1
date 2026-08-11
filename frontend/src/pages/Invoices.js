@@ -51,6 +51,7 @@ export default function Invoices() {
   const [billingNotes, setBillingNotes] = useState([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [icdHistory, setIcdHistory] = useState([]);
+  const [invoiceSearch, setInvoiceSearch] = useState("");
 
   const statusLabel = (s) => t(statusKey[s] || s);
   const loadInvoices = () => api.get("/invoices").then((r) => setInvoices(r.data)).catch(() => {});
@@ -70,9 +71,17 @@ export default function Invoices() {
     loadNumber();
   }, []);
 
-  const shownInvoices = statusFilter
+  const shownInvoices = (statusFilter
     ? invoices.filter((v) => (statusFilter === "outstanding" ? v.status !== "paid" : v.status === statusFilter))
-    : invoices;
+    : invoices
+  ).filter((v) => {
+    const q = invoiceSearch.trim().toLowerCase();
+    if (!q) return true;
+    const name = (v.patient_name || "").toLowerCase();
+    const date = (v.service_date || "").toLowerCase();
+    const displayDate = (fmtDate(v.service_date) || "").toLowerCase();
+    return name.includes(q) || date.includes(q) || displayDate.includes(q);
+  });
 
   const onPatient = async (e) => {
     const pid = e.target.value;
@@ -327,6 +336,9 @@ export default function Invoices() {
       <div className="mt-8 no-print">
         <div className="flex items-center gap-3 mb-3 flex-wrap">
           <h3 className="font-heading text-lg font-bold text-moneygreen-800">{t("savedInvoices")}</h3>
+          <input type="text" value={invoiceSearch} onChange={(e) => setInvoiceSearch(e.target.value)}
+            placeholder={t("searchInvoicesPlaceholder")} data-testid="invoice-search"
+            className={`${inputCls} !w-auto max-w-xs`} />
           {statusFilter && (
             <Badge tone={statusTone[statusFilter] || "gray"} className="flex items-center gap-1" data-testid="invoice-status-filter">
               {statusLabel(statusFilter)}

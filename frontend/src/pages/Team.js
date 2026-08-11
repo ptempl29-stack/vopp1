@@ -28,6 +28,8 @@ export default function Team() {
   const [editTabs, setEditTabs] = useState([]);
   const [infoUser, setInfoUser] = useState(null);
   const [infoForm, setInfoForm] = useState({ name: "", email: "", role: "", password: "" });
+  const [creds, setCreds] = useState({ diploma_doc: null, exequatur_doc: null });
+  const [credUploading, setCredUploading] = useState("");
   const [pwUser, setPwUser] = useState(null);
   const [pwForm, setPwForm] = useState({ password: "", require_change: true });
   const [lhOpen, setLhOpen] = useState(false);
@@ -164,7 +166,11 @@ export default function Team() {
     catch (err) { toast.error(apiErr(err)); }
   };
 
-  const openInfo = (u) => { setInfoUser(u); setInfoForm({ name: u.name, email: u.email, role: u.role, password: "" }); };
+  const openInfo = (u) => {
+    setInfoUser(u); setInfoForm({ name: u.name, email: u.email, role: u.role, password: "" });
+    setCreds({ diploma_doc: null, exequatur_doc: null });
+    api.get(`/users/${u.id}/credentials`).then((r) => setCreds(r.data)).catch(() => {});
+  };
   const saveInfo = async (e) => {
     e.preventDefault();
     const payload = { name: infoForm.name, email: infoForm.email, role: infoForm.role };
@@ -176,6 +182,21 @@ export default function Team() {
     } catch (err) { toast.error(apiErr(err)); }
   };
   const setInfo = (k) => (e) => setInfoForm({ ...infoForm, [k]: e.target.value });
+
+  const uploadCredential = (kind) => async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !infoUser) return;
+    setCredUploading(kind);
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const r = await api.post(`/users/${infoUser.id}/credentials/${kind}`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setCreds((c) => ({ ...c, [`${kind}_doc`]: r.data }));
+      toast.success(t("save") + " ✓");
+    } catch (err) { toast.error(apiErr(err)); }
+    setCredUploading("");
+    e.target.value = "";
+  };
 
   return (
     <div>
@@ -450,6 +471,27 @@ export default function Team() {
             <Field label={t("password") + " (" + t("orLabel") + " leave blank)"}>
               <input type="password" minLength={6} value={infoForm.password} onChange={setInfo("password")} className={inputCls} data-testid="eu-password" placeholder="••••••" />
             </Field>
+            {["doctor", "nurse", "psychologist"].includes(infoForm.role) && (
+              <div className="space-y-3 rounded-lg border border-border p-3 bg-tan-50/40">
+                <p className="text-xs font-bold uppercase tracking-[0.15em] text-stone-500">{t("providerCredentials")}</p>
+                <p className="text-xs text-stone-500 -mt-2">{t("providerCredentialsHint")}</p>
+                {[["diploma", t("providerDiploma")], ["exequatur", t("providerExequatur")]].map(([kind, label]) => (
+                  <div key={kind} className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-moneygreen-800">{label}</p>
+                      {creds[`${kind}_doc`]
+                        ? <p className="text-xs text-moneygreen-600">{t("onFile")}: {creds[`${kind}_doc`].filename}</p>
+                        : <p className="text-xs text-stone-400">{t("notUploaded")}</p>}
+                    </div>
+                    <label className={`text-xs font-semibold px-3 py-1.5 rounded-md cursor-pointer ${credUploading === kind ? "bg-stone-200 text-stone-500" : "bg-moneygreen-600 text-white"}`}>
+                      {credUploading === kind ? "…" : (creds[`${kind}_doc`] ? t("replace") : t("upload"))}
+                      <input type="file" accept="application/pdf,image/png,image/jpeg" className="hidden"
+                        disabled={credUploading === kind} onChange={uploadCredential(kind)} data-testid={`eu-${kind}-file`} />
+                    </label>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Btn variant="outline" type="button" onClick={() => setInfoUser(null)}>{t("cancel")}</Btn>
               <Btn type="submit" data-testid="save-user-info-btn">{t("save")}</Btn>

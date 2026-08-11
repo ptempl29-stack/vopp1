@@ -18,6 +18,9 @@ export default function Messages() {
   const [users, setUsers] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ to_user_id: "", subject: "", body: "" });
+  const [viewMsg, setViewMsg] = useState(null);
+  const [replying, setReplying] = useState(false);
+  const [replyBody, setReplyBody] = useState("");
 
   const load = () => api.get("/messages").then((r) => setMessages(r.data)).catch(() => {});
   useEffect(() => { load(); api.get("/users").then((r) => setUsers(r.data)).catch(() => {}); }, []);
@@ -31,7 +34,21 @@ export default function Messages() {
   };
 
   const openMsg = async (m) => {
+    setViewMsg(m); setReplying(false); setReplyBody("");
     if (m.to_user_id === user.id && !m.read) { await api.put(`/messages/${m.id}/read`); load(); }
+  };
+
+  const sendReply = async (e) => {
+    e.preventDefault();
+    if (!viewMsg) return;
+    const otherId = viewMsg.to_user_id === user.id ? viewMsg.from_user_id : viewMsg.to_user_id;
+    const subj = (viewMsg.subject || "").toLowerCase().startsWith("re:") ? viewMsg.subject : `Re: ${viewMsg.subject || ""}`;
+    try {
+      await api.post("/messages", { to_user_id: otherId, subject: subj, body: replyBody });
+      toast.success(t("send") + " ✓");
+      setViewMsg(null); setReplying(false); setReplyBody("");
+      load();
+    } catch (err) { toast.error(apiErr(err)); }
   };
 
   const removeMsg = async (id) => {
@@ -118,6 +135,36 @@ export default function Messages() {
             <Btn type="submit" data-testid="send-message-btn">{t("send")}</Btn>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={!!viewMsg} onClose={() => { setViewMsg(null); setReplying(false); setReplyBody(""); }} title={viewMsg?.subject || t("messages")}>
+        {viewMsg && (
+          <div className="space-y-4" data-testid="view-message-modal">
+            <div className="text-sm text-stone-500 space-y-0.5">
+              <p><span className="font-semibold text-stone-700">{t("from")}:</span> {viewMsg.from_name}</p>
+              <p><span className="font-semibold text-stone-700">{t("to")}:</span> {viewMsg.to_name}</p>
+              <p className="text-xs text-stone-400">{fmtDateTime(viewMsg.created_at)}</p>
+            </div>
+            <p className="text-sm text-stone-700 whitespace-pre-wrap" data-testid="view-message-body">{viewMsg.body}</p>
+
+            {!replying ? (
+              <div className="flex justify-end gap-2 pt-2">
+                <Btn variant="outline" onClick={() => setViewMsg(null)}>{t("cancel")}</Btn>
+                <Btn onClick={() => setReplying(true)} data-testid="reply-message-btn">{t("reply")}</Btn>
+              </div>
+            ) : (
+              <form onSubmit={sendReply} className="space-y-3 border-t border-border pt-4">
+                <Field label={t("body")}>
+                  <textarea required autoFocus value={replyBody} onChange={(e) => setReplyBody(e.target.value)} rows={4} className={inputCls} data-testid="reply-body" />
+                </Field>
+                <div className="flex justify-end gap-2">
+                  <Btn variant="outline" type="button" onClick={() => setReplying(false)}>{t("cancel")}</Btn>
+                  <Btn type="submit" data-testid="send-reply-btn">{t("send")}</Btn>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );
