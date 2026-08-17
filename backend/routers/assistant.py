@@ -26,9 +26,16 @@ SYSTEM_PROMPT = (
 )
 MAX_HISTORY = 20
 
+ALLOWED_MODELS = {
+    "gpt-5.4": ("openai", "gpt-5.4"),
+    "claude-sonnet-4-6": ("anthropic", "claude-sonnet-4-6"),
+}
+DEFAULT_MODEL = "gpt-5.4"
+
 
 class MessageInput(BaseModel):
     content: str
+    model: Optional[str] = None
 
 
 def _title_from(text: str) -> str:
@@ -97,15 +104,17 @@ async def send_message(cid: str, data: MessageInput, user: dict = Depends(get_cu
         context = "\n\nConversation so far:\n" + "\n".join(lines)
 
     try:
+        model_key = data.model if data.model in ALLOWED_MODELS else DEFAULT_MODEL
+        provider, model_name = ALLOWED_MODELS[model_key]
         chat = LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=cid,
-                       system_message=SYSTEM_PROMPT + context).with_model("openai", "gpt-5.4")
+                       system_message=SYSTEM_PROMPT + context).with_model(provider, model_name)
         reply = await chat.send_message(UserMessage(text=text))
     except Exception:
         logger.exception("assistant chat failed")
         raise HTTPException(status_code=502, detail="AI assistant is unavailable right now. Please try again later.")
 
     user_msg = {"role": "user", "content": text, "ts": now_iso()}
-    ai_msg = {"role": "assistant", "content": reply, "ts": now_iso()}
+    ai_msg = {"role": "assistant", "content": reply, "ts": now_iso(), "model": model_key}
     update = {"$push": {"messages": {"$each": [user_msg, ai_msg]}}, "$set": {"updated_at": now_iso()}}
     if not conv.get("messages"):
         update["$set"]["title"] = _title_from(text)

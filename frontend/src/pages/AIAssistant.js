@@ -14,8 +14,11 @@ export default function AIAssistant() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [model, setModel] = useState(() => localStorage.getItem("ai_model") || "gpt-5.4");
   const endRef = useRef(null);
   const sel = useSelection();
+
+  const changeModel = (m) => { setModel(m); localStorage.setItem("ai_model", m); };
 
   const loadConvos = useCallback(async () => {
     try { setConvos((await api.get("/assistant/conversations")).data); } catch (e) { toast.error(apiErr(e)); }
@@ -73,7 +76,7 @@ export default function AIAssistant() {
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setSending(true);
     try {
-      const r = await api.post(`/assistant/conversations/${cid}/message`, { content: text });
+      const r = await api.post(`/assistant/conversations/${cid}/message`, { content: text, model });
       setMessages((prev) => [...prev, r.data.assistant_message]);
       loadConvos();
     } catch (err) {
@@ -132,7 +135,14 @@ export default function AIAssistant() {
               <p className="text-xs text-stone-400">{t("assistantSubtitle")}</p>
             </div>
           </div>
-          <Btn variant="outline" onClick={newChat} data-testid="new-chat-btn-mobile" className="md:hidden !px-2"><Plus className="w-4 h-4" /></Btn>
+          <div className="flex items-center gap-2">
+            <select value={model} onChange={(e) => changeModel(e.target.value)} data-testid="assistant-model-select"
+              className="text-xs font-semibold text-moneygreen-800 bg-tan-50 border border-border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-moneygreen-500 cursor-pointer">
+              <option value="gpt-5.4">GPT</option>
+              <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            </select>
+            <Btn variant="outline" onClick={newChat} data-testid="new-chat-btn-mobile" className="md:hidden !px-2"><Plus className="w-4 h-4" /></Btn>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scroll p-5 space-y-4">
@@ -147,6 +157,11 @@ export default function AIAssistant() {
               className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm whitespace-pre-wrap ${m.role === "user" ? "bg-moneygreen-600 text-white rounded-br-sm" : "bg-tan-100 text-stone-800 rounded-bl-sm"}`}>
                 {m.content}
+                {m.role !== "user" && m.model && (
+                  <span className="block mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-stone-400">
+                    {m.model.startsWith("claude") ? "Claude Sonnet 4.6" : "GPT"}
+                  </span>
+                )}
               </div>
             </motion.div>
           ))}
