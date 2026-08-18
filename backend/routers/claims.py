@@ -205,7 +205,7 @@ async def _build_packet_pdf(c) -> bytes:
     inv_item = next((i for i in items if i.get("source") == "invoice" and i.get("invoice_id")), None)
     if inv_item:
         inv = await db.invoices.find_one({"id": inv_item["invoice_id"]}, {"_id": 0})
-    note = None
+    note = None    note = None
     note_item = next((i for i in items if i.get("source") == "note" and i.get("note_id")), None)
     if note_item:
         note = await db.notes.find_one({"id": note_item["note_id"]}, {"_id": 0})
