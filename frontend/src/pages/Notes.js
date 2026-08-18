@@ -4,7 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { can } from "../lib/perms";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
-import { usePrivacy, Private } from "../context/PrivacyContext";
+import { Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Btn, Empty, Card, inputCls } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
@@ -17,6 +17,7 @@ import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
 const riskKey = { Low: "riskLow", Moderate: "riskModerate", High: "riskHigh", Imminent: "riskImminent" };
+const asArray = (value) => (Array.isArray(value) ? value : []);
 
 const blank = {
   patient_id: "", title: "", content: "", note_type: "free",
@@ -49,14 +50,28 @@ export default function Notes() {
   const [providerFilter, setProviderFilter] = useState("");
   const [patientFilter, setPatientFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
-  const load = () => api.get("/notes").then((r) => setNotes(r.data)).catch(() => {});
+  const load = async () => {
+    setLoading(true);
+    try {
+      const response = await api.get("/notes");
+      setNotes(asArray(response.data));
+      setLoadError("");
+    } catch (error) {
+      setNotes([]);
+      setLoadError(apiErr(error));
+    } finally {
+      setLoading(false);
+    }
+  };
   useEffect(() => {
     load();
-    api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
+    api.get("/patients").then((r) => setPatients(asArray(r.data))).catch(() => setPatients([]));
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
-    api.get("/cpt-codes").then((r) => setCpt(r.data)).catch(() => {});
-    api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "nurse", "psychologist", "admin"].includes(u.role)))).catch(() => {});
+    api.get("/cpt-codes").then((r) => setCpt(asArray(r.data))).catch(() => setCpt([]));
+    api.get("/users").then((r) => setProviders(asArray(r.data).filter((u) => ["doctor", "nurse", "psychologist", "admin"].includes(u.role)))).catch(() => setProviders([]));
   }, []);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -70,8 +85,9 @@ export default function Notes() {
 
   const noteProvider = (n) => n.attending_provider || n.author || "";
   const noteDate = (n) => n.visit_date || (n.created_at || "").slice(0, 10);
-  const providerOptions = useMemo(
-    () => [...new Set([...providers.map((u) => u.name), ...notes.map(noteProvider)].filter(Boolean))], [providers, notes]);
+  const providerOptions = useMemo(() => (
+    [...new Set([...providers.map((u) => u.name), ...notes.map(noteProvider)].filter(Boolean))]
+  ), [providers, notes]);
   const filtered = useMemo(() => notes.filter((n) =>
     (!providerFilter || noteProvider(n) === providerFilter) &&
     (!patientFilter || n.patient_id === patientFilter) &&
@@ -160,7 +176,7 @@ export default function Notes() {
 
   // Editable header (inline JSX, NOT a nested component — prevents input focus loss)
   const editableHeader = (
-    <div>
+    <div data-testid="notes-editor-header">
       <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500 mb-2">{t("notesLabel")}</p>
       <div className="rounded-lg border border-border border-l-4 border-l-moneygreen-600 bg-white p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
@@ -264,7 +280,7 @@ export default function Notes() {
   );
 
   return (
-    <div>
+    <div data-testid="notes-page">
       <PageHeader title={t("notes")} subtitle={`${filtered.length}`}
         action={
           <div className="flex items-center gap-2">
@@ -320,7 +336,16 @@ export default function Notes() {
         </div>
       )}
 
-      {filtered.length === 0 ? <Card><Empty text={t("noData")} /></Card> : viewMode === "list" ? (
+      {loadError ? (
+        <Card className="p-6 text-center text-red-700" data-testid="notes-load-error">
+          <p className="font-semibold">{loadError}</p>
+          <Btn variant="outline" className="mt-3" onClick={load}>{t("refresh")}</Btn>
+        </Card>
+      ) : loading ? (
+        <Card className="p-10 flex justify-center" data-testid="notes-loading">
+          <Loader2 className="w-6 h-6 animate-spin text-moneygreen-600" />
+        </Card>
+      ) : filtered.length === 0 ? <Card><Empty text={t("noData")} /></Card> : viewMode === "list" ? (
         <Card className="overflow-hidden" data-testid="notes-list-table">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -347,7 +372,7 @@ export default function Notes() {
                     <td className="px-5 py-3 font-semibold text-moneygreen-800 cursor-pointer" onClick={() => setViewing(n)}><Private value={patientName(n.patient_id)} /></td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{providerName(n)}</td>
-                    <td className="px-5 py-3 hidden lg:table-cell text-stone-500 font-mono text-xs">{[n.icd10, n.cpt_code].filter(Boolean).join(" / ") || "—"}</td>
+                    <td className="px-5 py-3 hidden lg:table-cell text-stone-500 font-mono text-xs">{`${n.icd10 || t("notRecorded")} / ${n.cpt_code || t("notRecorded")}`}</td>
                     <td className="px-5 py-3 text-stone-600">{n.risk_level ? riskLabel(n.risk_level) : "—"}</td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-1">
@@ -382,8 +407,8 @@ export default function Notes() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-stone-500 mb-2">
-                  {n.icd10 && <span><b className="text-stone-600">ICD-10:</b> {n.icd10}</span>}
-                  {n.cpt_code && <span><b className="text-stone-600">CPT:</b> {n.cpt_code}</span>}
+                  <span><b className="text-stone-600">ICD-10:</b> {n.icd10 || t("notRecorded")}</span>
+                  <span><b className="text-stone-600">CPT:</b> {n.cpt_code || t("notRecorded")}</span>
                   {n.risk_level && <span><b className="text-stone-600">{t("riskAssessment")}:</b> {riskLabel(n.risk_level)}</span>}
                 </div>
                 <div className="text-sm text-stone-600 whitespace-pre-wrap line-clamp-4">{n.content}</div>

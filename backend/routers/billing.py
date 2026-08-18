@@ -6,10 +6,11 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 
-from core.db import db, now_iso
+from core.db import db, now_iso, logger
 from core.config import INVOICE_STATUSES
 from core.security import get_current_user, require_roles
 from core.audit import log_audit
+from core.invoice_numbers import compute_next_invoice_number
 from models.schemas import CptInput, InvoiceInput, IdList
 
 router = APIRouter()
@@ -52,7 +53,7 @@ async def list_invoices(user: dict = Depends(require_roles("biller", "receptioni
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}"
                 async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).limit(5000)}
     for inv in invoices:
-        inv["patient_name"] = patients.get(inv.get("patient_id")) or inv.get("patient_name") or "Unknown"
+        inv["patient_name"] = inv.get("patient_name") or patients.get(inv.get("patient_id")) or "Unknown"
     await log_audit("view", "invoice", actor=user, detail=f"list ({len(invoices)})")
     return invoices
 
@@ -73,14 +74,7 @@ async def _get_seq_base() -> int:
 async def _compute_next_number() -> str:
     base = await _get_seq_base()
     nums = await db.invoices.distinct("invoice_number")
-    mx = 0
-    for n in nums:
-        if isinstance(n, str) and n.startswith("MB-"):
-            try:
-                mx = max(mx, int(n.split("-")[1]))
-            except (ValueError, IndexError):
-                pass
-    return f"MB-{max(mx + 1, base):04d}"
+    return compute_next_invoice_number(nums, base)
 
 
 @router.get("/invoices/next-number")
@@ -135,6 +129,13 @@ async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles(
            "created_at": now_iso(), "created_by": user["name"]}
     await db.invoices.insert_one(doc)
     doc.pop("_id", None)
+    try:
+        from routers.claims import _link_invoice_to_related_claims
+        await _link_invoice_to_related_claims(doc)
+    except Exception as exc:
+        # Claim reads also backfill the association, so invoice creation must
+        # not become retry-unsafe if this best-effort link step is interrupted.
+        logger.error(f"invoice-to-claim auto-link failed: {exc}")
     await log_audit("create", "invoice", actor=user, resource_id=doc["id"],
                     detail=f"{number} · {name or ''} · ${doc['total']}")
     return doc
@@ -162,10 +163,10 @@ async def get_invoice(iid: str, user: dict = Depends(require_roles("biller", "re
     if inv.get("patient_id"):
         p = await db.patients.find_one({"id": inv["patient_id"]}, {"_id": 0})
         if p:
-            inv["patient_name"] = f"{p['first_name']} {p['last_name']}"
-            inv["dob"] = p.get("dob") or inv.get("dob")
-            inv["ssn"] = p.get("ssn") or inv.get("ssn")
-            inv["gender"] = p.get("gender") or inv.get("gender")
+            inv["patient_name"] = inv.get("patient_name") or f"{p['first_name']} {p['last_name']}"
+            inv["dob"] = inv.get("dob") or p.get("dob")
+            inv["ssn"] = inv.get("ssn") or p.get("ssn")
+            inv["gender"] = inv.get("gender") or p.get("gender")
     await log_audit("view", "invoice", actor=user, resource_id=iid, detail=inv.get("invoice_number", ""))
     return inv
 
@@ -182,7 +183,9 @@ async def invoice_to_folder(iid: str, user: dict = Depends(require_roles("biller
     p = await db.patients.find_one({"id": pid}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
-    inv = {**inv, "patient_name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob")}
+    inv = {**inv,
+           "patient_name": inv.get("patient_name") or f"{p['first_name']} {p['last_name']}",
+           "dob": inv.get("dob") or p.get("dob")}
     s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
     clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
     sd = inv.get("service_date")
@@ -222,9 +225,15 @@ async def update_invoice(iid: str, data: InvoiceInput, user: dict = Depends(requ
            "completed_at": (existing.get("completed_at") or now_iso()) if data.status == "paid" else None,
            "updated_at": now_iso(), "updated_by": user["name"]}
     await db.invoices.update_one({"id": iid}, {"$set": upd})
+    updated = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    try:
+        from routers.claims import _link_invoice_to_related_claims
+        await _link_invoice_to_related_claims(updated)
+    except Exception as exc:
+        logger.error(f"invoice-to-claim auto-link failed: {exc}")
     await log_audit("update", "invoice", actor=user, resource_id=iid,
                     detail=f"{upd['invoice_number']} · {name or ''} · ${upd['total']}")
-    return await db.invoices.find_one({"id": iid}, {"_id": 0})
+    return updated
 
 
 @router.post("/invoices/bulk-delete")

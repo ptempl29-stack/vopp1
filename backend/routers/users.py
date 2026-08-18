@@ -159,5 +159,10 @@ async def upload_credential(uid: str, kind: str, file: UploadFile = File(...),
            "content_type": ct, "size": result.get("size"),
            "uploaded_at": now_iso(), "uploaded_by": user["name"]}
     await db.users.update_one({"id": uid}, {"$set": {f"{kind}_doc": doc}})
+    try:
+        from routers.claims import _sync_claims_for_provider
+        await _sync_claims_for_provider(target.get("name"))
+    except Exception as exc:
+        logger.error(f"provider-credential claim auto-sync failed: {exc}")
     await log_audit("update", "user", actor=user, resource_id=uid, detail=f"{kind} credential uploaded")
     return doc

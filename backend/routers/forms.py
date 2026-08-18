@@ -27,6 +27,14 @@ _TEMPLATE_META = {
 }
 
 
+async def _sync_form_claims(form: dict):
+    try:
+        from routers.claims import _form_day, _sync_matching_claims
+        await _sync_matching_claims(form.get("patient_id"), _form_day(form))
+    except Exception as exc:
+        logger.error(f"form-to-claim auto-sync failed: {exc}")
+
+
 def _build_docx(clinic: str) -> bytes:
     from docx import Document
     doc = Document()
@@ -119,6 +127,7 @@ async def create_form(data: FormInput, user: dict = Depends(require_roles(*FORMS
         doc["recipient_email"] = recipient
     await db.forms.insert_one(doc)
     doc.pop("_id", None)
+    await _sync_form_claims(doc)
     await log_audit("create", "form", actor=user, resource_id=doc["id"],
                     detail=f"{data.form_type}: {data.title}")
     return doc
@@ -149,6 +158,7 @@ async def upload_form(file: UploadFile = File(...), title: str = Form(...),
            "created_at": now_iso(), "created_by": user["name"]}
     await db.forms.insert_one(doc)
     doc.pop("_id", None)
+    await _sync_form_claims(doc)
     await log_audit("create", "form", actor=user, resource_id=doc["id"],
                     detail=f"upload: {file.filename}")
     return doc
@@ -197,8 +207,10 @@ async def update_form_status(fid: str, status: str, user: dict = Depends(require
     res = await db.forms.update_one({"id": fid}, {"$set": {"status": status}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Form not found")
+    updated = await db.forms.find_one({"id": fid}, {"_id": 0})
+    await _sync_form_claims(updated)
     await log_audit("update", "form", actor=user, resource_id=fid, detail=f"status={status}")
-    return await db.forms.find_one({"id": fid}, {"_id": 0})
+    return updated
 
 
 class FormUpdate(BaseModel):
@@ -288,7 +300,9 @@ async def update_form(fid: str, data: FormUpdate, user: dict = Depends(require_r
         updates["updated_by"] = user["name"]
         await db.forms.update_one({"id": fid}, {"$set": updates})
     await log_audit("update", "form", actor=user, resource_id=fid, detail="edit form")
-    return await db.forms.find_one({"id": fid}, {"_id": 0})
+    updated = await db.forms.find_one({"id": fid}, {"_id": 0})
+    await _sync_form_claims(updated)
+    return updated
 
 
 @router.post("/forms/{fid}/send-email")
@@ -383,6 +397,11 @@ async def move_form_to_folder(fid: str, data: ToFolder, user: dict = Depends(req
                 "size": result.get("size")}
     await db.folder_items.insert_one(item)
     item.pop("_id", None)
+    try:
+        from routers.claims import _sync_folder_item_claims
+        await _sync_folder_item_claims(item)
+    except Exception as exc:
+        logger.error(f"folder-item claim auto-sync failed: {exc}")
     await log_audit("update", "form", actor=user, resource_id=fid, detail=f"to folder {pname}")
     return {"ok": True, "patient_name": pname}
 
@@ -442,6 +461,8 @@ async def public_submit_form(token: str, data: FormSubmission):
         raise HTTPException(status_code=400, detail=f"Missing required fields: {', '.join(missing)}")
     await db.forms.update_one({"public_token": token},
         {"$set": {"responses": data.responses, "status": "received", "submitted_at": now_iso()}})
+    updated = await db.forms.find_one({"public_token": token}, {"_id": 0})
+    await _sync_form_claims(updated)
     return {"ok": True}
 
 
@@ -472,4 +493,6 @@ async def public_upload_back(token: str, file: UploadFile = File(...)):
         "attachment": {"storage_path": result["path"], "filename": file.filename,
                        "content_type": safe_ct, "size": result.get("size")},
         "status": "received", "submitted_at": now_iso()}})
+    updated = await db.forms.find_one({"public_token": token}, {"_id": 0})
+    await _sync_form_claims(updated)
     return {"ok": True}

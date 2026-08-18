@@ -248,6 +248,25 @@ export default function Claims() {
             <p className="mt-1 text-stone-600 text-sm">{selected.created_by || "—"}</p>
           </Card>
         </div>
+        {selected.invoice_summary && (
+          <Card className="p-4 mb-5" data-testid="claim-invoice-summary">
+            <p className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">{t("claimSummary")}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-stone-500">{t("invoiceNumber")}</p>
+                <p className="mt-1 font-mono font-bold text-moneygreen-800" data-testid="claim-summary-invoice-number">
+                  {selected.invoice_summary.invoice_number || "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-stone-500">{t("amountBilled")}</p>
+                <p className="mt-1 font-bold text-moneygreen-800" data-testid="claim-summary-amount-billed">
+                  {selected.invoice_summary.amount_billed == null ? "—" : `$${Number(selected.invoice_summary.amount_billed).toFixed(2)}`}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
         {selected.notes && <Card className="p-4 mb-5"><p className="text-sm text-stone-600 whitespace-pre-wrap">{selected.notes}</p></Card>}
 
         {/* Add-to-packet toolbar */}
@@ -266,8 +285,13 @@ export default function Claims() {
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("attachInvoice")}</label>
               <div className="flex gap-2 mt-1.5">
-                <ManagedSelect listKey="claim-invoices" value={pickInvoice} onChange={(e) => setPickInvoice(e.target.value)} className={inputCls} data-testid="claim-pick-invoice">
+                <ManagedSelect listKey="claim-invoices" value={pickInvoice || selected.invoice_summary?.invoice_id || ""} onChange={(e) => setPickInvoice(e.target.value)} className={inputCls} data-testid="claim-pick-invoice">
                   <option value="">{t("selectInvoice")}</option>
+                  {selected.invoice_summary && !invoices.some((i) => i.id === selected.invoice_summary.invoice_id) && (
+                    <option value={selected.invoice_summary.invoice_id}>
+                      {selected.invoice_summary.invoice_number} · ${Number(selected.invoice_summary.amount_billed || 0).toFixed(2)}
+                    </option>
+                  )}
                   {invoices.map((i) => <option key={i.id} value={i.id}>{i.invoice_number} · {i.patient_name} · ${i.total}</option>)}
                 </ManagedSelect>
                 <Btn variant="outline" onClick={attachInvoice} disabled={!pickInvoice} data-testid="claim-attach-invoice" className="!px-3"><Plus className="w-4 h-4" /></Btn>

@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 40 review of the 'invoice numbering + claim packet' changeset. Ran 13 changeset unit tests (test_invoice_numbers.py, test_claim_invoice_linkage.py) — 13/13 pass. Added and ran 6 end-to-end integration tests (tests/test_iteration_40.py) covering admin login, /api/invoices/seq-base + /api/invoices/next-number, stray high MB-1008 must NOT drive sequence when base=63, provider diploma+exequatur upload via POST /api/users/{uid}/credentials/{kind}, and auto-attach + dedup of provider credentials + progress note on POST /api/claims/from-date with the packet's claim_number equal to the SELECTED visit date. All 6 pass. Frontend smoke: login OK, Progress Notes page renders 3 cards (no blank content area), Claim Builder loads, patient dropdown + visits render, 'Payment To' recipient dropdown is required (no default) when unambiguous auto-detection cannot pick one, cover-sheet-template state is shown, and Generate Claim Packet is correctly disabled until a visit is selected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/invoices/seq-base (settings.clinic.invoice_seq_base persisted value)", "issue": "In the current preview DB invoice_seq_base is stored as 39 (leftover from iteration 39) instead of the 63 the changeset expects — so /api/invoices/next-number currently returns MB-0039 rather than the 'around MB-0064/0065' the review calls for. Logic is correct; only the persisted setting needs a one-off PUT to 63 before deployment."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Notes.js (Progress Notes card + list views)", "issue": "Missing ICD-10 or CPT is rendered as a hidden span (cards) or a single em-dash in the combined 'ICD-10 / CPT' column (list) instead of the localized 'Not recorded' (t('notRecorded') / 'No registrado') fallback the review requires. The fallback IS implemented correctly in ClaimBuilder progress-note rows (lines 306-309) — apply the same pattern to Notes.js lines 375 and 410-411.", "selector": "[data-testid^='note-card-'] and [data-testid='notes-list-table'] tbody td:nth-child(5)", "priority": "LOW"},
+      {"component": "Notes.js editableHeader", "issue": "data-testid='notes-page' is placed only inside the New/Edit note modal's editable header (line 179), so the marker is NOT present on the actual Progress Notes list page. Move/duplicate this attribute to the top-level page container so automated tests can reliably assert page load.", "selector": "[data-testid='notes-page']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration_40.py",
+    "/app/backend/tests/test_invoice_numbers.py",
+    "/app/backend/tests/test_claim_invoice_linkage.py",
+    "/app/test_reports/pytest/iteration_40.xml"
+  ],
+  "action_items": [
+    "One-off: PUT /api/invoices/seq-base {invoice_seq_base: 63} on the preview (and prod) DB so /api/invoices/next-number returns MB-0064 as the changeset intends — the logic is correct; only the persisted setting is stale from iteration 39.",
+    "In frontend/src/pages/Notes.js render t('notRecorded') for empty n.icd10 / n.cpt_code in both the card view (lines 410-411) and list view (line 375), matching the fallback already used in ClaimBuilder.js.",
+    "Move data-testid='notes-page' from the modal editableHeader (line 179) to the outer Notes page container so tests can reliably wait on it."
+  ],
+  "critical_code_review_comments": [
+    "compute_next_invoice_number (backend/core/invoice_numbers.py) walks candidate++ from base — with base=63 and MB-1008 present this is O(n) worst case which is fine for the current volume; if legacy sets ever reach thousands of gaps, switch to sorted-scan.",
+    "_auto_attach_credentials looks up provider by users.name (backend/routers/claims.py:100). Names are not unique in general; consider preferring a user_id linkage on the note/invoice (attending_provider_id) with name as a fallback to avoid mis-attached credentials if two staff share a display name."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration_40.py"
+  ],
+  "success_rate": {"backend": "100% (19/19 pytest)", "frontend": "smoke-verified OK (no blank screens, all reviewed data-testids present)"},
+  "seed_data_creation": "Test provider users (role=doctor) created ad-hoc per module-scoped fixture and deleted in teardown. Test notes are created and deleted per test. A stray MB-1008 invoice is created inside test_stray_high_legacy_invoice_does_not_drive_next_number and deleted in the same test; seq_base is restored to the original value.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin: usvopp@yahoo.com / Football2023?",
+  "context_for_next_testing_agent": "Preview DB currently has settings.clinic.invoice_seq_base = 39 (leftover from iteration 39). The changeset ships DEFAULT_INVOICE_SEQ_BASE = 63; test_iteration_40 temporarily PUTs 63, verifies MB-0064 is next, then restores whatever base was already stored. If you rerun be aware Test Patient (6fa0fdd7-8ecf-4619-bb59-03265cbe7834) is the ONLY seeded patient. Notes page displays ICD-10 in a card 'chip' and CPT similarly — the missing-code fallback is 'not shown' rather than 'Not recorded'; ClaimBuilder rows DO use the localized 'Not recorded' fallback correctly.",
+  "rca_of_the_issue": "For the seq-base observation: /api/invoices/next-number returns MB-0039 not MB-0064 because settings.clinic.invoice_seq_base was persisted to 39 during iteration 39. compute_next_invoice_number correctly picks the first free number ≥ base; unit test test_legacy_high_number_does_not_move_active_sequence and the added integration test both prove MB-1008 does NOT drive the sequence forward when base=63. For the Notes fallback: Notes.js card renders `{n.cpt_code && <span>...` (line 411) which hides the span entirely when cpt_code is empty, and list view line 375 collapses both codes to '—' — this diverges from the review requirement to always show 'Not recorded'."
+}

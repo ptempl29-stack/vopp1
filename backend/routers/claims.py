@@ -1,4 +1,5 @@
 import io
+import re
 import uuid
 from typing import Optional
 
@@ -11,6 +12,8 @@ from core.config import APP_NAME, EXT_CONTENT_TYPES
 from core.security import require_roles
 from core.audit import log_audit
 from core.storage import put_object, get_object, delete_object
+from core.claim_invoices import (invoice_summary, linked_invoice_id, progress_note_codes,
+                                 related_invoice, unlinked_related_claims, claim_folder_day)
 from routers.settings import get_settings_doc
 from core.pdf_utils import new_pdf, pdf_bytes, FONT
 
@@ -104,7 +107,8 @@ async def _auto_attach_credentials(items: list, patient_id: str, provider_name: 
                                  "storage_path": doc["storage_path"],
                                  "filename": doc.get("filename") or f"{label}.pdf",
                                  "content_type": doc.get("content_type", "application/pdf"),
-                                 "size": doc.get("size"), "category": cat})
+                                 "size": doc.get("size"), "category": cat,
+                                 "provider_name": provider_name, "auto_linked": True})
                     have.add(cat)
 
     if patient_id and "va_disability_letter" not in have:
@@ -116,7 +120,8 @@ async def _auto_attach_credentials(items: list, patient_id: str, provider_name: 
                          "storage_path": match["storage_path"],
                          "filename": match.get("filename") or match.get("label") or "VA_Disability_Letter.pdf",
                          "content_type": match.get("content_type", "application/pdf"),
-                         "size": match.get("size"), "category": "va_disability_letter"})
+                         "size": match.get("size"), "category": "va_disability_letter",
+                         "auto_linked": True})
     return items
 
 
@@ -130,7 +135,7 @@ class ClaimInput(BaseModel):
     veteran_physical_address: Optional[str] = None
     veteran_mailing_address: Optional[str] = None
     diagnosis_narrative: Optional[str] = None
-    payment_to: Optional[str] = "provider"
+    payment_to: Optional[str] = None
 
 
 _COVER_FIELDS = ("va_claim_number", "veteran_physical_address",
@@ -183,9 +188,283 @@ FMP_CHECKLIST = [
 ]
 
 
+async def _resolve_claim_invoice(claim: dict) -> Optional[dict]:
+    """Resolve live invoice values for a claim, regardless of creation order."""
+    explicit_id = linked_invoice_id(claim)
+    if explicit_id:
+        invoice = await db.invoices.find_one({"id": explicit_id}, {"_id": 0})
+        if invoice:
+            return invoice
+
+    patient_id = claim.get("patient_id")
+    claim_number = claim.get("claim_number")
+    if not patient_id or not claim_number:
+        return None
+    invoices = await db.invoices.find(
+        {"patient_id": patient_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    return related_invoice(claim, invoices)
+
+
+async def _resolve_claim_note(claim: dict) -> Optional[dict]:
+    note_id = claim.get("source_note_id")
+    if not note_id:
+        item = next((item for item in claim.get("items", [])
+                     if item.get("source") == "note" and item.get("note_id")), None)
+        note_id = item.get("note_id") if item else None
+    if note_id:
+        note = await db.notes.find_one({"id": note_id}, {"_id": 0})
+        if note:
+            return note
+    patient_id = claim.get("patient_id")
+    claim_day = str(claim.get("claim_number") or "")[:10]
+    if not patient_id or not claim_day:
+        return None
+    notes = await db.notes.find(
+        {"patient_id": patient_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    return next((note for note in notes
+                 if str(note.get("visit_date") or "")[:10] == claim_day), None)
+
+
+def _form_day(form: dict) -> str:
+    responses = form.get("responses") or {}
+    for value in (form.get("service_date"), responses.get("service_date"), responses.get("date"),
+                  form.get("submitted_at"), form.get("created_at")):
+        day = str(value or "")[:10]
+        if day:
+            return day
+    return ""
+
+
+async def _sync_claim_packet_documents(claim: dict) -> dict:
+    """Attach all safely matched patient/date documents to one claim packet."""
+    patient_id = claim.get("patient_id")
+    claim_day = str(claim.get("claim_number") or "")[:10]
+    if not claim.get("id") or not patient_id or not claim_day:
+        return claim
+
+    original_items = claim.get("items", [])
+    items = [dict(item) for item in original_items]
+    original_keys = {(item.get("source"), item.get("invoice_id"), item.get("note_id"),
+                      item.get("form_id"), item.get("folder_item_id"), item.get("storage_path"))
+                     for item in items}
+    patient = await db.patients.find_one({"id": patient_id}, {"_id": 0})
+    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    invoice = await _resolve_claim_invoice(claim)
+    note = await _resolve_claim_note(claim)
+
+    if invoice:
+        for item in items:
+            if item.get("invoice_id") == invoice.get("id"):
+                item["invoice_number"] = invoice.get("invoice_number")
+                item["amount"] = invoice.get("total")
+
+    if invoice and not any(item.get("invoice_id") == invoice.get("id") for item in items):
+        try:
+            pdf = _invoice_pdf(invoice, clinic)
+            path = f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf"
+            stored = put_object(path, pdf, "application/pdf")
+            items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
+                          "invoice_id": invoice["id"], "storage_path": stored["path"],
+                          "filename": f"Invoice_{invoice.get('invoice_number') or invoice['id'][:8]}.pdf",
+                          "content_type": "application/pdf", "size": stored.get("size"),
+                          "category": "invoice", "invoice_number": invoice.get("invoice_number"),
+                          "amount": invoice.get("total"), "auto_linked": True})
+        except Exception as exc:
+            logger.error(f"claim invoice auto-attach failed: {exc}")
+
+    if note:
+        codes = progress_note_codes(note)
+        for item in items:
+            if item.get("note_id") == note.get("id"):
+                item.update(codes)
+
+    if note and not any(item.get("note_id") == note.get("id") for item in items):
+        try:
+            from core.folder_filing import note_pdf, fmt_date
+            rendered = {**note,
+                        "patient_name": (f"{patient['first_name']} {patient['last_name']}" if patient else ""),
+                        "dob": (patient or {}).get("dob"), "ssn": (patient or {}).get("ssn")}
+            pdf = note_pdf(rendered, clinic)
+            path = f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf"
+            stored = put_object(path, pdf, "application/pdf")
+            items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None,
+                          "note_id": note["id"], "storage_path": stored["path"],
+                          "filename": f"Progress_Note_{fmt_date(claim_day)}.pdf",
+                          "content_type": "application/pdf", "size": stored.get("size"),
+                          "category": "progress_note", "auto_linked": True,
+                          **progress_note_codes(note)})
+        except Exception as exc:
+            logger.error(f"claim note auto-attach failed: {exc}")
+
+    forms = await db.forms.find({"patient_id": patient_id}, {"_id": 0}).to_list(500)
+    for form in forms:
+        if _form_day(form) != claim_day or any(item.get("form_id") == form.get("id") for item in items):
+            continue
+        try:
+            attachment = form.get("attachment")
+            if attachment:
+                storage_path = attachment["storage_path"]
+                filename = attachment["filename"]
+                content_type = attachment.get("content_type", "application/octet-stream")
+                size = attachment.get("size")
+            else:
+                from routers.forms import _form_pdf
+                rendered = {**form,
+                            "patient_name": (f"{patient['first_name']} {patient['last_name']}" if patient else "")}
+                pdf = _form_pdf(rendered, clinic)
+                stored = put_object(f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf",
+                                    pdf, "application/pdf")
+                storage_path = stored["path"]
+                filename = f"{(form.get('title') or 'Patient_Form').replace('/', '-')[:60]}.pdf"
+                content_type = "application/pdf"
+                size = stored.get("size")
+            items.append({"id": str(uuid.uuid4()), "source": "form", "form_id": form["id"],
+                          "storage_path": storage_path, "filename": filename,
+                          "content_type": content_type, "size": size,
+                          "category": _guess_category(filename), "auto_linked": True})
+        except Exception as exc:
+            logger.error(f"claim form auto-attach failed: {exc}")
+
+    folder_day = claim_folder_day(claim_day)
+    subfolders = await db.folder_subfolders.find({"patient_id": patient_id}, {"_id": 0}).to_list(500)
+    matching_subfolder_ids = [folder["id"] for folder in subfolders if folder_day in (folder.get("name") or "")]
+    if matching_subfolder_ids:
+        folder_items = await db.folder_items.find(
+            {"patient_id": patient_id, "subfolder_id": {"$in": matching_subfolder_ids}}, {"_id": 0}
+        ).to_list(1000)
+        for folder_item in folder_items:
+            filename = folder_item.get("filename") or folder_item.get("label") or "Document"
+            if folder_item.get("description") == "Moved from FMP Claim" or filename.startswith("Claim_Packet_"):
+                continue
+            category = _guess_category(filename)
+            if any(item.get("folder_item_id") == folder_item.get("id")
+                   or item.get("storage_path") == folder_item.get("storage_path") for item in items):
+                continue
+            if category and any(item.get("category") == category for item in items):
+                continue
+            items.append({"id": str(uuid.uuid4()), "source": "upload", "form_id": folder_item.get("form_id"),
+                          "folder_item_id": folder_item["id"], "storage_path": folder_item["storage_path"],
+                          "filename": filename, "content_type": folder_item.get("content_type", "application/octet-stream"),
+                          "size": folder_item.get("size"), "category": category, "auto_linked": True})
+
+    provider_name = ((invoice or {}).get("attending_provider") or (invoice or {}).get("provider")
+                     or (note or {}).get("attending_provider") or "")
+    items = [item for item in items
+             if item.get("category") not in ("provider_diploma", "provider_exequatur")
+             or not item.get("provider_name") or item.get("provider_name") == provider_name]
+    items = await _auto_attach_credentials(items, patient_id, provider_name)
+
+    new_keys = {(item.get("source"), item.get("invoice_id"), item.get("note_id"),
+                 item.get("form_id"), item.get("folder_item_id"), item.get("storage_path"))
+                for item in items}
+    updates = {}
+    if new_keys != original_keys or items != original_items:
+        updates["items"] = items
+    if invoice and not linked_invoice_id(claim):
+        updates["source_invoice_id"] = invoice["id"]
+        updates["invoice_link_source"] = "automatic"
+    if note and not claim.get("source_note_id"):
+        updates["source_note_id"] = note["id"]
+    if updates:
+        updates["updated_at"] = now_iso()
+        await db.claim_packets.update_one({"id": claim["id"]}, {"$set": updates})
+        claim = {**claim, **updates}
+    return claim
+
+
+async def _link_invoice_to_related_claims(invoice: dict) -> int:
+    """Persist an automatic invoice link on matching, currently unlinked claims."""
+    patient_id = invoice.get("patient_id")
+    service_date = str(invoice.get("service_date") or "")[:10]
+    if not invoice.get("id") or not patient_id or not service_date:
+        return 0
+
+    claims = await db.claim_packets.find(
+        {"patient_id": patient_id}, {"_id": 0}
+    ).to_list(500)
+    linked = 0
+    for claim in unlinked_related_claims(invoice, claims):
+        result = await db.claim_packets.update_one(
+            {"id": claim["id"], "source_invoice_id": {"$in": [None, ""]}},
+            {"$set": {"source_invoice_id": invoice["id"],
+                      "invoice_link_source": "automatic", "updated_at": now_iso()}},
+        )
+        linked += result.modified_count
+        await _sync_claim_packet_documents({**claim, "source_invoice_id": invoice["id"]})
+    await _sync_matching_claims(patient_id, service_date)
+    return linked
+
+
+async def _sync_matching_claims(patient_id: str, service_date: object) -> int:
+    """Synchronize all claims for one patient and exact service/claim day."""
+    day = str(service_date or "")[:10]
+    if not patient_id or not day:
+        return 0
+    claims = await db.claim_packets.find({"patient_id": patient_id}, {"_id": 0}).to_list(500)
+    matches = [claim for claim in claims if str(claim.get("claim_number") or "")[:10] == day]
+    for claim in matches:
+        await _sync_claim_packet_documents(claim)
+    return len(matches)
+
+
+async def _sync_folder_item_claims(folder_item: dict) -> int:
+    """Synchronize a folder document only to claims matching its dated folder."""
+    subfolder_id = folder_item.get("subfolder_id")
+    patient_id = folder_item.get("patient_id")
+    if not patient_id or not subfolder_id:
+        return 0
+    subfolder = await db.folder_subfolders.find_one({"id": subfolder_id, "patient_id": patient_id}, {"_id": 0})
+    match = re.search(r"(\d{2})-(\d{2})-(\d{4})", (subfolder or {}).get("name", ""))
+    if not match:
+        return 0
+    return await _sync_matching_claims(patient_id, f"{match.group(3)}-{match.group(1)}-{match.group(2)}")
+
+
+async def _sync_claims_for_provider(provider_name: str) -> int:
+    if not provider_name:
+        return 0
+    claims = await db.claim_packets.find({}, {"_id": 0}).to_list(500)
+    matched = 0
+    for claim in claims:
+        invoice = await _resolve_claim_invoice(claim)
+        note = await _resolve_claim_note(claim)
+        claim_provider = ((invoice or {}).get("attending_provider") or (invoice or {}).get("provider")
+                          or (note or {}).get("attending_provider") or "")
+        if claim_provider == provider_name:
+            await _sync_claim_packet_documents(claim)
+            matched += 1
+    return matched
+
+
+async def _claim_with_invoice_summary(claim: dict) -> dict:
+    result = dict(claim)
+    invoice = await _resolve_claim_invoice(claim)
+    if invoice and claim.get("id") and not linked_invoice_id(claim):
+        await db.claim_packets.update_one(
+            {"id": claim["id"], "source_invoice_id": {"$in": [None, ""]}},
+            {"$set": {"source_invoice_id": invoice["id"],
+                      "invoice_link_source": "automatic", "updated_at": now_iso()}},
+        )
+        result["source_invoice_id"] = invoice["id"]
+        result["invoice_link_source"] = "automatic"
+    result["invoice_summary"] = invoice_summary(invoice)
+    return result
+
+
+async def _claim_response(claim_id: str) -> Optional[dict]:
+    claim = await db.claim_packets.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        return None
+    claim = await _sync_claim_packet_documents(claim)
+    return await _claim_with_invoice_summary(claim)
+
+
 async def _build_packet_pdf(c) -> bytes:
     """Build the full FMP packet PDF: auto-generated Summary cover + Checklist pages,
     followed by every attached document (merged)."""
+    c = await _sync_claim_packet_documents(c)
     from pypdf import PdfWriter, PdfReader
     from PIL import Image
     from core.pdf_utils import new_pdf, pdf_bytes, FONT
@@ -201,10 +480,7 @@ async def _build_packet_pdf(c) -> bytes:
     dob = (p or {}).get("dob", "")
     ssn = (p or {}).get("ssn", "")
 
-    inv = None
-    inv_item = next((i for i in items if i.get("source") == "invoice" and i.get("invoice_id")), None)
-    if inv_item:
-        inv = await db.invoices.find_one({"id": inv_item["invoice_id"]}, {"_id": 0})
+    inv = await _resolve_claim_invoice(c)
     note = None
     note_item = next((i for i in items if i.get("source") == "note" and i.get("note_id")), None)
     if note_item:
@@ -222,8 +498,12 @@ async def _build_packet_pdf(c) -> bytes:
     inv_no = (inv or {}).get("invoice_number", "")
     amount = (inv or {}).get("total")
     svc_date = disp_date(c.get("claim_number")) or disp_date((inv or {}).get("service_date")) or ""
-    pay = "Provider payment requested - Provider box on VA Form 10-7959f-2" \
-        if (c.get("payment_to") or "provider") == "provider" else "Veteran payment requested"
+    if c.get("payment_to") == "provider":
+        pay = "Provider payment requested - Provider box on VA Form 10-7959f-2"
+    elif c.get("payment_to") == "veteran":
+        pay = "Veteran payment requested - Veteran box on VA Form 10-7959f-2"
+    else:
+        pay = "Payment recipient not selected"
 
     # ================= Professional cover + checklist =================
     GREEN = (25, 90, 60)
@@ -409,7 +689,7 @@ async def create_claim(data: ClaimInput, user: dict = Depends(require_roles("adm
     await db.claim_packets.insert_one(doc)
     doc.pop("_id", None)
     await log_audit("create", "claim", actor=user, resource_id=doc["id"], detail=data.name)
-    return doc
+    return await _claim_response(doc["id"])
 
 
 class ClaimFromDateInput(BaseModel):
@@ -459,7 +739,8 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
             continue
         items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
                       "invoice_id": inv["id"], "storage_path": result["path"], "filename": fname,
-                      "content_type": "application/pdf", "size": result.get("size"), "category": "invoice"})
+                      "content_type": "application/pdf", "size": result.get("size"), "category": "invoice",
+                      "invoice_number": inv.get("invoice_number"), "amount": inv.get("total")})
 
     for n in notes:
         note = {**n, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn")}
@@ -477,7 +758,8 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
             continue
         items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None, "note_id": n["id"],
                       "storage_path": result["path"], "filename": fname,
-                      "content_type": "application/pdf", "size": result.get("size"), "category": "progress_note"})
+                      "content_type": "application/pdf", "size": result.get("size"), "category": "progress_note",
+                      **progress_note_codes(n)})
 
     provider_name = next((n.get("attending_provider") for n in notes if n.get("attending_provider")), None) \
         or next((i.get("attending_provider") or i.get("provider") for i in invs if i.get("attending_provider") or i.get("provider")), None)
@@ -490,7 +772,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     doc.pop("_id", None)
     await log_audit("create", "claim", actor=user, resource_id=doc["id"],
                     detail=f"from-date {pname} {d} ({len(items)} items)")
-    return doc
+    return await _claim_response(doc["id"])
 
 
 @router.get("/claims/{cid}")
@@ -498,7 +780,7 @@ async def get_claim(cid: str, user: dict = Depends(require_roles("admin"))):
     c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
-    return c
+    return await _claim_response(cid)
 
 
 @router.put("/claims/{cid}")
@@ -514,7 +796,7 @@ async def update_claim(cid: str, data: ClaimInput, user: dict = Depends(require_
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Claim packet not found")
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=data.name)
-    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    return await _claim_response(cid)
 
 
 @router.delete("/claims/{cid}")
@@ -542,9 +824,10 @@ async def attach_form(cid: str, payload: dict, user: dict = Depends(require_role
             "storage_path": att["storage_path"], "filename": att["filename"],
             "content_type": att.get("content_type", "application/octet-stream"), "size": att.get("size"),
             "category": _guess_category(att["filename"])}
-    await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+    await db.claim_packets.update_one(
+        {"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach form {att['filename']}")
-    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    return await _claim_response(cid)
 
 
 @router.post("/claims/{cid}/upload")
@@ -568,9 +851,10 @@ async def upload_to_claim(cid: str, file: UploadFile = File(...), user: dict = D
     item = {"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
             "storage_path": result["path"], "filename": file.filename, "content_type": safe_ct,
             "size": result.get("size"), "category": _guess_category(file.filename)}
-    await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+    await db.claim_packets.update_one(
+        {"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"upload {file.filename}")
-    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    return await _claim_response(cid)
 
 
 @router.get("/claims/options/forms")
@@ -599,7 +883,8 @@ async def attachable_notes(user: dict = Depends(require_roles("admin"))):
         out.append({"id": n["id"],
                     "patient_name": patients.get(n.get("patient_id")) or n.get("patient_name") or "-",
                     "date": n.get("visit_date") or (n.get("created_at") or "")[:10],
-                    "note_type": n.get("note_type"), "reason": n.get("reason_for_visit")})
+                    "note_type": n.get("note_type"), "reason": n.get("reason_for_visit"),
+                    **progress_note_codes(n)})
     return out
 
 
@@ -632,10 +917,16 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
         raise HTTPException(status_code=502, detail="File storage failed")
     item = {"id": str(uuid.uuid4()), "source": "invoice", "form_id": None, "invoice_id": inv["id"],
             "storage_path": result["path"], "filename": fname, "content_type": "application/pdf",
-            "size": result.get("size")}
-    await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+            "size": result.get("size"), "category": "invoice",
+            "invoice_number": inv.get("invoice_number"), "amount": inv.get("total")}
+    await db.claim_packets.update_one(
+        {"id": cid},
+        {"$push": {"items": item},
+         "$set": {"source_invoice_id": inv["id"], "invoice_link_source": "manual",
+                  "updated_at": now_iso()}},
+    )
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach invoice {inv.get('invoice_number')}")
-    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    return await _claim_response(cid)
 
 
 @router.post("/claims/{cid}/attach-note")
@@ -666,10 +957,10 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
         raise HTTPException(status_code=502, detail="File storage failed")
     item = {"id": str(uuid.uuid4()), "source": "note", "form_id": None, "note_id": n["id"],
             "storage_path": result["path"], "filename": fname, "content_type": "application/pdf",
-            "size": result.get("size")}
+            "size": result.get("size"), "category": "progress_note", **progress_note_codes(n)}
     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach note {fname}")
-    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    return await _claim_response(cid)
 
 
 @router.delete("/claims/{cid}/items/{item_id}")
@@ -680,7 +971,7 @@ async def remove_item(cid: str, item_id: str, user: dict = Depends(require_roles
         if it and it.get("source") in ("upload", "invoice", "note") and it.get("storage_path"):
             delete_object(it["storage_path"])
     await db.claim_packets.update_one({"id": cid}, {"$pull": {"items": {"id": item_id}}, "$set": {"updated_at": now_iso()}})
-    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    return await _claim_response(cid)
 
 
 @router.get("/claims/{cid}/items/{item_id}/download")
@@ -730,7 +1021,7 @@ async def rename_item(cid: str, item_id: str, data: ItemRename, user: dict = Dep
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Item not found")
     await log_audit("update", "claim", actor=user, resource_id=cid, detail="edit item")
-    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    return await _claim_response(cid)
 
 
 class ItemOrder(BaseModel):
@@ -747,7 +1038,7 @@ async def reorder_items(cid: str, data: ItemOrder, user: dict = Depends(require_
     ordered = [by_id[i] for i in data.ids if i in by_id]
     ordered += [i for i in items if i["id"] not in set(data.ids)]
     await db.claim_packets.update_one({"id": cid}, {"$set": {"items": ordered, "updated_at": now_iso()}})
-    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    return await _claim_response(cid)
 
 
 @router.post("/claims/{cid}/items/{item_id}/to-folder")
@@ -822,7 +1113,6 @@ async def send_packet_email(cid: str, data: SendPacket, user: dict = Depends(req
 
 @router.post("/claims/{cid}/to-folder")
 async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))):
-    from datetime import datetime, timezone
     from core.folder_filing import file_pdf_into_folder
     c = await db.claim_packets.find_one({"id": cid})
     if not c:
@@ -834,10 +1124,14 @@ async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
     pdf = await _build_packet_pdf(c)
-    ds = datetime.now(timezone.utc).strftime("%m-%d-%Y")
+    claim_date = str(c.get("claim_number") or "")[:10]
+    ds = claim_folder_day(claim_date)
+    if not ds:
+        raise HTTPException(status_code=400, detail="Claim packet has no visit/session date")
     name = (c.get("name") or "Claim Packet")[:40]
     item = await file_pdf_into_folder(pid, p["first_name"], pdf,
-                                      f"{name} {ds}", f"Claim_Packet_{ds}.pdf", user)
+                                      f"{name} {ds}", f"Claim_Packet_{ds}.pdf", user,
+                                      date_str=claim_date)
     if not item:
         raise HTTPException(status_code=502, detail="Could not file PDF")
     await log_audit("create", "folder", actor=user, resource_id=pid, detail=f"auto-filed claim {cid}")

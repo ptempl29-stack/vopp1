@@ -55,6 +55,11 @@ async def file_pdf_into_folder(patient_id, first_name, pdf_data, label, filename
             "created_at": now_iso(), "created_by": user.get("name"), "created_by_id": user.get("id")}
     await db.folder_items.insert_one(item)
     item.pop("_id", None)
+    try:
+        from routers.claims import _sync_folder_item_claims
+        await _sync_folder_item_claims(item)
+    except Exception as e:
+        logger.error(f"folder-item claim auto-sync failed: {e}")
     return item
 
 

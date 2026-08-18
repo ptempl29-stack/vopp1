@@ -165,6 +165,11 @@ async def upload_item(patient_id: str, file: UploadFile = File(...),
            "created_at": now_iso(), "created_by": user["name"], "created_by_id": user["id"]}
     await db.folder_items.insert_one(doc)
     doc.pop("_id", None)
+    try:
+        from routers.claims import _sync_folder_item_claims
+        await _sync_folder_item_claims(doc)
+    except Exception as exc:
+        logger.error(f"folder-item claim auto-sync failed: {exc}")
     await log_audit("create", "folder", actor=user, resource_id=patient_id, detail=f"upload {file.filename}")
     return doc
 
@@ -184,6 +189,11 @@ async def attach_form(patient_id: str, data: AttachForm, user: dict = Depends(re
            "created_at": now_iso(), "created_by": user["name"], "created_by_id": user["id"]}
     await db.folder_items.insert_one(doc)
     doc.pop("_id", None)
+    try:
+        from routers.claims import _sync_folder_item_claims
+        await _sync_folder_item_claims(doc)
+    except Exception as exc:
+        logger.error(f"folder-item claim auto-sync failed: {exc}")
     await log_audit("create", "folder", actor=user, resource_id=patient_id, detail=f"attach form {att['filename']}")
     return doc
 
@@ -215,8 +225,14 @@ async def move_item(item_id: str, data: MoveItem, user: dict = Depends(require_r
             raise HTTPException(status_code=400, detail="Target folder not found for that patient")
     await db.folder_items.update_one({"id": item_id}, {"$set": {
         "patient_id": data.patient_id, "subfolder_id": data.subfolder_id or None, "updated_at": now_iso()}})
+    updated = await db.folder_items.find_one({"id": item_id}, {"_id": 0})
+    try:
+        from routers.claims import _sync_folder_item_claims
+        await _sync_folder_item_claims(updated)
+    except Exception as exc:
+        logger.error(f"folder-item claim auto-sync failed: {exc}")
     await log_audit("update", "folder", actor=user, resource_id=item_id, detail=f"move to {data.patient_id}")
-    return await db.folder_items.find_one({"id": item_id}, {"_id": 0})
+    return updated
 
 
 @router.post("/folders/items/bulk-delete")

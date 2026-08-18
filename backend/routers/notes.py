@@ -40,6 +40,11 @@ async def create_note(data: NoteInput, user: dict = Depends(require_roles("docto
         doc["signed_at"] = now_iso()
     await db.notes.insert_one(doc)
     doc.pop("_id", None)
+    try:
+        from routers.claims import _sync_matching_claims
+        await _sync_matching_claims(doc.get("patient_id"), doc.get("visit_date"))
+    except Exception as exc:
+        logger.error(f"note-to-claim auto-sync failed: {exc}")
     await log_audit("create", "note", actor=user, resource_id=doc["id"],
                     detail=f"{doc.get('note_type','free')}: {doc.get('title','')}")
     return doc
@@ -65,9 +70,15 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
         doc["signed_by"] = user["name"]
         doc["signed_at"] = now_iso()
     await db.notes.update_one({"id": nid}, {"$set": doc})
+    updated = await db.notes.find_one({"id": nid}, {"_id": 0})
+    try:
+        from routers.claims import _sync_matching_claims
+        await _sync_matching_claims(updated.get("patient_id"), updated.get("visit_date"))
+    except Exception as exc:
+        logger.error(f"note-to-claim auto-sync failed: {exc}")
     await log_audit("update", "note", actor=user, resource_id=nid,
                     detail=f"{doc.get('note_type','free')}: {doc.get('title','')}")
-    return await db.notes.find_one({"id": nid}, {"_id": 0})
+    return updated
 
 
 @router.delete("/notes/{nid}")
@@ -144,6 +155,7 @@ async def notes_for_billing(patient_id: str,
             "id": n["id"], "note_type": n.get("note_type", "free"),
             "created_at": n.get("created_at"), "visit_date": n.get("visit_date"),
             "reason_for_visit": n.get("reason_for_visit"), "icd10": n.get("icd10"),
+            "cpt_code": n.get("cpt_code"),
             "attending_provider": n.get("attending_provider"),
             "dob": n.get("dob"), "gender": n.get("gender"), "ssn": n.get("ssn"),
             "preview": content[:180] + ("…" if len(content) > 180 else ""),

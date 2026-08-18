@@ -34,6 +34,7 @@ export default function ClaimBuilder() {
   const [dayFiles, setDayFiles] = useState([]);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [dateEdit, setDateEdit] = useState("");
+  const [paymentTo, setPaymentTo] = useState("");
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -48,11 +49,12 @@ export default function ClaimBuilder() {
   }, [visit, patientId]);
 
   const loadPatient = useCallback(async (pid) => {
-    setTemplate(null); setVisits([]); setVisit(null); setPacket(null); setDayFiles([]); setSelectedFiles([]);
+    setTemplate(null); setVisits([]); setVisit(null); setPacket(null); setDayFiles([]); setSelectedFiles([]); setPaymentTo("");
     if (!pid) return;
     try {
       const tr = await api.get(`/fmp/templates/${pid}`);
       setTemplate(tr.data.template); setVersions(tr.data.versions || 0);
+      setPaymentTo(tr.data.template?.payment_to || "");
     } catch (e) { toast.error(apiErr(e)); }
     try { setVisits((await api.get(`/fmp/visits/${pid}`)).data); } catch (e) { toast.error(apiErr(e)); }
   }, []);
@@ -83,6 +85,7 @@ export default function ClaimBuilder() {
         patient_id: patientId, note_id: visit.note_id,
         invoice_id: (packet && packet.source_invoice_id) || visit.invoice_id || null,
         manual_date: manualDate || null, attachment_item_ids: selectedFiles,
+        payment_to: paymentTo || null,
       });
       setPacket(r.data);
       setDateEdit(r.data.claim_number || manualDate || visit.date || "");
@@ -110,7 +113,7 @@ export default function ClaimBuilder() {
     } catch (e) { toast.error(apiErr(e)); }
   };
 
-  const canGenerate = patientId && visit && template && template.date_field;
+  const canGenerate = patientId && visit && template && template.date_field && paymentTo;
   const val = packet?.validation;
   const meta = val ? statusMeta[val.status] : null;
 
@@ -158,6 +161,16 @@ export default function ClaimBuilder() {
                     onChange={(e) => uploadTemplate(e.target.files[0])} />
                 </div>
                 <p className="text-xs text-stone-400">{versions} {t("templateVersionsStored")}</p>
+                <div className="pt-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("paymentTo")}</label>
+                  <select value={paymentTo} onChange={(e) => setPaymentTo(e.target.value)}
+                    className={`${inputCls} mt-1.5`} data-testid="cb-payment-recipient">
+                    <option value="">{t("selectPaymentRecipient")}</option>
+                    <option value="provider">{t("payProvider")}</option>
+                    <option value="veteran">{t("payVeteran")}</option>
+                  </select>
+                  <p className="text-xs text-stone-400 mt-1">{t("paymentRecipientHint")}</p>
+                </div>
               </div>
             )}
           </Card>
@@ -220,6 +233,50 @@ export default function ClaimBuilder() {
             {meta && <Badge tone={meta.tone} data-testid="cb-validation-status"><span className="inline-flex items-center gap-1"><meta.Icon className="w-4 h-4" />{t(meta.key)}</span></Badge>}
           </div>
 
+          {(packet.invoice_summary || packet.payment_to) && (
+            <Card className="p-4 mb-5 bg-tan-50/50" data-testid="cb-claim-summary">
+              <h4 className="font-heading font-bold text-moneygreen-800 mb-3">{t("claimSummary")}</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <p className="text-stone-500">{t("invoiceNumber")}</p>
+                  <p className="mt-1 font-mono font-bold" data-testid="cb-summary-invoice-number">
+                    {packet.invoice_summary?.invoice_number || "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-stone-500">{t("amountBilled")}</p>
+                  <p className="mt-1 font-bold" data-testid="cb-summary-amount-billed">
+                    {packet.invoice_summary?.amount_billed == null ? "—" : `$${Number(packet.invoice_summary.amount_billed).toFixed(2)}`}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-stone-500">{t("paymentTo")}</p>
+                  <p className="mt-1 font-bold" data-testid="cb-summary-payment-recipient">
+                    {packet.payment_to === "provider" ? t("payProvider") : packet.payment_to === "veteran" ? t("payVeteran") : t("notRecorded")}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-stone-500">{t("dateOfService")}</p>
+                  <p className="mt-1 font-bold">{fmtDate(packet.invoice_summary?.service_date) || t("notRecorded")}</p>
+                </div>
+                <div>
+                  <p className="text-stone-500">{t("icd10Code")}</p>
+                  <p className="mt-1 font-mono font-bold">{packet.invoice_summary?.icd10 || t("notRecorded")}</p>
+                </div>
+                <div>
+                  <p className="text-stone-500">{t("cptCode")}</p>
+                  <p className="mt-1 font-mono font-bold">
+                    {packet.invoice_summary?.items?.map((item) => item.cpt_code).filter(Boolean).join(", ") || t("notRecorded")}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-stone-500">{t("provider")}</p>
+                  <p className="mt-1 font-bold">{packet.invoice_summary?.provider || t("notRecorded")}</p>
+                </div>
+              </div>
+            </Card>
+          )}
+
           {/* Editable date of service */}
           <div className="flex flex-wrap items-end gap-2 mb-5">
             <div>
@@ -245,8 +302,12 @@ export default function ClaimBuilder() {
                 <tr key={it.id} className="border-b border-border/60" data-testid={`cb-doc-${it.category || it.source}`}>
                   <td className="py-2 font-medium text-moneygreen-800">{it.filename}</td>
                   <td className="py-2 text-stone-600">{fmtDate(packet.claim_number) || "—"}</td>
-                  <td className="py-2 text-stone-600">{it.invoice_number || "—"}</td>
-                  <td className="py-2 text-right text-stone-600">{typeof it.amount === "number" ? `$${it.amount.toFixed(2)}` : "—"}</td>
+                  <td className="py-2 text-stone-600">
+                    {it.category === "progress_note" ? `ICD-10: ${it.icd10 || t("notRecorded")}` : (it.invoice_number || "—")}
+                  </td>
+                  <td className="py-2 text-right text-stone-600">
+                    {it.category === "progress_note" ? `CPT: ${it.cpt_code || t("notRecorded")}` : (typeof it.amount === "number" ? `$${it.amount.toFixed(2)}` : "—")}
+                  </td>
                   <td className="py-2 text-right"><Badge tone="green"><span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{t("included")}</span></Badge></td>
                 </tr>
               ))}
@@ -272,6 +333,7 @@ export default function ClaimBuilder() {
               <div className="grid grid-cols-2 gap-y-1 text-sm max-w-md">
                 <span className="text-stone-500">{t("newDate")}</span><span className="font-semibold">{packet.cover_review.new_date}</span>
                 <span className="text-stone-500">{t("dateSource")}</span><span className="font-semibold capitalize">{packet.cover_review.date_source || "—"}</span>
+                <span className="text-stone-500">{t("paymentTo")}</span><span className="font-semibold">{packet.payment_to === "provider" ? t("payProvider") : packet.payment_to === "veteran" ? t("payVeteran") : t("notRecorded")}</span>
                 <span className="text-stone-500">{t("otherFieldsChanged")}</span><span className="font-semibold">{t("no")}</span>
               </div>
               <label className="flex items-center gap-2 mt-3 text-sm cursor-pointer" data-testid="cb-confirm-cover">

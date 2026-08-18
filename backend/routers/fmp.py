@@ -15,8 +15,10 @@ from core.security import require_roles
 from core.audit import log_audit
 from core.storage import put_object, get_object, delete_object
 from core.folder_filing import disp_date, fmt_date
+from core.claim_invoices import payment_recipient_from_fields, progress_note_codes
 from routers.settings import get_settings_doc
-from routers.claims import _invoice_pdf, _guess_category, _auto_attach_credentials, FMP_CHECKLIST
+from routers.claims import (_invoice_pdf, _guess_category, _auto_attach_credentials,
+                            _claim_response, FMP_CHECKLIST)
 
 _DOC_CATEGORY_LABELS = dict(FMP_CHECKLIST)
 from routers.billing import _compute_next_number
@@ -60,6 +62,50 @@ async def _active_template(patient_id: str):
         {"patient_id": patient_id, "active": True}, {"_id": 0})
 
 
+def _read_payment_recipient(data: bytes) -> Optional[str]:
+    """Read one marked payment recipient without assigning a default."""
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        fields = []
+        marked_words = []
+        label_words = []
+        for page in doc:
+            widgets = page.widgets()
+            if widgets:
+                fields.extend((widget.field_name, widget.field_value) for widget in widgets)
+            for word in page.get_text("words"):
+                value = str(word[4] or "").strip().lower().strip("[]()")
+                if value in {"x", "☒", "✓", "✔"}:
+                    marked_words.append((page.number, *word[:4]))
+                if "veteran" in value or "provider" in value:
+                    label_words.append(("veteran" if "veteran" in value else "provider",
+                                        page.number, *word[:4]))
+
+        selected = payment_recipient_from_fields(fields)
+        if selected:
+            return selected
+
+        # Flattened PDFs have no form fields. Accept only an unambiguous mark
+        # very near one label; all other layouts require user confirmation.
+        nearby = set()
+        for page_no, x0, y0, x1, y1 in marked_words:
+            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+            distances = []
+            for recipient, label_page, lx0, ly0, lx1, ly1 in label_words:
+                if label_page != page_no:
+                    continue
+                lcx, lcy = (lx0 + lx1) / 2, (ly0 + ly1) / 2
+                if abs(cy - lcy) <= 18 and abs(cx - lcx) <= 180:
+                    distances.append((abs(cx - lcx) + abs(cy - lcy), recipient))
+            if distances:
+                distances.sort()
+                if len(distances) == 1 or distances[0][0] + 8 < distances[1][0]:
+                    nearby.add(distances[0][1])
+        return nearby.pop() if len(nearby) == 1 else None
+    finally:
+        doc.close()
+
+
 @router.get("/fmp/templates/{patient_id}")
 async def get_template(patient_id: str, user: dict = Depends(require_roles(*FMP_ROLES))):
     tpl = await _active_template(patient_id)
@@ -85,6 +131,7 @@ async def upload_template(patient_id: str, file: UploadFile = File(...),
         page_count = doc.page_count
         pr = doc[0].rect
         doc.close()
+        payment_to = _read_payment_recipient(data)
     except HTTPException:
         raise
     except Exception as e:
@@ -106,6 +153,8 @@ async def upload_template(patient_id: str, file: UploadFile = File(...),
                "storage_path": result["path"], "filename": file.filename[:160],
                "page_count": page_count, "page_w": pr.width, "page_h": pr.height,
                "date_field": None, "version": prev + 1, "active": True,
+               "payment_to": payment_to,
+               "payment_to_source": "cover_sheet" if payment_to else None,
                "uploaded_by": user["name"], "uploaded_by_id": user["id"],
                "uploaded_at": now_iso()}
     await db.fmp_templates.insert_one(doc_rec)
@@ -183,6 +232,7 @@ class GenerateInput(BaseModel):
     invoice_id: Optional[str] = None
     manual_date: Optional[str] = None
     attachment_item_ids: Optional[list] = None
+    payment_to: Optional[str] = None
 
 
 def _validate(patient, note, invoice, dos):
@@ -250,11 +300,6 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
         dos = _norm(note.get("visit_date"))
         date_source = "signed progress note" if dos else ""
 
-    # If a manual date was set on an existing invoice, sync it
-    if invoice and data.manual_date and dos:
-        await db.invoices.update_one({"id": invoice["id"]}, {"$set": {"service_date": dos}})
-        invoice["service_date"] = dos
-
     # Auto-create an invoice from the progress-note header when none is linked
     if invoice is None and note.get("cpt_code"):
         cpt = await db.cpt_codes.find_one({"code": note["cpt_code"]}, {"_id": 0})
@@ -272,12 +317,21 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
         invoice.pop("_id", None)
 
     tpl = await _active_template(data.patient_id)
+    if data.payment_to not in (None, "provider", "veteran"):
+        raise HTTPException(status_code=400, detail="Payment recipient must be Provider or Veteran")
+    payment_to = data.payment_to or (tpl or {}).get("payment_to")
+    payment_to_source = "user_confirmed" if data.payment_to else (
+        "cover_sheet" if payment_to else None)
     issues, status = _validate(p, note, invoice, dos)
     if not tpl:
         issues.insert(0, {"level": "blocked", "message": "No FMP cover-sheet template uploaded for this patient."})
         status = "blocked"
     elif not tpl.get("date_field"):
         issues.insert(0, {"level": "blocked", "message": "The date-of-service field has not been configured on the cover sheet."})
+        status = "blocked"
+    if not payment_to:
+        issues.insert(0, {"level": "blocked", "message":
+                          "Select the payment recipient shown on the completed cover sheet."})
         status = "blocked"
 
     # duplicate check
@@ -306,7 +360,8 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
                           "category": "cover_sheet"})
             cover_review = {"original_date": None, "new_date": _fmt_service_date(dos, tpl["date_field"].get("date_format")),
                             "date_source": date_source, "template_version": tpl.get("version"),
-                            "only_date_changed": True}
+                            "only_date_changed": True, "payment_to": payment_to,
+                            "payment_to_source": payment_to_source}
         except Exception as e:
             logger.error(f"cover sheet stamp failed: {e}")
             issues.append({"level": "blocked", "message": "Cover-sheet generation failed."})
@@ -338,7 +393,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
         items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None, "note_id": note["id"],
                       "storage_path": result["path"], "filename": f"Progress_Note_{fmt_date(dos) if dos else 'note'}.pdf",
                       "content_type": "application/pdf", "size": result.get("size"),
-                      "category": "progress_note"})
+                      "category": "progress_note", **progress_note_codes(note)})
     except Exception as e:
         logger.error(f"fmp note pdf failed: {e}")
 
@@ -359,14 +414,16 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
               "status": "draft", "notes": None, "items": items,
               "source_note_id": data.note_id, "source_invoice_id": (invoice or {}).get("id"),
               "date_source": date_source, "validation": {"status": status, "issues": issues},
-              "cover_review": cover_review, "approved": False,
+              "cover_review": cover_review, "payment_to": payment_to,
+              "payment_to_source": payment_to_source, "approved": False,
               "created_at": now_iso(), "created_by": user["name"], "generated": True}
     await db.claim_packets.insert_one(packet)
     packet.pop("_id", None)
     await log_audit("create", "claim", actor=user, resource_id=packet["id"],
                     detail=f"generated FMP packet {pname} {dos} [{status}]")
-    packet["duplicate_of"] = duplicate_of
-    return packet
+    result = await _claim_response(packet["id"])
+    result["duplicate_of"] = duplicate_of
+    return result
 
 
 class ApproveInput(BaseModel):
@@ -387,7 +444,7 @@ async def approve_packet(cid: str, data: ApproveInput, user: dict = Depends(requ
         "approved": True, "approved_by": user["name"], "approved_at": now_iso(),
         "status": "complete", "updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail="approved FMP packet")
-    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    return await _claim_response(cid)
 
 
 # ---------------- cover-sheet corrections ----------------
@@ -550,7 +607,7 @@ async def amend_cover_sheet(cid: str, data: CoverAmendmentInput,
     await log_audit("update", "claim", actor=user, resource_id=cid,
                     detail=f"cover sheet amended (date_changed={date_changed}, "
                            f"substantive_fields={[f for f, _, _ in changed_substantive]})")
-    return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    return await _claim_response(cid)
 
 
 @router.get("/fmp/visits/{patient_id}")
