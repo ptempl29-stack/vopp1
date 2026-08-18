@@ -201,30 +201,15 @@ async def _build_packet_pdf(c) -> bytes:
     dob = (p or {}).get("dob", "")
     ssn = (p or {}).get("ssn", "")
 
-    inv = None
+       inv = None
     inv_item = next((i for i in items if i.get("source") == "invoice" and i.get("invoice_id")), None)
     if inv_item:
         inv = await db.invoices.find_one({"id": inv_item["invoice_id"]}, {"_id": 0})
+    elif c.get("source_invoice_id"):
+        # Packet was generated from a session's progress note; the invoice created
+        # for that session is tracked here even when no "invoice" item was attached.
+        inv = await db.invoices.find_one({"id": c["source_invoice_id"]}, {"_id": 0})
     note = None
-    note_item = next((i for i in items if i.get("source") == "note" and i.get("note_id")), None)
-    if note_item:
-        note = await db.notes.find_one({"id": note_item["note_id"]}, {"_id": 0})
-
-    provider = (inv or {}).get("attending_provider") or (note or {}).get("attending_provider") or ""
-    icd = (inv or {}).get("icd10") or (note or {}).get("icd10") or ""
-    diagnosis = c.get("diagnosis_narrative") or icd
-    cpt_desc = ""
-    if inv and inv.get("items"):
-        it0 = inv["items"][0]
-        cpt_desc = f"{it0.get('cpt_code', '')} - {it0.get('description', '')}".strip(" -")
-    elif note:
-        cpt_desc = note.get("cpt_code", "") or ""
-    inv_no = (inv or {}).get("invoice_number", "")
-    amount = (inv or {}).get("total")
-    svc_date = disp_date(c.get("claim_number")) or disp_date((inv or {}).get("service_date")) or ""
-    pay = "Provider payment requested - Provider box on VA Form 10-7959f-2" \
-        if (c.get("payment_to") or "provider") == "provider" else "Veteran payment requested"
-
     # ================= Professional cover + checklist =================
     GREEN = (25, 90, 60)
     GREEN_LT = (232, 243, 237)
