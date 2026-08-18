@@ -59,6 +59,32 @@ export default function ClaimBuilder() {
     try { setVisits((await api.get(`/fmp/visits/${pid}`)).data); } catch (e) { toast.error(apiErr(e)); }
   }, []);
 
+  const refreshPacket = useCallback(async (packetId) => {
+    if (!packetId) return null;
+    const r = await api.get(`/claims/${packetId}`);
+    setPacket((current) => current?.id === packetId ? { ...current, ...r.data } : current);
+    return r.data;
+  }, []);
+
+  useEffect(() => {
+    const packetId = packet?.id;
+    if (!packetId) return undefined;
+    const refresh = () => refreshPacket(packetId).catch((err) => console.error(err));
+    const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
+    const onInvoiceSaved = () => refresh();
+    const onStorage = (event) => { if (event.key === "vpp_invoice_saved_at") refresh(); };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("vpp:invoice-saved", onInvoiceSaved);
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("vpp:invoice-saved", onInvoiceSaved);
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [packet?.id, refreshPacket]);
+
   const onPatient = (e) => { const v = e.target.value; setPatientId(v); loadPatient(v); };
 
   const uploadTemplate = async (file) => {
@@ -105,12 +131,13 @@ export default function ClaimBuilder() {
 
   const authedDownload = async () => {
     try {
+      await refreshPacket(packet.id);
       const r = await api.get(`/claims/${packet.id}/merged`, { responseType: "blob" });
       const href = URL.createObjectURL(r.data);
       const a = document.createElement("a");
       a.href = href; a.download = (packet.name || "claim_packet").replace(/\s+/g, "_") + ".pdf"; a.click();
       URL.revokeObjectURL(href);
-    } catch (e) { toast.error(apiErr(e)); }
+    } catch (e) { toast.error(apiErr(e), { duration: Infinity }); }
   };
 
   const canGenerate = patientId && visit && template && template.date_field && paymentTo;

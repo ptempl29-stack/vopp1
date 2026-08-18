@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Optional
+from typing import Callable, Optional
 
 
 def service_day(value: object) -> str:
@@ -38,6 +38,35 @@ def progress_note_codes(note: Optional[dict]) -> dict:
     icd10 = str(note.get("icd10") or "").strip() or None
     cpt_code = str(note.get("cpt_code") or "").strip() or None
     return {"icd10": icd10, "cpt_code": cpt_code}
+
+
+def claim_document_key(item: Optional[dict]) -> Optional[str]:
+    """Return a stable key used to remember a user's explicit removal."""
+    item = item or {}
+    for prefix, field in (("invoice", "invoice_id"), ("note", "note_id"),
+                          ("form", "form_id"), ("folder", "folder_item_id"),
+                          ("storage", "storage_path")):
+        value = item.get(field)
+        if value:
+            return f"{prefix}:{value}"
+    return None
+
+
+def without_excluded_claim_documents(items: Iterable[dict], excluded_keys: Iterable[str]) -> list[dict]:
+    """Keep automatic synchronization from restoring a document the user removed."""
+    excluded = set(excluded_keys)
+    return [item for item in items if claim_document_key(item) not in excluded]
+
+
+def best_effort_cleanup(paths: Iterable[str], remover: Callable[[str], object]) -> list[str]:
+    """Attempt every storage cleanup and report failures without interrupting deletion."""
+    failed = []
+    for path in paths:
+        try:
+            remover(path)
+        except Exception:
+            failed.append(path)
+    return failed
 
 
 def linked_invoice_id(claim: dict) -> Optional[str]:

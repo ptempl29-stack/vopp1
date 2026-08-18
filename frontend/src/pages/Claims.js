@@ -8,6 +8,7 @@ import { fmtDate } from "../lib/date";
 import {
   FolderArchive, Plus, Pencil, Trash2, ChevronLeft, Download, FileText,
   ReceiptText, Upload, FilePlus, CalendarClock, Eye, FolderInput, Send, ArrowUp, ArrowDown,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -45,6 +46,7 @@ export default function Claims() {
   const [sendOpen, setSendOpen] = useState(false);
   const [sendTo, setSendTo] = useState("");
   const [sendBusy, setSendBusy] = useState(false);
+  const [deleting, setDeleting] = useState("");
 
   const load = useCallback(async () => {
     try { setPackets((await api.get("/claims")).data); } catch (e) { toast.error(apiErr(e)); }
@@ -104,8 +106,15 @@ export default function Claims() {
 
   const remove = async (id) => {
     if (!window.confirm(t("confirmDeletePacket"))) return;
-    try { await api.delete(`/claims/${id}`); toast.success(t("delete") + " ✓"); load(); }
-    catch (e) { toast.error(apiErr(e)); }
+    const key = `claim:${id}`;
+    setDeleting(key);
+    try {
+      const r = await api.delete(`/claims/${id}`);
+      if (r.data.cleanup_pending) toast.warning(t("cleanupPendingWarning"), { duration: Infinity });
+      else toast.success(t("delete") + " ✓");
+      load();
+    } catch (e) { toast.error(apiErr(e), { duration: Infinity }); }
+    finally { setDeleting(""); }
   };
 
   const buildFromDate = async (e) => {
@@ -151,8 +160,16 @@ export default function Claims() {
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
   };
   const removeItem = async (itemId) => {
-    try { setSelected((await api.delete(`/claims/${selected.id}/items/${itemId}`)).data); }
-    catch (e) { toast.error(apiErr(e)); }
+    if (!window.confirm(t("confirmRemoveClaimItem"))) return;
+    const key = `item:${itemId}`;
+    setDeleting(key);
+    try {
+      const r = await api.delete(`/claims/${selected.id}/items/${itemId}`);
+      setSelected(r.data);
+      if (r.data.cleanup_pending) toast.warning(t("cleanupPendingWarning"), { duration: Infinity });
+      else toast.success(t("delete") + " ✓");
+    } catch (e) { toast.error(apiErr(e), { duration: Infinity }); }
+    finally { setDeleting(""); }
   };
 
   const authedDownload = async (url, fallbackName) => {
@@ -351,7 +368,10 @@ export default function Claims() {
                             <Btn variant="ghost" onClick={() => setRenameItem({ id: it.id, filename: it.filename, category: it.category || "" })} data-testid={`claim-item-edit-${it.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>
                             <Btn variant="ghost" onClick={() => moveItemToFolder(it)} data-testid={`claim-item-move-${it.id}`} className="!px-2 !text-moneygreen-700" title={t("moveToFolderTitle")}><FolderInput className="w-4 h-4" /></Btn>
                             <Btn variant="ghost" onClick={() => authedDownload(`/claims/${selected.id}/items/${it.id}/download`, it.filename)} data-testid={`claim-item-download-${it.id}`} className="!px-2" title={t("saveAsPdf")}><Download className="w-4 h-4" /></Btn>
-                            <Btn variant="ghost" onClick={() => removeItem(it.id)} data-testid={`claim-item-remove-${it.id}`} className="!px-2 !text-destructive" title={t("removeFromPacket")}><Trash2 className="w-4 h-4" /></Btn>
+                            <Btn variant="ghost" onClick={() => removeItem(it.id)} disabled={!!deleting}
+                              data-testid={`claim-item-remove-${it.id}`} className="!px-2 !text-destructive" title={t("removeFromPacket")}>
+                              {deleting === `item:${it.id}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            </Btn>
                           </div>
                         </td>
                       </motion.tr>
@@ -461,7 +481,10 @@ export default function Claims() {
                       <div className="flex justify-end gap-1">
                         <Btn variant="outline" onClick={() => refreshSelected(p.id)} data-testid={`claim-open-${p.id}`}>{t("view")}</Btn>
                         <Btn variant="ghost" onClick={() => openEdit(p)} data-testid={`claim-edit-${p.id}`} className="!px-2"><Pencil className="w-4 h-4" /></Btn>
-                        <Btn variant="ghost" onClick={() => remove(p.id)} data-testid={`claim-delete-${p.id}`} className="!px-2 !text-destructive"><Trash2 className="w-4 h-4" /></Btn>
+                        <Btn variant="ghost" onClick={() => remove(p.id)} disabled={!!deleting}
+                          data-testid={`claim-delete-${p.id}`} className="!px-2 !text-destructive">
+                          {deleting === `claim:${p.id}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        </Btn>
                       </div>
                     </td>
                   </motion.tr>

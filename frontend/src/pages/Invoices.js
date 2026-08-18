@@ -9,7 +9,7 @@ import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
-import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy } from "lucide-react";
+import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 let seq = 0;
@@ -52,6 +52,7 @@ export default function Invoices() {
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [icdHistory, setIcdHistory] = useState([]);
   const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [deletingInvoice, setDeletingInvoice] = useState("");
 
   const statusLabel = (s) => t(statusKey[s] || s);
   const loadInvoices = () => api.get("/invoices").then((r) => setInvoices(r.data)).catch(() => {});
@@ -144,8 +145,11 @@ export default function Invoices() {
     if (!inv.patient_id && !inv.patient_name) { toast.error(t("patient")); return; }
     if (valid.length === 0) { toast.error(t("addItem")); return; }
     try {
-      if (editId) { await api.put(`/invoices/${editId}`, { ...inv, items: valid }); toast.success(t("updated")); }
-      else { await api.post("/invoices", { ...inv, items: valid }); toast.success(t("save") + " ✓"); }
+      let saved;
+      if (editId) { saved = await api.put(`/invoices/${editId}`, { ...inv, items: valid }); toast.success(t("updated")); }
+      else { saved = await api.post("/invoices", { ...inv, items: valid }); toast.success(t("save") + " ✓"); }
+      window.localStorage.setItem("vpp_invoice_saved_at", String(Date.now()));
+      window.dispatchEvent(new CustomEvent("vpp:invoice-saved", { detail: saved.data }));
       resetInvoice(); loadInvoices();
     } catch (err) { toast.error(apiErr(err)); }
   };
@@ -198,7 +202,14 @@ export default function Invoices() {
   };
 
   const removeInvoice = async (id) => {
-    try { await api.delete(`/invoices/${id}`); loadInvoices(); } catch (err) { toast.error(apiErr(err)); }
+    if (!window.confirm(t("confirmDeleteInvoice"))) return;
+    setDeletingInvoice(id);
+    try {
+      await api.delete(`/invoices/${id}`);
+      toast.success(t("delete") + " ✓");
+      loadInvoices();
+    } catch (err) { toast.error(apiErr(err), { duration: Infinity }); }
+    finally { setDeletingInvoice(""); }
   };
   const removeSelected = async () => {
     try { await bulkDelete("/invoices/bulk-delete", [...sel.selected], t); sel.clear(); loadInvoices(); }
@@ -407,7 +418,10 @@ export default function Invoices() {
                           <Btn variant="ghost" onClick={() => viewInvoice(v.id)} data-testid={`view-invoice-${v.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
                           <Btn variant="ghost" onClick={() => editInvoice(v.id)} data-testid={`edit-invoice-${v.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>
                           <Btn variant="ghost" onClick={() => duplicateInvoice(v.id)} data-testid={`duplicate-invoice-${v.id}`} className="!px-2" title={t("duplicate")}><Copy className="w-4 h-4" /></Btn>
-                          <Btn variant="ghost" onClick={() => removeInvoice(v.id)} data-testid={`delete-invoice-${v.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>
+                          <Btn variant="ghost" onClick={() => removeInvoice(v.id)} disabled={!!deletingInvoice}
+                            data-testid={`delete-invoice-${v.id}`} className="!px-2 !text-destructive" title={t("delete")}>
+                            {deletingInvoice === v.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                          </Btn>
                         </div>
                       </td>
                     </tr>

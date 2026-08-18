@@ -12,8 +12,10 @@ from core.config import APP_NAME, EXT_CONTENT_TYPES
 from core.security import require_roles
 from core.audit import log_audit
 from core.storage import put_object, get_object, delete_object
-from core.claim_invoices import (invoice_summary, linked_invoice_id, progress_note_codes,
-                                 related_invoice, unlinked_related_claims, claim_folder_day)
+from core.claim_invoices import (best_effort_cleanup, claim_document_key, invoice_summary,
+                                 linked_invoice_id, progress_note_codes, related_invoice,
+                                 unlinked_related_claims, claim_folder_day,
+                                 without_excluded_claim_documents)
 from routers.settings import get_settings_doc
 from core.pdf_utils import new_pdf, pdf_bytes, FONT
 
@@ -245,7 +247,8 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
         return claim
 
     original_items = claim.get("items", [])
-    items = [dict(item) for item in original_items]
+    excluded_keys = set(claim.get("excluded_document_keys") or [])
+    items = [dict(item) for item in without_excluded_claim_documents(original_items, excluded_keys)]
     original_keys = {(item.get("source"), item.get("invoice_id"), item.get("note_id"),
                       item.get("form_id"), item.get("folder_item_id"), item.get("storage_path"))
                      for item in items}
@@ -260,7 +263,9 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
                 item["invoice_number"] = invoice.get("invoice_number")
                 item["amount"] = invoice.get("total")
 
-    if invoice and not any(item.get("invoice_id") == invoice.get("id") for item in items):
+    invoice_key = claim_document_key({"invoice_id": (invoice or {}).get("id")})
+    if (invoice and invoice_key not in excluded_keys
+            and not any(item.get("invoice_id") == invoice.get("id") for item in items)):
         try:
             pdf = _invoice_pdf(invoice, clinic)
             path = f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf"
@@ -280,7 +285,9 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
             if item.get("note_id") == note.get("id"):
                 item.update(codes)
 
-    if note and not any(item.get("note_id") == note.get("id") for item in items):
+    note_key = claim_document_key({"note_id": (note or {}).get("id")})
+    if (note and note_key not in excluded_keys
+            and not any(item.get("note_id") == note.get("id") for item in items)):
         try:
             from core.folder_filing import note_pdf, fmt_date
             rendered = {**note,
@@ -300,7 +307,9 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
 
     forms = await db.forms.find({"patient_id": patient_id}, {"_id": 0}).to_list(500)
     for form in forms:
-        if _form_day(form) != claim_day or any(item.get("form_id") == form.get("id") for item in items):
+        form_key = claim_document_key({"form_id": form.get("id")})
+        if (form_key in excluded_keys or _form_day(form) != claim_day
+                or any(item.get("form_id") == form.get("id") for item in items)):
             continue
         try:
             attachment = form.get("attachment")
@@ -336,6 +345,9 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
         ).to_list(1000)
         for folder_item in folder_items:
             filename = folder_item.get("filename") or folder_item.get("label") or "Document"
+            folder_key = claim_document_key({"folder_item_id": folder_item.get("id")})
+            if folder_key in excluded_keys:
+                continue
             if folder_item.get("description") == "Moved from FMP Claim" or filename.startswith("Claim_Packet_"):
                 continue
             category = _guess_category(filename)
@@ -355,6 +367,7 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
              if item.get("category") not in ("provider_diploma", "provider_exequatur")
              or not item.get("provider_name") or item.get("provider_name") == provider_name]
     items = await _auto_attach_credentials(items, patient_id, provider_name)
+    items = without_excluded_claim_documents(items, excluded_keys)
 
     new_keys = {(item.get("source"), item.get("invoice_id"), item.get("note_id"),
                  item.get("form_id"), item.get("folder_item_id"), item.get("storage_path"))
@@ -802,13 +815,18 @@ async def update_claim(cid: str, data: ClaimInput, user: dict = Depends(require_
 @router.delete("/claims/{cid}")
 async def delete_claim(cid: str, user: dict = Depends(require_roles("admin"))):
     c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
-    if c:
-        for it in c.get("items", []):
-            if it.get("source") in ("upload", "invoice", "note") and it.get("storage_path"):
-                delete_object(it["storage_path"])
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    cleanup_paths = [it["storage_path"] for it in c.get("items", [])
+                     if it.get("source") in ("upload", "invoice", "note")
+                     and it.get("storage_path")]
     await db.claim_packets.delete_one({"id": cid})
-    await log_audit("delete", "claim", actor=user, resource_id=cid)
-    return {"ok": True}
+    cleanup_failures = best_effort_cleanup(cleanup_paths, delete_object)
+    if cleanup_failures:
+        logger.error(f"claim {cid} deleted with {len(cleanup_failures)} storage cleanup failure(s)")
+    await log_audit("delete", "claim", actor=user, resource_id=cid,
+                    detail=f"cleanup_pending={len(cleanup_failures)}")
+    return {"ok": True, "cleanup_pending": len(cleanup_failures)}
 
 
 @router.post("/claims/{cid}/attach-form")
@@ -825,7 +843,9 @@ async def attach_form(cid: str, payload: dict, user: dict = Depends(require_role
             "content_type": att.get("content_type", "application/octet-stream"), "size": att.get("size"),
             "category": _guess_category(att["filename"])}
     await db.claim_packets.update_one(
-        {"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+        {"id": cid}, {"$push": {"items": item},
+                      "$pull": {"excluded_document_keys": claim_document_key(item)},
+                      "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach form {att['filename']}")
     return await _claim_response(cid)
 
@@ -922,6 +942,7 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
     await db.claim_packets.update_one(
         {"id": cid},
         {"$push": {"items": item},
+         "$pull": {"excluded_document_keys": claim_document_key(item)},
          "$set": {"source_invoice_id": inv["id"], "invoice_link_source": "manual",
                   "updated_at": now_iso()}},
     )
@@ -958,7 +979,10 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
     item = {"id": str(uuid.uuid4()), "source": "note", "form_id": None, "note_id": n["id"],
             "storage_path": result["path"], "filename": fname, "content_type": "application/pdf",
             "size": result.get("size"), "category": "progress_note", **progress_note_codes(n)}
-    await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+    await db.claim_packets.update_one(
+        {"id": cid}, {"$push": {"items": item},
+                      "$pull": {"excluded_document_keys": claim_document_key(item)},
+                      "$set": {"source_note_id": n["id"], "updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach note {fname}")
     return await _claim_response(cid)
 
@@ -966,12 +990,25 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
 @router.delete("/claims/{cid}/items/{item_id}")
 async def remove_item(cid: str, item_id: str, user: dict = Depends(require_roles("admin"))):
     c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
-    if c:
-        it = next((i for i in c.get("items", []) if i["id"] == item_id), None)
-        if it and it.get("source") in ("upload", "invoice", "note") and it.get("storage_path"):
-            delete_object(it["storage_path"])
-    await db.claim_packets.update_one({"id": cid}, {"$pull": {"items": {"id": item_id}}, "$set": {"updated_at": now_iso()}})
-    return await _claim_response(cid)
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    item = next((candidate for candidate in c.get("items", [])
+                 if candidate.get("id") == item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Claim packet item not found")
+    document_key = claim_document_key(item)
+    update = {"$pull": {"items": {"id": item_id}}, "$set": {"updated_at": now_iso()}}
+    if document_key:
+        update["$addToSet"] = {"excluded_document_keys": document_key}
+    await db.claim_packets.update_one({"id": cid}, update)
+    cleanup_paths = [item["storage_path"]] if (
+        item.get("source") in ("upload", "invoice", "note") and item.get("storage_path")) else []
+    cleanup_failures = best_effort_cleanup(cleanup_paths, delete_object)
+    if cleanup_failures:
+        logger.error(f"claim {cid} item {item_id} removed with storage cleanup pending")
+    result = await _claim_response(cid)
+    result["cleanup_pending"] = len(cleanup_failures)
+    return result
 
 
 @router.get("/claims/{cid}/items/{item_id}/download")
