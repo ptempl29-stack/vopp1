@@ -1,5 +1,6 @@
 import io
 import re
+import gc
 import uuid
 from typing import Optional
 
@@ -151,33 +152,53 @@ async def _patient_name(pid):
     return f"{p['first_name']} {p['last_name']}" if p else None
 
 
-def _merge_items_pdf(items) -> bytes:
-    from pypdf import PdfWriter, PdfReader
+def _append_document(writer, data: bytes, filename: str) -> bool:
+    """Append a stored PDF or image to a PdfWriter with minimal peak memory.
+    Large images are downscaled before embedding to avoid OOM on constrained tiers."""
+    from pypdf import PdfReader
     from PIL import Image
+    fn = (filename or "").lower()
+    if fn.endswith(".pdf"):
+        for page in PdfReader(io.BytesIO(data)).pages:
+            writer.add_page(page)
+        return True
+    if fn.rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp"):
+        img = Image.open(io.BytesIO(data))
+        img = img.convert("RGB")
+        MAX_EDGE = 2200  # keeps documents legible while cutting decoded-image RAM
+        if max(img.size) > MAX_EDGE:
+            img.thumbnail((MAX_EDGE, MAX_EDGE))
+        buf = io.BytesIO()
+        img.save(buf, format="PDF", resolution=150.0)
+        img.close()
+        for page in PdfReader(io.BytesIO(buf.getvalue())).pages:
+            writer.add_page(page)
+        buf.close()
+        return True
+    return False
+
+
+def _merge_items_pdf(items) -> bytes:
+    from pypdf import PdfWriter
     writer = PdfWriter()
     added = 0
     for item in items:
         try:
             data, _ = get_object(item["storage_path"])
-            fn = item["filename"].lower()
-            if fn.endswith(".pdf"):
-                for page in PdfReader(io.BytesIO(data)).pages:
-                    writer.add_page(page)
+            if _append_document(writer, data, item["filename"]):
                 added += 1
-            elif fn.rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp"):
-                img = Image.open(io.BytesIO(data)).convert("RGB")
-                buf = io.BytesIO()
-                img.save(buf, format="PDF")
-                for page in PdfReader(io.BytesIO(buf.getvalue())).pages:
-                    writer.add_page(page)
-                added += 1
+            del data
         except Exception as e:
             logger.error(f"merge skip {item.get('filename')}: {e}")
     if added == 0:
         raise HTTPException(status_code=400, detail="No PDF/image documents to merge in this packet")
     out = io.BytesIO()
     writer.write(out)
-    return out.getvalue()
+    writer.close()
+    result = out.getvalue()
+    out.close()
+    gc.collect()
+    return result
 
 
 FMP_CHECKLIST = [
@@ -666,21 +687,17 @@ async def _build_packet_pdf(c) -> bytes:
     for item in items:
         try:
             data, _ = get_object(item["storage_path"])
-            fn = item["filename"].lower()
-            if fn.endswith(".pdf"):
-                for page in PdfReader(io.BytesIO(data)).pages:
-                    writer.add_page(page)
-            elif fn.rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp"):
-                img = Image.open(io.BytesIO(data)).convert("RGB")
-                buf = io.BytesIO()
-                img.save(buf, format="PDF")
-                for page in PdfReader(io.BytesIO(buf.getvalue())).pages:
-                    writer.add_page(page)
+            _append_document(writer, data, item["filename"])
+            del data
         except Exception as e:
             logger.error(f"packet merge skip {item.get('filename')}: {e}")
     out = io.BytesIO()
     writer.write(out)
-    return out.getvalue()
+    writer.close()
+    result = out.getvalue()
+    out.close()
+    gc.collect()
+    return result
 
 
 @router.get("/claims")
