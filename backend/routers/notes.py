@@ -3,12 +3,14 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 from core.db import db, now_iso, logger
 from core.security import require_roles
 from core.audit import log_audit
+from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd
 from models.schemas import NoteInput, SummarizeInput, IdList
 
 router = APIRouter()
@@ -140,7 +142,25 @@ async def patient_code_history(patient_id: str, user: dict = Depends(require_rol
     icd = await db.notes.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})
     icd_inv = await db.invoices.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})
     cpt = await db.notes.distinct("cpt_code", {"patient_id": patient_id, "cpt_code": {"$nin": [None, ""]}})
-    return {"icd10": sorted(set(icd) | set(icd_inv)), "cpt": sorted(c for c in cpt if c)}
+    hidden = await dismissed_icd(patient_id)
+    return {"icd10": sorted((set(icd) | set(icd_inv)) - hidden), "cpt": sorted(c for c in cpt if c)}
+
+
+class DismissCode(BaseModel):
+    patient_id: str
+    code: str
+
+
+@router.post("/notes/patient-code-history/dismiss")
+async def notes_dismiss_icd(data: DismissCode, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
+    await add_dismissed_icd(data.patient_id, data.code, user)
+    return {"ok": True}
+
+
+@router.post("/notes/patient-code-history/restore")
+async def notes_restore_icd(data: DismissCode, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
+    await remove_dismissed_icd(data.patient_id, data.code)
+    return {"ok": True}
 
 
 @router.get("/notes/for-billing")

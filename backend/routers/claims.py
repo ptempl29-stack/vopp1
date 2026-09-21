@@ -2,6 +2,7 @@ import io
 import re
 import gc
 import uuid
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
@@ -1053,6 +1054,60 @@ async def merged_pdf(cid: str, user: dict = Depends(require_roles("admin"))):
     fname = (c.get("name") or "claim_packet").replace('"', "").replace(" ", "_")[:60]
     return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'})
+
+
+_BUILD_SEM = asyncio.Semaphore(1)
+_bg_tasks = set()
+
+
+async def _run_merge_job(cid: str, job_id: str):
+    async with _BUILD_SEM:  # serialize heavy builds so concurrent packets can't stack memory
+        await db.claim_pdf_jobs.update_one({"id": job_id}, {"$set": {"status": "running", "updated_at": now_iso()}})
+        try:
+            c = await db.claim_packets.find_one({"id": cid})
+            pdf = await _build_packet_pdf(c)
+            key = f"{APP_NAME}/claim_jobs/{cid}/{job_id}.pdf"
+            put_object(key, pdf, "application/pdf")
+            await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
+            await db.claim_pdf_jobs.update_one({"id": job_id},
+                {"$set": {"status": "done", "storage_path": key, "updated_at": now_iso()}})
+        except Exception as e:
+            logger.exception("merge job failed")
+            await db.claim_pdf_jobs.update_one({"id": job_id},
+                {"$set": {"status": "error", "error": str(e)[:300], "updated_at": now_iso()}})
+
+
+@router.post("/claims/{cid}/merged/async")
+async def start_merge_job(cid: str, user: dict = Depends(require_roles("admin"))):
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    job_id = str(uuid.uuid4())
+    fname = (c.get("name") or "claim_packet").replace('"', "").replace(" ", "_")[:60] + ".pdf"
+    await db.claim_pdf_jobs.insert_one({"id": job_id, "claim_id": cid, "status": "queued",
+        "filename": fname, "created_at": now_iso(), "updated_at": now_iso(), "requested_by": user.get("email")})
+    task = asyncio.create_task(_run_merge_job(cid, job_id))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.get("/claims/{cid}/jobs/{job_id}")
+async def merge_job_status(cid: str, job_id: str, user: dict = Depends(require_roles("admin"))):
+    j = await db.claim_pdf_jobs.find_one({"id": job_id, "claim_id": cid}, {"_id": 0})
+    if not j:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"status": j["status"], "ready": j["status"] == "done", "error": j.get("error"), "filename": j.get("filename")}
+
+
+@router.get("/claims/{cid}/jobs/{job_id}/download")
+async def merge_job_download(cid: str, job_id: str, user: dict = Depends(require_roles("admin"))):
+    j = await db.claim_pdf_jobs.find_one({"id": job_id, "claim_id": cid}, {"_id": 0})
+    if not j or j.get("status") != "done" or not j.get("storage_path"):
+        raise HTTPException(status_code=409, detail="Packet is not ready")
+    data, _ = get_object(j["storage_path"])
+    return StreamingResponse(io.BytesIO(data), media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{j.get("filename") or "claim_packet.pdf"}"'})
 
 
 class ItemRename(BaseModel):

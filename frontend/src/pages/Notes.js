@@ -46,6 +46,9 @@ export default function Notes() {
   const [sigKey, setSigKey] = useState(0);
   const [savingSig, setSavingSig] = useState(false);
   const [codeHistory, setCodeHistory] = useState({ icd10: [], cpt: [] });
+  const [manageOpen, setManageOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState("");
+  const [replaceMap, setReplaceMap] = useState({});
   const [viewMode, setViewMode] = useState("cards");
   const [providerFilter, setProviderFilter] = useState("");
   const [patientFilter, setPatientFilter] = useState("");
@@ -93,6 +96,36 @@ export default function Notes() {
     (!patientFilter || n.patient_id === patientFilter) &&
     (!dateFilter || noteDate(n) === dateFilter)
   ), [notes, providerFilter, patientFilter, dateFilter]);
+
+  const dismissIcd = async (code) => {
+    const pid = form.patient_id;
+    if (!pid) return;
+    try {
+      await api.post("/notes/patient-code-history/dismiss", { patient_id: pid, code });
+      setCodeHistory((h) => ({ ...h, icd10: h.icd10.filter((c) => c !== code) }));
+      toast.success(t("icdRemoved"));
+    } catch { toast.error("Failed"); }
+  };
+
+  const reloadCodeHistory = () => {
+    const pid = form.patient_id;
+    if (pid) api.get("/notes/patient-code-history", { params: { patient_id: pid } })
+      .then((r) => setCodeHistory(r.data)).catch(() => {});
+  };
+
+  const bulkFix = async (code, replacement) => {
+    const pid = form.patient_id;
+    if (!pid) return;
+    if (!replacement && !window.confirm(t("confirmBulkRemove").replace("{code}", code))) return;
+    setBulkBusy(code);
+    try {
+      const r = await api.post(`/patients/${pid}/icd-bulk`, { code, replacement: replacement || null });
+      toast.success(t("bulkDone").replace("{n}", (r.data.notes_updated + r.data.invoices_updated)));
+      setReplaceMap((m) => ({ ...m, [code]: "" }));
+      reloadCodeHistory();
+    } catch (e) { toast.error("Failed"); }
+    finally { setBulkBusy(""); }
+  };
 
   const onPatient = async (e) => {
     const pid = e.target.value;
@@ -195,9 +228,17 @@ export default function Notes() {
               <div className="flex flex-wrap items-center gap-1.5 mt-1 pl-2" data-testid="icd-suggestions">
                 <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
                 {codeHistory.icd10.map((c) => (
-                  <button key={c} type="button" onClick={() => setForm((f) => ({ ...f, icd10: c }))} data-testid={`icd-chip-${c}`}
-                    className="text-xs px-2 py-0.5 rounded-full bg-moneygreen-100 text-moneygreen-700 hover:bg-moneygreen-200 font-mono font-semibold transition-colors">{c}</button>
+                  <span key={c} className="inline-flex items-center rounded-full bg-moneygreen-100 text-moneygreen-700 font-mono font-semibold overflow-hidden">
+                    <button type="button" onClick={() => setForm((f) => ({ ...f, icd10: c }))} data-testid={`icd-chip-${c}`}
+                      className="text-xs pl-2 pr-1 py-0.5 hover:bg-moneygreen-200 transition-colors">{c}</button>
+                    <button type="button" onClick={() => dismissIcd(c)} data-testid={`icd-chip-remove-${c}`} title={t("removeIcdSuggestion")}
+                      className="text-moneygreen-500 hover:text-red-600 hover:bg-red-100 pr-1.5 pl-0.5 py-0.5 transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
                 ))}
+                <button type="button" onClick={() => setManageOpen(true)} data-testid="icd-manage-btn"
+                  className="text-xs px-2 py-0.5 rounded-full border border-stone-300 text-stone-500 hover:bg-stone-100 transition-colors">{t("manageCodes")}</button>
               </div>
             )}
           </div>
@@ -519,6 +560,28 @@ export default function Notes() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal open={manageOpen} onClose={() => setManageOpen(false)} title={t("manageCodesTitle")}>
+        <p className="text-sm text-stone-500 mb-3">{t("manageCodesHint")}</p>
+        {codeHistory.icd10.length === 0 ? <Empty text={t("noCodes")} /> : (
+          <div className="space-y-2" data-testid="icd-manage-list">
+            {codeHistory.icd10.map((c) => (
+              <div key={c} className="flex items-center gap-2 p-2 rounded-lg border border-border bg-tan-50/40">
+                <span className="font-mono font-bold text-moneygreen-800 w-24 shrink-0">{c}</span>
+                <input value={replaceMap[c] || ""} onChange={(e) => setReplaceMap((m) => ({ ...m, [c]: e.target.value }))}
+                  placeholder={t("replaceWith")} className={inputCls} data-testid={`icd-replace-input-${c}`} />
+                <Btn variant="outline" onClick={() => bulkFix(c, (replaceMap[c] || "").trim())} disabled={!(replaceMap[c] || "").trim() || bulkBusy === c}
+                  data-testid={`icd-replace-btn-${c}`} className="!px-3 shrink-0">{bulkBusy === c ? <Loader2 className="w-4 h-4 animate-spin" /> : t("replace")}</Btn>
+                <Btn variant="ghost" onClick={() => bulkFix(c, "")} disabled={!!bulkBusy}
+                  data-testid={`icd-bulk-remove-${c}`} className="!px-2 !text-destructive shrink-0" title={t("removeFromAllRecords")}><Trash2 className="w-4 h-4" /></Btn>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-end pt-4">
+          <Btn variant="outline" onClick={() => setManageOpen(false)}>{t("close")}</Btn>
+        </div>
       </Modal>
     </div>
   );

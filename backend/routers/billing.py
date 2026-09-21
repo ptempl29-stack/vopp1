@@ -11,7 +11,9 @@ from core.config import INVOICE_STATUSES
 from core.security import get_current_user, require_roles
 from core.audit import log_audit
 from core.invoice_numbers import compute_next_invoice_number
+from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd
 from models.schemas import CptInput, InvoiceInput, IdList
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -104,7 +106,25 @@ async def set_seq_base(payload: dict, user: dict = Depends(require_roles("biller
 async def invoice_code_history(patient_id: str, user: dict = Depends(require_roles("biller", "receptionist"))):
     icd_inv = await db.invoices.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})
     icd_notes = await db.notes.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})
-    return {"icd10": sorted(set(icd_inv) | set(icd_notes))}
+    hidden = await dismissed_icd(patient_id)
+    return {"icd10": sorted((set(icd_inv) | set(icd_notes)) - hidden)}
+
+
+class DismissIcd(BaseModel):
+    patient_id: str
+    code: str
+
+
+@router.post("/invoices/patient-code-history/dismiss")
+async def invoice_dismiss_icd(data: DismissIcd, user: dict = Depends(require_roles("biller", "receptionist"))):
+    await add_dismissed_icd(data.patient_id, data.code, user)
+    return {"ok": True}
+
+
+@router.post("/invoices/patient-code-history/restore")
+async def invoice_restore_icd(data: DismissIcd, user: dict = Depends(require_roles("biller", "receptionist"))):
+    await remove_dismissed_icd(data.patient_id, data.code)
+    return {"ok": True}
 
 
 @router.post("/invoices")

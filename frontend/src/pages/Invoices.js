@@ -9,7 +9,7 @@ import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
-import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy, Loader2 } from "lucide-react";
+import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 
 let seq = 0;
@@ -61,6 +61,16 @@ export default function Invoices() {
     if (!pid) { setIcdHistory([]); return; }
     api.get("/invoices/patient-code-history", { params: { patient_id: pid } })
       .then((r) => setIcdHistory(r.data.icd10 || [])).catch(() => setIcdHistory([]));
+  };
+
+  const dismissIcd = async (code) => {
+    const pid = inv.patient_id;
+    if (!pid) return;
+    try {
+      await api.post("/invoices/patient-code-history/dismiss", { patient_id: pid, code });
+      setIcdHistory((h) => h.filter((c) => c !== code));
+      toast.success(t("icdRemoved"));
+    } catch { toast.error("Failed"); }
   };
 
   useEffect(() => {
@@ -283,6 +293,20 @@ export default function Invoices() {
                   <datalist id="inv-icd-history" data-testid="inv-icd-datalist">
                     {icdHistory.map((c) => <option key={c} value={c} />)}
                   </datalist>
+                  {icdHistory.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1" data-testid="inv-icd-suggestions">
+                      {icdHistory.map((c) => (
+                        <span key={c} className="inline-flex items-center rounded-full bg-moneygreen-100 text-moneygreen-700 font-mono text-xs font-semibold overflow-hidden">
+                          <button type="button" onClick={() => setF("icd10")({ target: { value: c } })} data-testid={`inv-icd-chip-${c}`}
+                            className="pl-2 pr-1 py-0.5 hover:bg-moneygreen-200 transition-colors">{c}</button>
+                          <button type="button" onClick={() => dismissIcd(c)} data-testid={`inv-icd-chip-remove-${c}`} title={t("removeIcdSuggestion")}
+                            className="text-moneygreen-500 hover:text-red-600 hover:bg-red-100 pr-1.5 pl-0.5 py-0.5 transition-colors">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </CField>
                 <CField label={t("attendingProvider")}>
                   <ManagedSelect listKey="providers" value={inv.provider || ""} onChange={setF("provider")} className={cellCls} data-testid="inv-provider">

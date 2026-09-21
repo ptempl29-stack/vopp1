@@ -47,6 +47,7 @@ export default function Claims() {
   const [sendTo, setSendTo] = useState("");
   const [sendBusy, setSendBusy] = useState(false);
   const [deleting, setDeleting] = useState("");
+  const [packetBuilding, setPacketBuilding] = useState(false);
 
   const load = useCallback(async () => {
     try { setPackets((await api.get("/claims")).data); } catch (e) { toast.error(apiErr(e)); }
@@ -198,6 +199,41 @@ export default function Claims() {
   };
   const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null); };
 
+  const pollJob = async (cid, jobId) => {
+    for (let i = 0; i < 150; i++) {
+      await new Promise((res) => setTimeout(res, 2000));
+      const r = await api.get(`/claims/${cid}/jobs/${jobId}`);
+      if (r.data.ready) return;
+      if (r.data.status === "error") throw new Error(r.data.error || "error");
+    }
+    throw new Error("timeout");
+  };
+
+  const downloadMerged = async () => {
+    const cid = selected.id;
+    api.post(`/claims/${cid}/to-folder`).then(() => {}).catch(() => {});
+    const items = selected.items || [];
+    const totalBytes = items.reduce((s, it) => s + (Number(it.size) || 0), 0);
+    const isLarge = items.length > 8 || totalBytes > 15 * 1024 * 1024;
+    if (!isLarge) {
+      await authedDownload(`/claims/${cid}/merged`, "claim_packet.pdf");
+      setTimeout(() => refreshSelected(cid), 800);
+      return;
+    }
+    setPacketBuilding(true);
+    const tid = toast.loading(t("generatingPacket"));
+    try {
+      const r = await api.post(`/claims/${cid}/merged/async`);
+      await pollJob(cid, r.data.job_id);
+      await authedDownload(`/claims/${cid}/jobs/${r.data.job_id}/download`, "claim_packet.pdf");
+      toast.dismiss(tid);
+      refreshSelected(cid);
+    } catch (e) {
+      toast.dismiss(tid);
+      toast.error(t("packetFailed"));
+    } finally { setPacketBuilding(false); }
+  };
+
   const saveRename = async (e) => {
     e.preventDefault();
     try {
@@ -248,7 +284,10 @@ export default function Claims() {
               <Btn variant="outline" onClick={() => { setSelected(null); load(); }} data-testid="claim-back"><ChevronLeft className="w-4 h-4" />{t("backToPackets")}</Btn>
               <Btn variant="outline" onClick={() => openEdit(selected)} data-testid="claim-edit-detail"><Pencil className="w-4 h-4" />{t("edit")}</Btn>
               <Btn variant="outline" onClick={() => { setSendTo(""); setSendOpen(true); }} data-testid="claim-send"><Send className="w-4 h-4" />{t("send")}</Btn>
-              <Btn onClick={() => { api.post(`/claims/${selected.id}/to-folder`).then((r) => toast.success(t("savedToFolder"))).catch(() => {}); authedDownload(`/claims/${selected.id}/merged`, "claim_packet.pdf"); setTimeout(() => refreshSelected(selected.id), 800); }} data-testid="claim-download-merged"><Download className="w-4 h-4" />{t("mergeSavePdf")}</Btn>
+              <Btn onClick={downloadMerged} disabled={packetBuilding} data-testid="claim-download-merged">
+                {packetBuilding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {packetBuilding ? t("generatingPacket") : t("mergeSavePdf")}
+              </Btn>
             </div>} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
