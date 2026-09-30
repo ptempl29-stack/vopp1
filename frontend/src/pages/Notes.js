@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Btn, Empty, Card, inputCls } from "../components/ui-kit";
+import { AddIcdCodeModal } from "../components/AddIcdCodeModal";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
@@ -49,6 +50,8 @@ export default function Notes() {
   const [manageOpen, setManageOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState("");
   const [replaceMap, setReplaceMap] = useState({});
+  const [icdCatalog, setIcdCatalog] = useState([]);
+  const [addIcdOpen, setAddIcdOpen] = useState(false);
   const [viewMode, setViewMode] = useState("cards");
   const [providerFilter, setProviderFilter] = useState("");
   const [patientFilter, setPatientFilter] = useState("");
@@ -74,6 +77,7 @@ export default function Notes() {
     api.get("/patients").then((r) => setPatients(asArray(r.data))).catch(() => setPatients([]));
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
     api.get("/cpt-codes").then((r) => setCpt(asArray(r.data))).catch(() => setCpt([]));
+    api.get("/icd-codes").then((r) => setIcdCatalog(asArray(r.data))).catch(() => setIcdCatalog([]));
     api.get("/users").then((r) => setProviders(asArray(r.data).filter((u) => ["doctor", "nurse", "psychologist", "admin"].includes(u.role)))).catch(() => setProviders([]));
   }, []);
 
@@ -223,7 +227,14 @@ export default function Notes() {
           <HRow label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={headerInputCls} data-testid="nf-dob" /></HRow>
           <HRow label={t("socialSecurity")}><input value={form.ssn || ""} onChange={set("ssn")} className={headerInputCls} data-testid="nf-ssn" placeholder="XXX-XX-XXXX" /></HRow>
           <div>
-            <HRow label={t("icd10Code")}><input value={form.icd10 || ""} onChange={set("icd10")} className={headerInputCls} data-testid="nf-icd10" placeholder="e.g. F33.0" /></HRow>
+            <HRow label={t("icd10Code")}>
+              <div className="flex gap-1.5">
+                <input list="nf-icd-catalog" value={form.icd10 || ""} onChange={set("icd10")} className={headerInputCls} data-testid="nf-icd10" placeholder="e.g. F33.0" />
+                <button type="button" onClick={() => setAddIcdOpen(true)} title={t("addCode")} data-testid="nf-icd10-add"
+                  className="shrink-0 px-2 rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors"><Plus className="w-4 h-4" /></button>
+              </div>
+              <datalist id="nf-icd-catalog">{icdCatalog.map((c) => <option key={c.code} value={c.code}>{c.description || ""}</option>)}</datalist>
+            </HRow>
             {codeHistory.icd10.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 mt-1 pl-2" data-testid="icd-suggestions">
                 <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
@@ -583,6 +594,9 @@ export default function Notes() {
           <Btn variant="outline" onClick={() => setManageOpen(false)}>{t("close")}</Btn>
         </div>
       </Modal>
+
+      <AddIcdCodeModal open={addIcdOpen} onClose={() => setAddIcdOpen(false)}
+        onAdded={(c) => { setIcdCatalog((list) => [...list, c]); setForm((f) => ({ ...f, icd10: c.code })); }} />
     </div>
   );
 }

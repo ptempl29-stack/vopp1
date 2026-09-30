@@ -115,6 +115,37 @@ class DismissIcd(BaseModel):
     code: str
 
 
+class IcdInput(BaseModel):
+    code: str
+    description: str = ""
+
+
+@router.get("/icd-codes")
+async def icd_codes(user: dict = Depends(get_current_user)):
+    """Shared ICD-10 catalog; seeded once from codes already on past notes/invoices."""
+    if await db.icd_codes.count_documents({}) == 0:
+        icd_inv = await db.invoices.distinct("icd10", {"icd10": {"$nin": [None, ""]}})
+        icd_notes = await db.notes.distinct("icd10", {"icd10": {"$nin": [None, ""]}})
+        codes = sorted(set(icd_inv) | set(icd_notes))
+        if codes:
+            await db.icd_codes.insert_many([
+                {"id": str(uuid.uuid4()), "code": c, "description": "", "created_at": now_iso()} for c in codes])
+    return await db.icd_codes.find({}, {"_id": 0}).sort("code", 1).to_list(2000)
+
+
+@router.post("/icd-codes")
+async def create_icd(data: IcdInput, user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "biller", "receptionist"))):
+    code = data.code.strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Code is required")
+    if await db.icd_codes.find_one({"code": code}):
+        raise HTTPException(status_code=400, detail="ICD-10 code already exists")
+    doc = {"id": str(uuid.uuid4()), "code": code, "description": data.description.strip(), "created_at": now_iso()}
+    await db.icd_codes.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
 @router.post("/invoices/patient-code-history/dismiss")
 async def invoice_dismiss_icd(data: DismissIcd, user: dict = Depends(require_roles("biller", "receptionist"))):
     await add_dismissed_icd(data.patient_id, data.code, user)

@@ -11,6 +11,7 @@ import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
 import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
+import { AddIcdCodeModal } from "../components/AddIcdCodeModal";
 
 let seq = 0;
 const newItem = () => ({ _uid: `it-${seq++}`, cpt_code: "", description: "", quantity: 1, minutes: 15, amount: 0 });
@@ -51,6 +52,8 @@ export default function Invoices() {
   const [billingNotes, setBillingNotes] = useState([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [icdHistory, setIcdHistory] = useState([]);
+  const [icdCatalog, setIcdCatalog] = useState([]);
+  const [addIcdOpen, setAddIcdOpen] = useState(false);
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [deletingInvoice, setDeletingInvoice] = useState("");
 
@@ -77,6 +80,7 @@ export default function Invoices() {
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
     api.get("/cpt-codes").then((r) => setCpt(r.data)).catch(() => {});
+    api.get("/icd-codes").then((r) => setIcdCatalog(r.data)).catch(() => {});
     api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "psychologist", "nurse", "admin"].includes(u.role)))).catch(() => {});
     loadInvoices();
     loadNumber();
@@ -289,9 +293,13 @@ export default function Invoices() {
                   </select>
                 </CField>
                 <CField label="ICD-10-CM">
-                  <input list="inv-icd-history" value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" autoComplete="off" />
+                  <div className="flex gap-1.5">
+                    <input list="inv-icd-history" value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" autoComplete="off" />
+                    <button type="button" onClick={() => setAddIcdOpen(true)} title={t("addCode")} data-testid="inv-icd10-add"
+                      className="shrink-0 px-2 rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors"><Plus className="w-4 h-4" /></button>
+                  </div>
                   <datalist id="inv-icd-history" data-testid="inv-icd-datalist">
-                    {icdHistory.map((c) => <option key={c} value={c} />)}
+                    {Array.from(new Set([...icdHistory, ...icdCatalog.map((c) => c.code)])).map((c) => <option key={c} value={c} />)}
                   </datalist>
                   {icdHistory.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5 mt-1" data-testid="inv-icd-suggestions">
@@ -569,6 +577,9 @@ export default function Invoices() {
           )}
         </div>
       </Modal>
+
+      <AddIcdCodeModal open={addIcdOpen} onClose={() => setAddIcdOpen(false)}
+        onAdded={(c) => { setIcdCatalog((list) => [...list, c]); setInv((s) => ({ ...s, icd10: c.code })); }} />
     </div>
   );
 }
