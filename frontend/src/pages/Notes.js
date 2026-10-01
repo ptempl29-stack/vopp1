@@ -57,6 +57,7 @@ export default function Notes() {
   const [patientFilter, setPatientFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [completeOnSign, setCompleteOnSign] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -168,8 +169,12 @@ export default function Notes() {
     const payload = { ...form, note_type: "free" };
     payload.title = `${t("notes")} — ${patientName(form.patient_id)}${form.visit_date ? ` · ${form.visit_date}` : ""}`;
     try {
+      let noteId = editId;
       if (editId) await api.put(`/notes/${editId}`, payload);
-      else await api.post("/notes", payload);
+      else { const r = await api.post("/notes", payload); noteId = r.data?.id; }
+      if (noteId && form.signature && completeOnSign) {
+        try { await api.put(`/notes/${noteId}/complete`, { completed: true }); } catch { /* best-effort */ }
+      }
       toast.success(t("save") + " ✓"); setOpen(false); setEditId(null); setForm(blank); load();
     } catch (err) { toast.error(apiErr(err)); }
   };
@@ -208,7 +213,7 @@ export default function Notes() {
     try {
       await api.put(`/notes/${n.id}/complete`, { completed: next });
       setNotes((list) => list.map((x) => x.id === n.id
-        ? { ...x, completed: next, completed_at: next ? new Date().toISOString() : null }
+        ? { ...x, completed: next, completed_at: next ? new Date().toISOString() : null, completed_by: next ? (user?.name || "") : null }
         : x));
       toast.success(next ? t("noteCompleted") : t("noteReopened"));
     } catch (err) { toast.error(apiErr(err)); }
@@ -455,6 +460,7 @@ export default function Notes() {
                   <th className="px-5 py-3 hidden md:table-cell">{t("provider")}</th>
                   <th className="px-5 py-3 hidden lg:table-cell">ICD-10 / CPT</th>
                   <th className="px-5 py-3">{t("riskAssessment")}</th>
+                  <th className="px-5 py-3 hidden md:table-cell">{t("completed")}</th>
                   <th className="px-5 py-3 text-right">{t("actions")}</th>
                 </tr>
               </thead>
@@ -475,6 +481,11 @@ export default function Notes() {
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{providerName(n)}</td>
                     <td className="px-5 py-3 hidden lg:table-cell text-stone-500 font-mono text-xs">{`${n.icd10 || t("notRecorded")} / ${n.cpt_code || t("notRecorded")}`}</td>
                     <td className="px-5 py-3 text-stone-600">{n.risk_level ? riskLabel(n.risk_level) : "—"}</td>
+                    <td className="px-5 py-3 hidden md:table-cell text-xs" data-testid={`note-completed-cell-${n.id}`}>
+                      {n.completed ? (
+                        <span className="text-moneygreen-700">{fmtDate((n.completed_at || "").slice(0, 10))}{n.completed_by ? ` · ${n.completed_by}` : ""}</span>
+                      ) : <span className="text-stone-400">—</span>}
+                    </td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         <Btn variant="ghost" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
@@ -590,6 +601,11 @@ export default function Notes() {
             </div>
             <SignaturePad key={sigKey} value={form.signature} allowUpload
               onChange={(v) => setForm((f) => ({ ...f, signature: v }))} testid="note-signature" />
+            <label className={`mt-3 flex items-center gap-2 text-sm cursor-pointer ${form.signature ? "text-moneygreen-800" : "text-stone-400"}`}>
+              <input type="checkbox" checked={completeOnSign} onChange={(e) => setCompleteOnSign(e.target.checked)}
+                data-testid="nf-complete-on-sign" className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+              <CheckCircle2 className="w-4 h-4" />{t("completeOnSign")}
+            </label>
           </div>
 
           <div className="flex justify-end gap-2 pt-2 no-print">
