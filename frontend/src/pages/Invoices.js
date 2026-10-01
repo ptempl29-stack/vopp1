@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import api, { apiErr } from "../lib/api";
 import { useSearchParams } from "react-router-dom";
 import { useSelection, bulkDelete } from "../lib/bulk";
@@ -9,7 +9,7 @@ import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
-import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy, Loader2, X } from "lucide-react";
+import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy, Loader2, X, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { AddIcdCodeModal } from "../components/AddIcdCodeModal";
 
@@ -54,6 +54,8 @@ export default function Invoices() {
   const [icdHistory, setIcdHistory] = useState([]);
   const [icdCatalog, setIcdCatalog] = useState([]);
   const [addIcdOpen, setAddIcdOpen] = useState(false);
+  const [icdHistOpen, setIcdHistOpen] = useState(false);
+  const icdHistRef = useRef(null);
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [deletingInvoice, setDeletingInvoice] = useState("");
 
@@ -75,6 +77,12 @@ export default function Invoices() {
       toast.success(t("icdRemoved"));
     } catch { toast.error("Failed"); }
   };
+
+  useEffect(() => {
+    const onDown = (e) => { if (icdHistRef.current && !icdHistRef.current.contains(e.target)) setIcdHistOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, []);
 
   useEffect(() => {
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
@@ -294,28 +302,35 @@ export default function Invoices() {
                 </CField>
                 <CField label="ICD-10-CM">
                   <div className="flex gap-1.5">
-                    <input list="inv-icd-history" value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" autoComplete="off" />
+                    <div className="relative flex-1" ref={icdHistRef}>
+                      <button type="button" onClick={() => setIcdHistOpen((o) => !o)} data-testid="inv-icd10"
+                        className={cellCls + " flex items-center justify-between text-left gap-1"}>
+                        <span className={inv.icd10 ? "font-mono text-moneygreen-800 truncate" : "text-stone-400 truncate"}>{inv.icd10 || t("usedBefore")}</span>
+                        <ChevronDown className="w-4 h-4 text-stone-400 shrink-0" />
+                      </button>
+                      {icdHistOpen && (
+                        <div className="absolute z-30 mt-1 w-full bg-white border border-border rounded-md shadow-lg max-h-56 overflow-auto" data-testid="inv-icd-history-panel">
+                          {icdHistory.length === 0 ? (
+                            <div className="px-3 py-2 text-xs text-stone-400">{t("noCodes")}</div>
+                          ) : icdHistory.map((c) => (
+                            <div key={c} className="flex items-center justify-between hover:bg-moneygreen-50">
+                              <button type="button" onClick={() => { setF("icd10")({ target: { value: c } }); setIcdHistOpen(false); }}
+                                data-testid={`inv-icd-opt-${c}`} className="flex-1 text-left px-3 py-1.5 font-mono text-sm text-moneygreen-800">{c}</button>
+                              <button type="button" onClick={() => dismissIcd(c)} data-testid={`inv-icd-opt-remove-${c}`} title={t("removeIcdSuggestion")}
+                                className="px-2 py-1.5 text-stone-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <select value="" onChange={(e) => { if (e.target.value) setF("icd10")({ target: { value: e.target.value } }); }}
+                      data-testid="inv-icd-catalog" className={cellCls + " shrink-0 max-w-[42%]"} title={t("allCodes")}>
+                      <option value="">{t("allCodes")}</option>
+                      {icdCatalog.map((c) => <option key={c.code} value={c.code}>{c.description ? `${c.code} — ${c.description}` : c.code}</option>)}
+                    </select>
                     <button type="button" onClick={() => setAddIcdOpen(true)} title={t("addCode")} data-testid="inv-icd10-add"
                       className="shrink-0 px-2 rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors"><Plus className="w-4 h-4" /></button>
                   </div>
-                  <datalist id="inv-icd-history" data-testid="inv-icd-datalist">
-                    {icdCatalog.map((c) => <option key={c.code} value={c.code}>{c.description ? `${c.code} — ${c.description}` : c.code}</option>)}
-                    {icdHistory.filter((h) => !icdCatalog.some((c) => c.code === h)).map((c) => <option key={c} value={c} />)}
-                  </datalist>
-                  {icdHistory.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1" data-testid="inv-icd-suggestions">
-                      {icdHistory.map((c) => (
-                        <span key={c} className="inline-flex items-center rounded-full bg-moneygreen-100 text-moneygreen-700 font-mono text-xs font-semibold overflow-hidden">
-                          <button type="button" onClick={() => setF("icd10")({ target: { value: c } })} data-testid={`inv-icd-chip-${c}`}
-                            className="pl-2 pr-1 py-0.5 hover:bg-moneygreen-200 transition-colors">{c}</button>
-                          <button type="button" onClick={() => dismissIcd(c)} data-testid={`inv-icd-chip-remove-${c}`} title={t("removeIcdSuggestion")}
-                            className="text-moneygreen-500 hover:text-red-600 hover:bg-red-100 pr-1.5 pl-0.5 py-0.5 transition-colors">
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </CField>
                 <CField label={t("attendingProvider")}>
                   <ManagedSelect listKey="providers" value={inv.provider || ""} onChange={setF("provider")} className={cellCls} data-testid="inv-provider">

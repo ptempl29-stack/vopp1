@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { can } from "../lib/perms";
@@ -13,7 +13,7 @@ import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
 import { fmtDate } from "../lib/date";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X, CheckCircle2, Download } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X, CheckCircle2, Download, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
@@ -61,6 +61,10 @@ export default function Notes() {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportStart, setExportStart] = useState("");
   const [exportEnd, setExportEnd] = useState("");
+  const [icdHistOpen, setIcdHistOpen] = useState(false);
+  const [cptHistOpen, setCptHistOpen] = useState(false);
+  const icdHistRef = useRef(null);
+  const cptHistRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -84,6 +88,15 @@ export default function Notes() {
     api.get("/cpt-codes").then((r) => setCpt(asArray(r.data))).catch(() => setCpt([]));
     api.get("/icd-codes").then((r) => setIcdCatalog(asArray(r.data))).catch(() => setIcdCatalog([]));
     api.get("/users").then((r) => setProviders(asArray(r.data).filter((u) => ["doctor", "nurse", "psychologist", "admin"].includes(u.role)))).catch(() => setProviders([]));
+  }, []);
+
+  useEffect(() => {
+    const onDown = (e) => {
+      if (icdHistRef.current && !icdHistRef.current.contains(e.target)) setIcdHistOpen(false);
+      if (cptHistRef.current && !cptHistRef.current.contains(e.target)) setCptHistOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -276,44 +289,66 @@ export default function Notes() {
           <div>
             <HRow label={t("icd10Code")}>
               <div className="flex gap-1.5">
-                <input list="nf-icd-catalog" value={form.icd10 || ""} onChange={set("icd10")} className={headerInputCls} data-testid="nf-icd10" placeholder="e.g. F33.0" />
+                <div className="relative flex-1" ref={icdHistRef}>
+                  <button type="button" onClick={() => setIcdHistOpen((o) => !o)} data-testid="nf-icd10"
+                    className={headerInputCls + " flex items-center justify-between text-left gap-1"}>
+                    <span className={form.icd10 ? "font-mono truncate" : "text-stone-400 truncate"}>{form.icd10 || t("usedBefore")}</span>
+                    <ChevronDown className="w-4 h-4 text-stone-400 shrink-0" />
+                  </button>
+                  {icdHistOpen && (
+                    <div className="absolute z-30 mt-1 w-full bg-white border border-border rounded-md shadow-lg max-h-56 overflow-auto" data-testid="nf-icd-history-panel">
+                      {codeHistory.icd10.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-stone-400">{t("noCodes")}</div>
+                      ) : codeHistory.icd10.map((c) => (
+                        <div key={c} className="flex items-center justify-between hover:bg-moneygreen-50">
+                          <button type="button" onClick={() => { setForm((f) => ({ ...f, icd10: c })); setIcdHistOpen(false); }}
+                            data-testid={`icd-opt-${c}`} className="flex-1 text-left px-3 py-1.5 font-mono text-sm text-moneygreen-800">{c}</button>
+                          <button type="button" onClick={() => dismissIcd(c)} data-testid={`icd-opt-remove-${c}`} title={t("removeIcdSuggestion")}
+                            className="px-2 py-1.5 text-stone-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ))}
+                      <button type="button" onClick={() => { setManageOpen(true); setIcdHistOpen(false); }} data-testid="icd-manage-btn"
+                        className="w-full text-left px-3 py-1.5 text-xs text-stone-500 border-t border-border hover:bg-stone-50">{t("manageCodes")}</button>
+                    </div>
+                  )}
+                </div>
+                <select value="" onChange={(e) => { if (e.target.value) setForm((f) => ({ ...f, icd10: e.target.value })); }}
+                  data-testid="nf-icd-catalog" className={headerInputCls + " shrink-0 max-w-[42%]"} title={t("allCodes")}>
+                  <option value="">{t("allCodes")}</option>
+                  {icdCatalog.map((c) => <option key={c.code} value={c.code}>{c.description ? `${c.code} — ${c.description}` : c.code}</option>)}
+                </select>
                 <button type="button" onClick={() => setAddIcdOpen(true)} title={t("addCode")} data-testid="nf-icd10-add"
                   className="shrink-0 px-2 rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors"><Plus className="w-4 h-4" /></button>
               </div>
-              <datalist id="nf-icd-catalog">{icdCatalog.map((c) => <option key={c.code} value={c.code}>{c.description ? `${c.code} — ${c.description}` : c.code}</option>)}</datalist>
             </HRow>
-            {codeHistory.icd10.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 mt-1 pl-2" data-testid="icd-suggestions">
-                <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
-                {codeHistory.icd10.map((c) => (
-                  <span key={c} className="inline-flex items-center rounded-full bg-moneygreen-100 text-moneygreen-700 font-mono font-semibold overflow-hidden">
-                    <button type="button" onClick={() => setForm((f) => ({ ...f, icd10: c }))} data-testid={`icd-chip-${c}`}
-                      className="text-xs pl-2 pr-1 py-0.5 hover:bg-moneygreen-200 transition-colors">{c}</button>
-                    <button type="button" onClick={() => dismissIcd(c)} data-testid={`icd-chip-remove-${c}`} title={t("removeIcdSuggestion")}
-                      className="text-moneygreen-500 hover:text-red-600 hover:bg-red-100 pr-1.5 pl-0.5 py-0.5 transition-colors">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-                <button type="button" onClick={() => setManageOpen(true)} data-testid="icd-manage-btn"
-                  className="text-xs px-2 py-0.5 rounded-full border border-stone-300 text-stone-500 hover:bg-stone-100 transition-colors">{t("manageCodes")}</button>
-              </div>
-            )}
           </div>
           <div>
             <HRow label={t("cptCode")}>
-              <input list="cpt-list" value={form.cpt_code || ""} onChange={set("cpt_code")} className={headerInputCls} data-testid="nf-cpt" placeholder="e.g. 90837" />
-              <datalist id="cpt-list">{cpt.map((c) => <option key={c.code} value={c.code}>{c.description}</option>)}</datalist>
-            </HRow>
-            {codeHistory.cpt.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 mt-1 pl-2" data-testid="cpt-suggestions">
-                <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
-                {codeHistory.cpt.map((c) => (
-                  <button key={c} type="button" onClick={() => setForm((f) => ({ ...f, cpt_code: c }))} data-testid={`cpt-chip-${c}`}
-                    className="text-xs px-2 py-0.5 rounded-full bg-tan-100 text-tan-900 hover:bg-tan-200 font-mono font-semibold transition-colors">{c}</button>
-                ))}
+              <div className="flex gap-1.5">
+                <div className="relative flex-1" ref={cptHistRef}>
+                  <button type="button" onClick={() => setCptHistOpen((o) => !o)} data-testid="nf-cpt"
+                    className={headerInputCls + " flex items-center justify-between text-left gap-1"}>
+                    <span className={form.cpt_code ? "font-mono truncate" : "text-stone-400 truncate"}>{form.cpt_code || t("usedBefore")}</span>
+                    <ChevronDown className="w-4 h-4 text-stone-400 shrink-0" />
+                  </button>
+                  {cptHistOpen && (
+                    <div className="absolute z-30 mt-1 w-full bg-white border border-border rounded-md shadow-lg max-h-56 overflow-auto" data-testid="nf-cpt-history-panel">
+                      {codeHistory.cpt.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-stone-400">{t("noCodes")}</div>
+                      ) : codeHistory.cpt.map((c) => (
+                        <button key={c} type="button" onClick={() => { setForm((f) => ({ ...f, cpt_code: c })); setCptHistOpen(false); }}
+                          data-testid={`cpt-opt-${c}`} className="w-full text-left px-3 py-1.5 font-mono text-sm text-moneygreen-800 hover:bg-moneygreen-50">{c}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <select value="" onChange={(e) => { if (e.target.value) setForm((f) => ({ ...f, cpt_code: e.target.value })); }}
+                  data-testid="nf-cpt-catalog" className={headerInputCls + " shrink-0 max-w-[42%]"} title={t("allCodes")}>
+                  <option value="">{t("allCodes")}</option>
+                  {cpt.map((c) => <option key={c.code} value={c.code}>{c.description ? `${c.code} — ${c.description}` : c.code}</option>)}
+                </select>
               </div>
-            )}
+            </HRow>
           </div>
           <HRow label={t("riskAssessment")}>
             <select value={form.risk_level || ""} onChange={set("risk_level")} className={headerInputCls} data-testid="nf-risk">
