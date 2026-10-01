@@ -164,4 +164,9 @@ def note_pdf(note: dict, clinic: str) -> bytes:
         if prov:
             _mc(pdf, prov, bold=True, size=9)
         _mc(pdf, f"Exequatur Num: {note['exequatur_number']}", size=9)
+    if note.get("completed"):
+        pdf.ln(3)
+        by = note.get("completed_by") or ""
+        stamp = f"Completed on {disp_date(note.get('completed_at'))}" + (f" by {by}" if by else "")
+        _mc(pdf, stamp, bold=True, size=9)
     return pdf_bytes(pdf)

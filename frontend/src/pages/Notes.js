@@ -13,7 +13,7 @@ import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
 import { fmtDate } from "../lib/date";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X, CheckCircle2 } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X, CheckCircle2, Download } from "lucide-react";
 import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
@@ -58,6 +58,9 @@ export default function Notes() {
   const [dateFilter, setDateFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [completeOnSign, setCompleteOnSign] = useState(true);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportStart, setExportStart] = useState("");
+  const [exportEnd, setExportEnd] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -231,6 +234,20 @@ export default function Notes() {
       sel.clear(); load();
     } catch (err) { toast.error(apiErr(err)); }
   };
+  const exportCompleted = async () => {
+    try {
+      const params = {};
+      if (exportStart) params.start = exportStart;
+      if (exportEnd) params.end = exportEnd;
+      const res = await api.get("/notes/export-completed", { params, responseType: "blob" });
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url; a.download = "completed_notes.csv";
+      document.body.appendChild(a); a.click(); a.remove();
+      window.URL.revokeObjectURL(url);
+      setExportOpen(false);
+    } catch (err) { toast.error(apiErr(err)); }
+  };
 
   const insertSavedSig = () => { setForm((f) => ({ ...f, signature: user.default_signature })); setSigKey((k) => k + 1); };
   const saveDefaultSig = async () => {
@@ -376,6 +393,7 @@ export default function Notes() {
                 <List className="w-4 h-4" />
               </button>
             </div>
+            {allowed && <Btn variant="outline" onClick={() => setExportOpen(true)} data-testid="export-completed-btn"><Download className="w-4 h-4" />{t("exportCompleted")}</Btn>}
             {allowed && <Btn onClick={openNew} data-testid="add-note-btn"><Plus className="w-4 h-4" />{t("newNote")}</Btn>}
           </div>
         } />
@@ -674,6 +692,25 @@ export default function Notes() {
 
       <AddIcdCodeModal open={addIcdOpen} onClose={() => setAddIcdOpen(false)}
         onAdded={(c) => { setIcdCatalog((list) => [...list, c]); setForm((f) => ({ ...f, icd10: c.code })); }} />
+
+      <Modal open={exportOpen} onClose={() => setExportOpen(false)} title={t("exportCompleted")}>
+        <p className="text-sm text-stone-500 mb-4">{t("exportCompletedHint")}</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-stone-500 mb-1 block">{t("fromDate")}</label>
+            <input type="date" value={exportStart} onChange={(e) => setExportStart(e.target.value)} data-testid="export-start" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-stone-500 mb-1 block">{t("toDate")}</label>
+            <input type="date" value={exportEnd} onChange={(e) => setExportEnd(e.target.value)} data-testid="export-end" className={inputCls} />
+          </div>
+        </div>
+        <p className="text-xs text-stone-400 mt-2">{t("exportAllHint")}</p>
+        <div className="flex justify-end gap-2 pt-4">
+          <Btn variant="outline" onClick={() => setExportOpen(false)}>{t("cancel")}</Btn>
+          <Btn onClick={exportCompleted} data-testid="export-confirm-btn"><Download className="w-4 h-4" />{t("exportCsv")}</Btn>
+        </div>
+      </Modal>
     </div>
   );
 }

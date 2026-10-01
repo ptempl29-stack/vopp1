@@ -1,8 +1,11 @@
 import os
+import csv
+import io
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -11,6 +14,7 @@ from core.db import db, now_iso, logger
 from core.security import require_roles
 from core.audit import log_audit
 from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd
+from core.folder_filing import disp_date
 from models.schemas import NoteInput, SummarizeInput, IdList
 
 router = APIRouter()
@@ -114,6 +118,38 @@ async def set_note_complete(nid: str, data: CompleteInput,
     await log_audit("update", "note", actor=user, resource_id=nid,
                     detail="marked complete" if data.completed else "reopened")
     return {"ok": True, **upd}
+
+
+@router.get("/notes/export-completed")
+async def export_completed_notes(start: Optional[str] = None, end: Optional[str] = None,
+                                 user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "admin"))):
+    def sess(n):
+        return (n.get("visit_date") or (n.get("created_at") or "")[:10] or "")
+    notes = await db.notes.find({"completed": True}, {"_id": 0}).to_list(2000)
+    if start:
+        notes = [n for n in notes if sess(n) >= start]
+    if end:
+        notes = [n for n in notes if sess(n) <= end]
+    notes.sort(key=sess)
+    patients = {}
+    async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).limit(5000):
+        patients[p["id"]] = f"{p['first_name']} {p['last_name']}"
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["Patient", "Session Date", "Provider", "ICD-10", "CPT", "Risk",
+                "Completed Date", "Completed By"])
+    for n in notes:
+        w.writerow([
+            patients.get(n.get("patient_id"), "Unknown"),
+            disp_date(sess(n)),
+            n.get("attending_provider") or n.get("author") or "",
+            n.get("icd10") or "", n.get("cpt_code") or "", n.get("risk_level") or "",
+            disp_date(n.get("completed_at")), n.get("completed_by") or "",
+        ])
+    out.seek(0)
+    await log_audit("view", "note", actor=user, detail=f"export-completed ({len(notes)})")
+    return StreamingResponse(iter([out.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=completed_notes.csv"})
 
 
 @router.post("/notes/bulk-complete")

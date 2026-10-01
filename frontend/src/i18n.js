@@ -162,7 +162,7 @@ export const translations = {
     preview: "Preview", previewUnavailable: "Preview isn't available for this file type — download to view.",
     uploadingFiles: "Uploading…", savedToFolder: "Also saved to patient folder ✓",
     markComplete: "Mark complete", reopenNote: "Reopen", completed: "Completed", noteCompleted: "Note marked complete ✓", noteReopened: "Note reopened",
-    allStatuses: "All statuses", openOnly: "Open only", completedOnly: "Completed only", completeSelected: "Complete selected", notesCompleted: "{n} notes marked complete ✓", completeOnSign: "Mark this note complete when signed",
+    allStatuses: "All statuses", openOnly: "Open only", completedOnly: "Completed only", completeSelected: "Complete selected", notesCompleted: "{n} notes marked complete ✓", completeOnSign: "Mark this note complete when signed", exportCompleted: "Export completed", exportCompletedHint: "Download a CSV of completed progress notes, filtered by session date.", exportAllHint: "Leave both dates empty to export all completed notes.", fromDate: "From", toDate: "To",
 
     sendSms: "Send via SMS", smsSent: "SMS sent to patient ✓", smsFailed: "Could not send SMS.",
     smsNotConfigured: "SMS is not configured yet. Add Twilio credentials to enable text sending.",
@@ -392,7 +392,7 @@ export const translations = {
     preview: "Vista Previa", previewUnavailable: "La vista previa no está disponible para este tipo de archivo — descárguelo para verlo.",
     uploadingFiles: "Subiendo…", savedToFolder: "También guardado en la carpeta del paciente ✓",
     markComplete: "Marcar completada", reopenNote: "Reabrir", completed: "Completada", noteCompleted: "Nota marcada como completada ✓", noteReopened: "Nota reabierta",
-    allStatuses: "Todos los estados", openOnly: "Solo abiertas", completedOnly: "Solo completadas", completeSelected: "Completar seleccionadas", notesCompleted: "{n} notas marcadas como completadas ✓", completeOnSign: "Marcar esta nota como completada al firmar",
+    allStatuses: "Todos los estados", openOnly: "Solo abiertas", completedOnly: "Solo completadas", completeSelected: "Completar seleccionadas", notesCompleted: "{n} notas marcadas como completadas ✓", completeOnSign: "Marcar esta nota como completada al firmar", exportCompleted: "Exportar completadas", exportCompletedHint: "Descargue un CSV de las notas de progreso completadas, filtradas por fecha de sesión.", exportAllHint: "Deje ambas fechas vacías para exportar todas las notas completadas.", fromDate: "Desde", toDate: "Hasta",
 
     sendSms: "Enviar por SMS", smsSent: "SMS enviado al paciente ✓", smsFailed: "No se pudo enviar el SMS.",
     smsNotConfigured: "SMS aún no está configurado. Agregue credenciales de Twilio para habilitar el envío de textos.",
