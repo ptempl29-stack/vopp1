@@ -492,12 +492,100 @@ async def _claim_with_invoice_summary(claim: dict) -> dict:
     return result
 
 
+def _norm_date(v) -> str:
+    return str(v or "").strip()[:10]
+
+
+async def _validate_packet(claim: dict) -> dict:
+    """Mismatch + completeness checks across a packet's notes & invoices.
+    Returns {status, issues}; status in ready/review/blocked."""
+    from core.folder_filing import disp_date
+    issues, seen = [], set()
+
+    def add(level, msg):
+        k = (level, msg)
+        if k not in seen:
+            seen.add(k)
+            issues.append({"level": level, "message": msg})
+
+    items = claim.get("items") or []
+    dos = _norm_date(claim.get("claim_number"))
+    patient = await db.patients.find_one({"id": claim.get("patient_id")}, {"_id": 0}) if claim.get("patient_id") else None
+    pname = f"{patient['first_name']} {patient['last_name']}".strip().lower() if patient else ""
+
+    note_ids = [it.get("note_id") for it in items if it.get("source") == "note" and it.get("note_id")]
+    inv_ids = [it.get("invoice_id") for it in items if it.get("source") == "invoice" and it.get("invoice_id")]
+    notes = await db.notes.find({"id": {"$in": note_ids}}, {"_id": 0}).to_list(100) if note_ids else []
+    invoices = await db.invoices.find({"id": {"$in": inv_ids}}, {"_id": 0}).to_list(100) if inv_ids else []
+
+    for n in notes:
+        nd = _norm_date(n.get("visit_date"))
+        if nd and dos and nd != dos:
+            add("blocked", f"Date mismatch: progress note ({disp_date(nd)}) does not match the claim date ({disp_date(dos)}).")
+    for inv in invoices:
+        idt = _norm_date(inv.get("service_date"))
+        if idt and dos and idt != dos:
+            add("blocked", f"Date mismatch: invoice ({disp_date(idt)}) does not match the claim date ({disp_date(dos)}).")
+    for n in notes:
+        nd = _norm_date(n.get("visit_date"))
+        for inv in invoices:
+            idt = _norm_date(inv.get("service_date"))
+            if nd and idt and nd != idt:
+                add("blocked", f"Date mismatch: progress note ({disp_date(nd)}) and invoice ({disp_date(idt)}) are for different dates.")
+
+    if patient:
+        for inv in invoices:
+            inm = (inv.get("patient_name") or "").strip().lower()
+            if inm and inm != pname:
+                add("blocked", "Patient name on an invoice does not match the patient on this claim.")
+        for n in notes:
+            nnm = (n.get("patient_name") or "").strip().lower()
+            if nnm and nnm != pname:
+                add("warning", "Patient name on a progress note differs from the patient record.")
+
+    for n in notes:
+        if not (n.get("signature") or "").startswith("data:image"):
+            add("warning", "A progress note in this packet is not signed.")
+        if not n.get("icd10"):
+            add("warning", "A progress note has no diagnosis (ICD-10) code.")
+    for inv in invoices:
+        if not inv.get("items"):
+            add("blocked", "An invoice in this packet has no service line items.")
+        elif not any(it.get("cpt_code") for it in inv.get("items", [])):
+            add("warning", "An invoice has no procedure (CPT) code.")
+
+    if not notes and not invoices:
+        add("warning", "This packet has no progress note or invoice attached.")
+
+    if claim.get("patient_id") and dos:
+        dup = await db.claim_packets.find_one(
+            {"patient_id": claim["patient_id"], "claim_number": dos, "id": {"$ne": claim.get("id")}},
+            {"_id": 0, "id": 1})
+        if dup:
+            add("warning", "Another claim packet already exists for this patient and date of service.")
+
+    status = ("blocked" if any(i["level"] == "blocked" for i in issues)
+              else "review" if any(i["level"] == "warning" for i in issues)
+              else "ready")
+    return {"status": status, "issues": issues}
+
+
+async def _assert_not_blocked(claim: dict):
+    v = await _validate_packet(claim)
+    if v["status"] == "blocked":
+        msgs = "; ".join(i["message"] for i in v["issues"] if i["level"] == "blocked")
+        raise HTTPException(status_code=400,
+            detail=f"Resolve the blocking issue(s) before finalizing this packet: {msgs}")
+
+
 async def _claim_response(claim_id: str) -> Optional[dict]:
     claim = await db.claim_packets.find_one({"id": claim_id}, {"_id": 0})
     if not claim:
         return None
     claim = await _sync_claim_packet_documents(claim)
-    return await _claim_with_invoice_summary(claim)
+    result = await _claim_with_invoice_summary(claim)
+    result["validation"] = await _validate_packet(result)
+    return result
 
 
 async def _build_packet_pdf(c) -> bytes:
@@ -866,6 +954,8 @@ async def attach_form(cid: str, payload: dict, user: dict = Depends(require_role
     form = await db.forms.find_one({"id": payload.get("form_id")})
     if not form or not form.get("attachment"):
         raise HTTPException(status_code=400, detail="Form has no attached document")
+    if any(it.get("form_id") == form["id"] for it in (c.get("items") or [])):
+        raise HTTPException(status_code=400, detail="This form is already in the packet.")
     att = form["attachment"]
     item = {"id": str(uuid.uuid4()), "source": "form", "form_id": form["id"],
             "storage_path": att["storage_path"], "filename": att["filename"],
@@ -951,6 +1041,8 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
     inv = await db.invoices.find_one({"id": payload.get("invoice_id")}, {"_id": 0})
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    if any(it.get("invoice_id") == inv["id"] for it in (c.get("items") or [])):
+        raise HTTPException(status_code=400, detail="This invoice is already in the packet.")
     clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
     rnc = (await get_settings_doc()).get("rnc", "")
     try:
@@ -989,6 +1081,8 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
     n = await db.notes.find_one({"id": payload.get("note_id")}, {"_id": 0})
     if not n:
         raise HTTPException(status_code=404, detail="Note not found")
+    if any(it.get("note_id") == n["id"] for it in (c.get("items") or [])):
+        raise HTTPException(status_code=400, detail="This progress note is already in the packet.")
     p = await db.patients.find_one({"id": n.get("patient_id")}, {"_id": 0}) if n.get("patient_id") else None
     pname = (f"{p['first_name']} {p['last_name']}" if p else n.get("patient_name")) or ""
     note = {**n, "patient_name": pname, "dob": (p or {}).get("dob") or n.get("dob"), "ssn": (p or {}).get("ssn")}
@@ -1061,6 +1155,7 @@ async def merged_pdf(cid: str, user: dict = Depends(require_roles("admin"))):
     c = await db.claim_packets.find_one({"id": cid})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
+    await _assert_not_blocked(c)
     pdf = await _build_packet_pdf(c)
     await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail="merged PDF · marked complete")
@@ -1095,6 +1190,7 @@ async def start_merge_job(cid: str, user: dict = Depends(require_roles("admin"))
     c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
+    await _assert_not_blocked(c)
     job_id = str(uuid.uuid4())
     fname = (c.get("name") or "claim_packet").replace('"', "").replace(" ", "_")[:60] + ".pdf"
     await db.claim_pdf_jobs.insert_one({"id": job_id, "claim_id": cid, "status": "queued",
@@ -1239,6 +1335,7 @@ async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))
     c = await db.claim_packets.find_one({"id": cid})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
+    await _assert_not_blocked(c)
     pid = c.get("patient_id")
     if not pid:
         raise HTTPException(status_code=400, detail="Claim packet has no linked patient")

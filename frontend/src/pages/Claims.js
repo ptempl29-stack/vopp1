@@ -8,7 +8,7 @@ import { fmtDate } from "../lib/date";
 import {
   FolderArchive, Plus, Pencil, Trash2, ChevronLeft, Download, FileText,
   ReceiptText, Upload, FilePlus, CalendarClock, Eye, FolderInput, Send, ArrowUp, ArrowDown,
-  Loader2,
+  Loader2, ShieldAlert, ShieldCheck, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -21,6 +21,36 @@ const categoryLabelKey = {
 };
 const blankForm = { name: "", patient_id: "", claim_number: "", status: "draft", notes: "",
   va_claim_number: "", veteran_physical_address: "", veteran_mailing_address: "", diagnosis_narrative: "", payment_to: "provider" };
+
+const VAL_TONE = {
+  blocked: { border: "border-l-red-500", bg: "bg-red-50", icon: ShieldAlert, iconCls: "text-red-600", label: "validationBlocked" },
+  review: { border: "border-l-amber-500", bg: "bg-amber-50", icon: AlertTriangle, iconCls: "text-amber-600", label: "validationReview" },
+  ready: { border: "border-l-moneygreen-500", bg: "bg-moneygreen-50", icon: ShieldCheck, iconCls: "text-moneygreen-600", label: "validationReady" },
+};
+
+function ClaimValidation({ v, t }) {
+  const cfg = VAL_TONE[v.status] || VAL_TONE.review;
+  const Icon = cfg.icon;
+  return (
+    <Card className={`p-4 mb-5 border-l-4 ${cfg.border} ${cfg.bg}`} data-testid="claim-validation">
+      <div className="flex items-center gap-2">
+        <Icon className={`w-5 h-5 ${cfg.iconCls}`} />
+        <p className="font-semibold text-stone-800" data-testid="claim-validation-status">{t(cfg.label)}</p>
+      </div>
+      {v.issues?.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {v.issues.map((iss, i) => (
+            <li key={i} className="flex items-start gap-2 text-sm" data-testid={`claim-validation-issue-${i}`}>
+              <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${iss.level === "blocked" ? "bg-red-500" : "bg-amber-500"}`} />
+              <span className="text-stone-700">{iss.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {v.status === "blocked" && <p className="mt-3 text-xs font-medium text-red-700">{t("blockedCannotFinalize")}</p>}
+    </Card>
+  );
+}
 
 export default function Claims() {
   const { t } = useLang();
@@ -211,6 +241,10 @@ export default function Claims() {
 
   const downloadMerged = async () => {
     const cid = selected.id;
+    if (selected.validation?.status === "blocked") {
+      toast.error(t("blockedCannotFinalize"));
+      return;
+    }
     api.post(`/claims/${cid}/to-folder`).then(() => {}).catch(() => {});
     const items = selected.items || [];
     const totalBytes = items.reduce((s, it) => s + (Number(it.size) || 0), 0);
@@ -284,7 +318,8 @@ export default function Claims() {
               <Btn variant="outline" onClick={() => { setSelected(null); load(); }} data-testid="claim-back"><ChevronLeft className="w-4 h-4" />{t("backToPackets")}</Btn>
               <Btn variant="outline" onClick={() => openEdit(selected)} data-testid="claim-edit-detail"><Pencil className="w-4 h-4" />{t("edit")}</Btn>
               <Btn variant="outline" onClick={() => { setSendTo(""); setSendOpen(true); }} data-testid="claim-send"><Send className="w-4 h-4" />{t("send")}</Btn>
-              <Btn onClick={downloadMerged} disabled={packetBuilding} data-testid="claim-download-merged">
+              <Btn onClick={downloadMerged} disabled={packetBuilding || selected.validation?.status === "blocked"} data-testid="claim-download-merged"
+                title={selected.validation?.status === "blocked" ? t("blockedCannotFinalize") : undefined}>
                 {packetBuilding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 {packetBuilding ? t("generatingPacket") : t("mergeSavePdf")}
               </Btn>
@@ -304,6 +339,7 @@ export default function Claims() {
             <p className="mt-1 text-stone-600 text-sm">{selected.created_by || "—"}</p>
           </Card>
         </div>
+        {selected.validation && <ClaimValidation v={selected.validation} t={t} />}
         {selected.invoice_summary && (
           <Card className="p-4 mb-5" data-testid="claim-invoice-summary">
             <p className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">{t("claimSummary")}</p>

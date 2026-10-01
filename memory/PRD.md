@@ -19,7 +19,7 @@ usvopp@yahoo.com / Football2023? (display name "CEO"). SEED_DEMO_USERS=false.
 
 ## Pending / Backlog
 - BLOCKED: Yahoo IMAP Mailbox — needs valid 16-char Yahoo App Password.
-- P1: FMP Claim Automation Phase 2 (validation engine, claim-review mismatch detection, duplicate-prevention AI rules).
+- DONE (2026-06): FMP validation engine turned on — mismatch flagging, blocked-finalize, duplicate-item prevention, same-day packet warning (see CHANGELOG).
 - P2: Stripe payment gateway for invoices (needs user go-ahead; test key in env).
 - P3: real in-browser .docx/.xlsx editing (deferred); refactor large files (claims.py, Forms.js, Invoices.js).
 
