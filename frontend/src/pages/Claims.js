@@ -28,6 +28,25 @@ const VAL_TONE = {
   ready: { border: "border-l-moneygreen-500", bg: "bg-moneygreen-50", icon: ShieldCheck, iconCls: "text-moneygreen-600", label: "validationReady" },
 };
 
+const CHIP_TONE = {
+  blocked: { cls: "bg-red-100 text-red-700 border-red-200", icon: ShieldAlert, label: "chipBlocked" },
+  review: { cls: "bg-amber-100 text-amber-700 border-amber-200", icon: AlertTriangle, label: "chipReview" },
+  ready: { cls: "bg-moneygreen-100 text-moneygreen-700 border-moneygreen-200", icon: ShieldCheck, label: "chipReady" },
+};
+
+function ValChip({ v, t }) {
+  if (!v) return <span className="text-stone-300">—</span>;
+  const c = CHIP_TONE[v.status] || CHIP_TONE.review;
+  const Icon = c.icon;
+  const n = (v.issues || []).length;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-xs font-semibold ${c.cls}`}
+      data-testid="claim-val-chip" title={(v.issues || []).map((i) => i.message).join("\n")}>
+      <Icon className="w-3.5 h-3.5" />{t(c.label)}{v.status !== "ready" && n ? ` · ${n}` : ""}
+    </span>
+  );
+}
+
 function ClaimValidation({ v, t, onFix, fixing }) {
   const cfg = VAL_TONE[v.status] || VAL_TONE.review;
   const Icon = cfg.icon;
@@ -557,6 +576,7 @@ export default function Claims() {
                   <th className="px-5 py-3 hidden md:table-cell">{t("claimNo")}</th>
                   <th className="px-5 py-3">{t("items")}</th>
                   <th className="px-5 py-3">{t("packetStatus")}</th>
+                  <th className="px-5 py-3 hidden sm:table-cell">{t("validationColumn")}</th>
                   <th className="px-5 py-3 text-right">{t("actions")}</th>
                 </tr>
               </thead>
@@ -573,6 +593,7 @@ export default function Claims() {
                     <td className="px-5 py-3 hidden md:table-cell text-stone-500 font-mono text-xs">{fmtDate(p.claim_number) || "—"}</td>
                     <td className="px-5 py-3 text-stone-600">{(p.items || []).length}</td>
                     <td className="px-5 py-3"><Badge tone={statusTone(p.status)}>{t(p.status)}</Badge></td>
+                    <td className="px-5 py-3 hidden sm:table-cell"><ValChip v={p.validation} t={t} /></td>
                     <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <Btn variant="outline" onClick={() => refreshSelected(p.id)} data-testid={`claim-open-${p.id}`}>{t("view")}</Btn>

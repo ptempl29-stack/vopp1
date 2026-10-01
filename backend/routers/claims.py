@@ -497,8 +497,26 @@ def _norm_date(v) -> str:
 
 
 async def _validate_packet(claim: dict) -> dict:
-    """Mismatch + completeness checks across a packet's notes & invoices.
-    Returns {status, issues}; status in ready/review/blocked."""
+    """Load this packet's documents and run the mismatch/completeness checks."""
+    items = claim.get("items") or []
+    patient = await db.patients.find_one({"id": claim.get("patient_id")}, {"_id": 0}) if claim.get("patient_id") else None
+    note_ids = [it.get("note_id") for it in items if it.get("source") == "note" and it.get("note_id")]
+    inv_ids = [it.get("invoice_id") for it in items if it.get("source") == "invoice" and it.get("invoice_id")]
+    notes = await db.notes.find({"id": {"$in": note_ids}}, {"_id": 0}).to_list(100) if note_ids else []
+    invoices = await db.invoices.find({"id": {"$in": inv_ids}}, {"_id": 0}).to_list(100) if inv_ids else []
+    dup_exists = False
+    dos = _norm_date(claim.get("claim_number"))
+    if claim.get("patient_id") and dos:
+        dup = await db.claim_packets.find_one(
+            {"patient_id": claim["patient_id"], "claim_number": dos, "id": {"$ne": claim.get("id")}},
+            {"_id": 0, "id": 1})
+        dup_exists = bool(dup)
+    return _compute_validation(claim, patient, notes, invoices, dup_exists)
+
+
+def _compute_validation(claim: dict, patient: Optional[dict], notes: list,
+                        invoices: list, dup_exists: bool) -> dict:
+    """Pure mismatch + completeness checks. Returns {status, issues, fix}."""
     from core.folder_filing import disp_date
     issues, seen = [], set()
 
@@ -508,15 +526,8 @@ async def _validate_packet(claim: dict) -> dict:
             seen.add(k)
             issues.append({"level": level, "message": msg})
 
-    items = claim.get("items") or []
     dos = _norm_date(claim.get("claim_number"))
-    patient = await db.patients.find_one({"id": claim.get("patient_id")}, {"_id": 0}) if claim.get("patient_id") else None
     pname = f"{patient['first_name']} {patient['last_name']}".strip().lower() if patient else ""
-
-    note_ids = [it.get("note_id") for it in items if it.get("source") == "note" and it.get("note_id")]
-    inv_ids = [it.get("invoice_id") for it in items if it.get("source") == "invoice" and it.get("invoice_id")]
-    notes = await db.notes.find({"id": {"$in": note_ids}}, {"_id": 0}).to_list(100) if note_ids else []
-    invoices = await db.invoices.find({"id": {"$in": inv_ids}}, {"_id": 0}).to_list(100) if inv_ids else []
 
     for n in notes:
         nd = _norm_date(n.get("visit_date"))
@@ -557,12 +568,8 @@ async def _validate_packet(claim: dict) -> dict:
     if not notes and not invoices:
         add("warning", "This packet has no progress note or invoice attached.")
 
-    if claim.get("patient_id") and dos:
-        dup = await db.claim_packets.find_one(
-            {"patient_id": claim["patient_id"], "claim_number": dos, "id": {"$ne": claim.get("id")}},
-            {"_id": 0, "id": 1})
-        if dup:
-            add("warning", "Another claim packet already exists for this patient and date of service.")
+    if dup_exists:
+        add("warning", "Another claim packet already exists for this patient and date of service.")
 
     # One-click fix: when every document agrees on a single date that differs
     # from the claim date, the claim date is simply out of sync — offer to apply it.
@@ -578,6 +585,36 @@ async def _validate_packet(claim: dict) -> dict:
               else "review" if any(i["level"] == "warning" for i in issues)
               else "ready")
     return {"status": status, "issues": issues, "fix": fix}
+
+
+async def _attach_validation_bulk(packets: list) -> list:
+    """Compute validation for a list of packets with batched lookups (no N+1)."""
+    from collections import Counter
+    note_ids, inv_ids, pat_ids = set(), set(), set()
+    for c in packets:
+        for it in c.get("items") or []:
+            if it.get("source") == "note" and it.get("note_id"):
+                note_ids.add(it["note_id"])
+            if it.get("source") == "invoice" and it.get("invoice_id"):
+                inv_ids.add(it["invoice_id"])
+        if c.get("patient_id"):
+            pat_ids.add(c["patient_id"])
+    notes_map = {n["id"]: n for n in await db.notes.find({"id": {"$in": list(note_ids)}}, {"_id": 0}).to_list(5000)} if note_ids else {}
+    inv_map = {i["id"]: i for i in await db.invoices.find({"id": {"$in": list(inv_ids)}}, {"_id": 0}).to_list(5000)} if inv_ids else {}
+    pat_map = {p["id"]: p for p in await db.patients.find({"id": {"$in": list(pat_ids)}}, {"_id": 0}).to_list(5000)} if pat_ids else {}
+    key_counts = Counter((c.get("patient_id"), _norm_date(c.get("claim_number")))
+                         for c in packets if c.get("patient_id") and _norm_date(c.get("claim_number")))
+    for c in packets:
+        items = c.get("items") or []
+        notes = [notes_map[it["note_id"]] for it in items
+                 if it.get("source") == "note" and it.get("note_id") in notes_map]
+        invoices = [inv_map[it["invoice_id"]] for it in items
+                    if it.get("source") == "invoice" and it.get("invoice_id") in inv_map]
+        patient = pat_map.get(c.get("patient_id"))
+        key = (c.get("patient_id"), _norm_date(c.get("claim_number")))
+        dup_exists = bool(c.get("patient_id")) and bool(_norm_date(c.get("claim_number"))) and key_counts.get(key, 0) > 1
+        c["validation"] = _compute_validation(c, patient, notes, invoices, dup_exists)
+    return packets
 
 
 async def _assert_not_blocked(claim: dict):
@@ -812,6 +849,7 @@ async def _build_packet_pdf(c) -> bytes:
 @router.get("/claims")
 async def list_claims(user: dict = Depends(require_roles("admin"))):
     packets = await db.claim_packets.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    packets = await _attach_validation_bulk(packets)
     await log_audit("view", "claim", actor=user, detail=f"list ({len(packets)})")
     return packets
 
