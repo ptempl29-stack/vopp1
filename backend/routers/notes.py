@@ -116,6 +116,17 @@ async def set_note_complete(nid: str, data: CompleteInput,
     return {"ok": True, **upd}
 
 
+@router.post("/notes/bulk-complete")
+async def bulk_complete_notes(data: IdList, user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "admin"))):
+    if not data.ids:
+        return {"updated": 0}
+    res = await db.notes.update_many(
+        {"id": {"$in": data.ids}},
+        {"$set": {"completed": True, "completed_at": now_iso(), "completed_by": user["name"]}})
+    await log_audit("update", "note", actor=user, detail=f"bulk complete ({res.modified_count})")
+    return {"updated": res.modified_count}
+
+
 @router.post("/notes/bulk-delete")
 async def bulk_delete_notes(data: IdList, user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "admin"))):
     docs = await db.notes.find({"id": {"$in": data.ids}}, {"_id": 0, "id": 1, "author": 1}).to_list(1000)

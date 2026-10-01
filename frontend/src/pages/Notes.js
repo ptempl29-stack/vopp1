@@ -56,6 +56,7 @@ export default function Notes() {
   const [providerFilter, setProviderFilter] = useState("");
   const [patientFilter, setPatientFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -98,8 +99,9 @@ export default function Notes() {
   const filtered = useMemo(() => notes.filter((n) =>
     (!providerFilter || noteProvider(n) === providerFilter) &&
     (!patientFilter || n.patient_id === patientFilter) &&
-    (!dateFilter || noteDate(n) === dateFilter)
-  ), [notes, providerFilter, patientFilter, dateFilter]);
+    (!dateFilter || noteDate(n) === dateFilter) &&
+    (!statusFilter || (statusFilter === "completed" ? !!n.completed : !n.completed))
+  ), [notes, providerFilter, patientFilter, dateFilter, statusFilter]);
 
   const dismissIcd = async (code) => {
     const pid = form.patient_id;
@@ -210,6 +212,14 @@ export default function Notes() {
   const removeSelected = async () => {
     try { await bulkDelete("/notes/bulk-delete", [...sel.selected], t); sel.clear(); load(); }
     catch (err) { toast.error(apiErr(err)); }
+  };
+  const completeSelected = async () => {
+    const ids = [...sel.selected];
+    try {
+      const r = await api.post("/notes/bulk-complete", { ids });
+      toast.success(t("notesCompleted").replace("{n}", r.data.updated));
+      sel.clear(); load();
+    } catch (err) { toast.error(apiErr(err)); }
   };
 
   const insertSavedSig = () => { setForm((f) => ({ ...f, signature: user.default_signature })); setSigKey((k) => k + 1); };
@@ -371,6 +381,11 @@ export default function Notes() {
           <option value="">{t("allPatients")}</option>
           {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
         </ManagedSelect>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} data-testid="notes-filter-status" className={inputCls + " !w-auto"}>
+          <option value="">{t("allStatuses")}</option>
+          <option value="open">{t("openOnly")}</option>
+          <option value="completed">{t("completedOnly")}</option>
+        </select>
         <div className="flex items-center gap-1">
           <input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} data-testid="notes-filter-date"
             className={inputCls + " !w-auto"} title={t("filterDate")} />
@@ -392,6 +407,7 @@ export default function Notes() {
           </label>
           {sel.count > 0 && (<>
             <span className="text-sm text-stone-500">{sel.count}</span>
+            <Btn variant="primary" onClick={completeSelected} data-testid="bulk-complete-notes"><CheckCircle2 className="w-4 h-4" />{t("completeSelected")}</Btn>
             <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-notes"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
             <Btn variant="outline" onClick={sel.clear} data-testid="deselect-notes">{t("deselectAll")}</Btn>
           </>)}
