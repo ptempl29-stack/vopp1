@@ -233,7 +233,7 @@ export default function Notes() {
                 <button type="button" onClick={() => setAddIcdOpen(true)} title={t("addCode")} data-testid="nf-icd10-add"
                   className="shrink-0 px-2 rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors"><Plus className="w-4 h-4" /></button>
               </div>
-              <datalist id="nf-icd-catalog">{icdCatalog.map((c) => <option key={c.code} value={c.code}>{c.description || ""}</option>)}</datalist>
+              <datalist id="nf-icd-catalog">{icdCatalog.map((c) => <option key={c.code} value={c.code}>{c.description ? `${c.code} — ${c.description}` : c.code}</option>)}</datalist>
             </HRow>
             {codeHistory.icd10.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 mt-1 pl-2" data-testid="icd-suggestions">

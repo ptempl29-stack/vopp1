@@ -299,7 +299,8 @@ export default function Invoices() {
                       className="shrink-0 px-2 rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors"><Plus className="w-4 h-4" /></button>
                   </div>
                   <datalist id="inv-icd-history" data-testid="inv-icd-datalist">
-                    {Array.from(new Set([...icdHistory, ...icdCatalog.map((c) => c.code)])).map((c) => <option key={c} value={c} />)}
+                    {icdCatalog.map((c) => <option key={c.code} value={c.code}>{c.description ? `${c.code} — ${c.description}` : c.code}</option>)}
+                    {icdHistory.filter((h) => !icdCatalog.some((c) => c.code === h)).map((c) => <option key={c} value={c} />)}
                   </datalist>
                   {icdHistory.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5 mt-1" data-testid="inv-icd-suggestions">

@@ -120,16 +120,60 @@ class IcdInput(BaseModel):
     description: str = ""
 
 
+STARTER_ICD = [
+    ("F43.10", "Post-traumatic stress disorder, unspecified"),
+    ("F43.11", "Post-traumatic stress disorder, acute"),
+    ("F43.12", "Post-traumatic stress disorder, chronic"),
+    ("F41.1", "Generalized anxiety disorder"),
+    ("F41.0", "Panic disorder without agoraphobia"),
+    ("F41.9", "Anxiety disorder, unspecified"),
+    ("F40.10", "Social phobia, unspecified"),
+    ("F32.0", "Major depressive disorder, single episode, mild"),
+    ("F32.1", "Major depressive disorder, single episode, moderate"),
+    ("F32.2", "Major depressive disorder, single episode, severe without psychotic features"),
+    ("F32.9", "Major depressive disorder, single episode, unspecified"),
+    ("F33.0", "Major depressive disorder, recurrent, mild"),
+    ("F33.1", "Major depressive disorder, recurrent, moderate"),
+    ("F33.2", "Major depressive disorder, recurrent, severe without psychotic features"),
+    ("F33.9", "Major depressive disorder, recurrent, unspecified"),
+    ("F43.20", "Adjustment disorder, unspecified"),
+    ("F43.21", "Adjustment disorder with depressed mood"),
+    ("F43.22", "Adjustment disorder with anxiety"),
+    ("F43.23", "Adjustment disorder with mixed anxiety and depressed mood"),
+    ("F31.9", "Bipolar disorder, unspecified"),
+    ("F42.9", "Obsessive-compulsive disorder, unspecified"),
+    ("F90.9", "Attention-deficit hyperactivity disorder, unspecified type"),
+    ("F51.01", "Primary insomnia"),
+    ("G47.00", "Insomnia, unspecified"),
+    ("F10.20", "Alcohol dependence, uncomplicated"),
+    ("F17.200", "Nicotine dependence, unspecified, uncomplicated"),
+    ("Z63.0", "Problems in relationship with spouse or partner"),
+]
+
+
+async def _seed_icd_catalog():
+    if await db.settings.find_one({"key": "icd_catalog_seeded"}):
+        return
+    existing = set(await db.icd_codes.distinct("code"))
+    icd_inv = await db.invoices.distinct("icd10", {"icd10": {"$nin": [None, ""]}})
+    icd_notes = await db.notes.distinct("icd10", {"icd10": {"$nin": [None, ""]}})
+    merged = {}
+    for code, desc in STARTER_ICD:
+        merged[code] = desc
+    for code in sorted(set(icd_inv) | set(icd_notes)):
+        merged.setdefault(code, "")
+    docs = [{"id": str(uuid.uuid4()), "code": c, "description": d, "created_at": now_iso()}
+            for c, d in merged.items() if c not in existing]
+    if docs:
+        await db.icd_codes.insert_many(docs)
+    await db.settings.update_one({"key": "icd_catalog_seeded"},
+        {"$set": {"key": "icd_catalog_seeded", "value": True}}, upsert=True)
+
+
 @router.get("/icd-codes")
 async def icd_codes(user: dict = Depends(get_current_user)):
-    """Shared ICD-10 catalog; seeded once from codes already on past notes/invoices."""
-    if await db.icd_codes.count_documents({}) == 0:
-        icd_inv = await db.invoices.distinct("icd10", {"icd10": {"$nin": [None, ""]}})
-        icd_notes = await db.notes.distinct("icd10", {"icd10": {"$nin": [None, ""]}})
-        codes = sorted(set(icd_inv) | set(icd_notes))
-        if codes:
-            await db.icd_codes.insert_many([
-                {"id": str(uuid.uuid4()), "code": c, "description": "", "created_at": now_iso()} for c in codes])
+    """Shared ICD-10 catalog; seeded once with common clinic codes + any codes on past records."""
+    await _seed_icd_catalog()
     return await db.icd_codes.find({}, {"_id": 0}).sort("code", 1).to_list(2000)
 
 
