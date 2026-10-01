@@ -425,7 +425,9 @@ Deferred (high regression risk on a live production app, no functional gain — 
 - Self-tested: backend dedup/invalid-filter/empty→400 via curl; frontend add/remove recipient inputs verified. Email still INACTIVE pending valid Yahoo App Password.
 
 
-## Iteration 47 (2026-09-30) — Add ICD-10 codes (shared catalog) — extracted from uploaded zip
+## Iteration 48 (2026-10-01) — E-signature attestation line on progress notes
+- Added attestation beneath the signature block (under signature image, Exequatur Num, and date) in the progress note PDF (`core/folder_filing.py` note_pdf) and the on-screen note card (`pages/Notes.js`, testid `note-attestation-{id}`): "This Document has been electronically signed by {attending_provider or 'Saday Rodriguez Cabrera'} on the date listed in the progress note."
+- Verified via PDF text extraction (renders the line with the correct name) + frontend compile. Preview only; not yet deployed.
 - The uploaded "veteran-care-app-updated (4).zip" was an OLD full-project snapshot (missing all iter 40-46 work: model picker, /api/chat rate-limit, invoice_numbers/claim_invoices, icd dismiss/bulk-cleanup, async packet builds, Claim Builder removal) and still contained Claim Builder. Did NOT overwrite the project. Extracted ONLY the genuinely-new addition: the ability to ADD ICD-10 codes.
 - Backend (billing.py): new shared catalog — `GET /api/icd-codes` (seeds once from distinct icd10 on past notes/invoices) and `POST /api/icd-codes` {code, description} (roles: clinical + biller + receptionist + admin; 400 on duplicate). Stored in `icd_codes` collection.
 - Frontend: added `components/AddIcdCodeModal.js` and wired a "+" Add-code button next to the ICD-10 input in BOTH Notes editor (`nf-icd10-add`) and Invoices (`inv-icd10-add`); catalog codes merged into the ICD datalists/autocomplete. On add, the new code is selected in the field. i18n: `newIcdCode`, `addCode` (EN/ES). Preserves the existing free-text + history suggestions + dismiss + bulk-cleanup.

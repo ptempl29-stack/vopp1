@@ -470,6 +470,7 @@ export default function Notes() {
                     <p className="text-sm font-bold text-moneygreen-800">{t("providerSignature")}</p>
                     {n.exequatur_number && <p className="text-xs text-stone-600" data-testid={`note-exequatur-${n.id}`}>Exequatur Num: {n.exequatur_number}</p>}
                     <p className="text-xs text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</p>
+                    <p className="text-[11px] text-stone-400 italic mt-1" data-testid={`note-attestation-${n.id}`}>This Document has been electronically signed by {n.attending_provider || "Saday Rodriguez Cabrera"} on the date listed in the progress note.</p>
                   </div>
                 )}
                 <div className="mt-3 pt-3 border-t border-border flex justify-end gap-2">
