@@ -344,6 +344,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
             status = "review"
 
     clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    rnc = (await get_settings_doc()).get("rnc", "")
     items = []
     cover_review = None
 
@@ -371,7 +372,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
     if invoice:
         try:
             inv = {**invoice, "patient_name": pname, "dob": p.get("dob")}
-            pdf = _invoice_pdf(inv, clinic)
+            pdf = _invoice_pdf(inv, clinic, rnc)
             path = f"{APP_NAME}/fmp/{data.patient_id}/generated/{uuid.uuid4()}.pdf"
             result = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
@@ -387,7 +388,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
     # 3) progress note
     try:
         n = {**note, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn")}
-        pdf = note_pdf(n, clinic)
+        pdf = note_pdf(n, clinic, rnc)
         path = f"{APP_NAME}/fmp/{data.patient_id}/generated/{uuid.uuid4()}.pdf"
         result = put_object(path, pdf, "application/pdf")
         items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None, "note_id": note["id"],
@@ -478,7 +479,7 @@ class CoverAmendmentInput(BaseModel):
 
 
 def _build_amendment_page(changes: list, signer_name: str, signature_b64: str,
-                          signed_at: str, clinic: str) -> bytes:
+                          signed_at: str, clinic: str, rnc: str = "") -> bytes:
     """A new, separately-signed page certifying corrected cover-sheet fields.
     This never edits or replaces the original signed VA form."""
     import base64
@@ -486,6 +487,9 @@ def _build_amendment_page(changes: list, signer_name: str, signature_b64: str,
     pdf = new_pdf()
     pdf.set_font(FONT, "B", 14)
     pdf.cell(0, 10, (clinic or "")[:70], ln=True)
+    if rnc:
+        pdf.set_font(FONT, "", 9)
+        pdf.cell(0, 5, f"RNC: {rnc}", ln=True)
     pdf.set_font(FONT, "B", 12)
     pdf.cell(0, 8, "Veteran Certification of Corrected Information", ln=True)
     pdf.ln(2)
@@ -571,10 +575,11 @@ async def amend_cover_sheet(cid: str, data: CoverAmendmentInput,
     # separately signed certification page instead
     if changed_substantive:
         clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+        rnc = (await get_settings_doc()).get("rnc", "")
         display_changes = [(COVER_FIELD_LABELS.get(f, f), old, new) for f, old, new in changed_substantive]
         amendment_pdf = _build_amendment_page(
             display_changes, c.get("patient_name", ""), data.veteran_signature,
-            data.veteran_signed_at or now_iso(), clinic)
+            data.veteran_signed_at or now_iso(), clinic, rnc)
         path = f"{APP_NAME}/fmp/{c['patient_id']}/generated/{uuid.uuid4()}.pdf"
         result = put_object(path, amendment_pdf, "application/pdf")
         items = updates.get("items", c.get("items", []))

@@ -40,5 +40,6 @@ DEFAULT_SETTINGS = {
     "mailing_address": "",
     "primary_insurance": "",
     "logo": "",
+    "rnc": "1-33-79564-7",
     "usd_to_dop": 60.0,
 }

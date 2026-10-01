@@ -24,11 +24,14 @@ from core.pdf_utils import new_pdf, pdf_bytes, FONT
 router = APIRouter()
 
 
-def _invoice_pdf(inv: dict, clinic: str) -> bytes:
+def _invoice_pdf(inv: dict, clinic: str, rnc: str = "") -> bytes:
     from core.folder_filing import disp_date
     pdf = new_pdf()
     pdf.set_font(FONT, "B", 18)
     pdf.cell(0, 12, (clinic or "")[:60], ln=True)
+    if rnc:
+        pdf.set_font(FONT, "", 9)
+        pdf.cell(0, 5, f"RNC: {rnc}", ln=True)
     pdf.set_font(FONT, "B", 13)
     pdf.cell(0, 9, f"Invoice {inv.get('invoice_number', '')}", ln=True)
     pdf.ln(2)
@@ -276,6 +279,7 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
                      for item in items}
     patient = await db.patients.find_one({"id": patient_id}, {"_id": 0})
     clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    rnc = (await get_settings_doc()).get("rnc", "")
     invoice = await _resolve_claim_invoice(claim)
     note = await _resolve_claim_note(claim)
 
@@ -289,7 +293,7 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
     if (invoice and invoice_key not in excluded_keys
             and not any(item.get("invoice_id") == invoice.get("id") for item in items)):
         try:
-            pdf = _invoice_pdf(invoice, clinic)
+            pdf = _invoice_pdf(invoice, clinic, rnc)
             path = f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf"
             stored = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
@@ -315,7 +319,7 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
             rendered = {**note,
                         "patient_name": (f"{patient['first_name']} {patient['last_name']}" if patient else ""),
                         "dob": (patient or {}).get("dob"), "ssn": (patient or {}).get("ssn")}
-            pdf = note_pdf(rendered, clinic)
+            pdf = note_pdf(rendered, clinic, rnc)
             path = f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf"
             stored = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None,
@@ -344,7 +348,7 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
                 from routers.forms import _form_pdf
                 rendered = {**form,
                             "patient_name": (f"{patient['first_name']} {patient['last_name']}" if patient else "")}
-                pdf = _form_pdf(rendered, clinic)
+                pdf = _form_pdf(rendered, clinic, rnc)
                 stored = put_object(f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf",
                                     pdf, "application/pdf")
                 storage_path = stored["path"]
@@ -507,6 +511,7 @@ async def _build_packet_pdf(c) -> bytes:
 
     settings = await get_settings_doc()
     clinic = settings.get("clinic_name", "Veterans of Puerto Plata")
+    rnc = settings.get("rnc", "")
     clinic_addr = settings.get("address", "")
     items = c.get("items", [])
 
@@ -557,7 +562,7 @@ async def _build_packet_pdf(c) -> bytes:
         pdf.set_xy(pdf.l_margin + 4, y0 + 3.5)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font(FONT, "B", 9)
-        pdf.cell(content_w - 8, 4.5, (clinic or "").upper()[:80], ln=True)
+        pdf.cell(content_w - 8, 4.5, ((clinic or "").upper() + (f"   RNC: {rnc}" if rnc else ""))[:80], ln=True)
         pdf.set_x(pdf.l_margin + 4)
         pdf.set_font(FONT, "B", 14)
         pdf.cell(content_w - 8, 8, title, ln=True)
@@ -750,6 +755,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
         raise HTTPException(status_code=404, detail="No invoice or progress note found for that patient on that date")
 
     clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    rnc = (await get_settings_doc()).get("rnc", "")
     m = d.split("-")
     disp = f"{m[1]}/{m[2]}/{m[0]}" if len(m) == 3 else d
     packet_name = f"{pname} {disp} FMP Claim"
@@ -757,7 +763,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     items = []
     for inv in invs:
         try:
-            pdf = _invoice_pdf(inv, clinic)
+            pdf = _invoice_pdf(inv, clinic, rnc)
         except Exception as e:
             logger.error(f"from-date invoice pdf failed: {e}")
             continue
@@ -776,7 +782,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     for n in notes:
         note = {**n, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn")}
         try:
-            pdf = note_pdf(note, clinic)
+            pdf = note_pdf(note, clinic, rnc)
         except Exception as e:
             logger.error(f"from-date note pdf failed: {e}")
             continue
@@ -941,8 +947,9 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
     clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    rnc = (await get_settings_doc()).get("rnc", "")
     try:
-        pdf_bytes = _invoice_pdf(inv, clinic)
+        pdf_bytes = _invoice_pdf(inv, clinic, rnc)
     except Exception as e:
         logger.error(f"invoice pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
@@ -981,8 +988,9 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
     pname = (f"{p['first_name']} {p['last_name']}" if p else n.get("patient_name")) or ""
     note = {**n, "patient_name": pname, "dob": (p or {}).get("dob") or n.get("dob"), "ssn": (p or {}).get("ssn")}
     clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    rnc = (await get_settings_doc()).get("rnc", "")
     try:
-        pdf = note_pdf(note, clinic)
+        pdf = note_pdf(note, clinic, rnc)
     except Exception as e:
         logger.error(f"note pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render note PDF")

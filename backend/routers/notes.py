@@ -189,10 +189,11 @@ async def note_to_folder(nid: str, user: dict = Depends(require_roles("doctor", 
     note = {**note, "patient_name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob"), "ssn": p.get("ssn")}
     s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
     clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
+    rnc = (s or {}).get("rnc", "")
     vd = note.get("visit_date")
     ds = fmt_date(vd)
     try:
-        pdf = note_pdf(note, clinic)
+        pdf = note_pdf(note, clinic, rnc)
     except Exception as e:
         logger.error(f"note pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render note PDF")

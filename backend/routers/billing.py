@@ -283,11 +283,12 @@ async def invoice_to_folder(iid: str, user: dict = Depends(require_roles("biller
            "dob": inv.get("dob") or p.get("dob")}
     s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
     clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
+    rnc = (s or {}).get("rnc", "")
     sd = inv.get("service_date")
     ds = fmt_date(sd)
     num = inv.get("invoice_number") or "Invoice"
     try:
-        pdf = invoice_pdf(inv, clinic)
+        pdf = invoice_pdf(inv, clinic, rnc)
     except Exception:
         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
     label = f"Patient Invoice {num} {ds}".strip()

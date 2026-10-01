@@ -511,6 +511,7 @@ export default function Team() {
             </div>
           </div>
           <Field label={t("clinicName")}><input required value={lh.clinic_name} onChange={setLhField("clinic_name")} className={inputCls} data-testid="lh-name" /></Field>
+          <Field label="RNC"><input value={lh.rnc || ""} onChange={setLhField("rnc")} className={inputCls} data-testid="lh-rnc" /></Field>
           <Field label={t("tagline")}><input value={lh.tagline || ""} onChange={setLhField("tagline")} className={inputCls} data-testid="lh-tagline" /></Field>
           <Field label={t("address")}><input value={lh.address || ""} onChange={setLhField("address")} className={inputCls} data-testid="lh-address" /></Field>
           <div className="grid grid-cols-2 gap-4">

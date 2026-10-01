@@ -65,11 +65,14 @@ def _build_xlsx(clinic: str) -> bytes:
     return buf.getvalue()
 
 
-def _build_pdf(clinic: str) -> bytes:
+def _build_pdf(clinic: str, rnc: str = "") -> bytes:
     from core.pdf_utils import new_pdf, pdf_bytes, FONT
     pdf = new_pdf()
     pdf.set_font(FONT, "B", 18)
     pdf.cell(0, 12, clinic, ln=True)
+    if rnc:
+        pdf.set_font(FONT, "", 9)
+        pdf.cell(0, 5, f"RNC: {rnc}", ln=True)
     pdf.set_font(FONT, "B", 14)
     pdf.cell(0, 10, "Patient Form", ln=True)
     pdf.ln(4)
@@ -88,8 +91,9 @@ async def blank_template(kind: str, user: dict = Depends(require_roles(*FORMS_RO
         raise HTTPException(status_code=400, detail="Unsupported template type")
     s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
     clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
+    rnc = (s or {}).get("rnc", "")
     builders = {"docx": _build_docx, "xlsx": _build_xlsx, "pdf": _build_pdf}
-    data = builders[kind](clinic)
+    data = builders[kind](clinic, rnc) if kind == "pdf" else builders[kind](clinic)
     ctype, fname = _TEMPLATE_META[kind]
     return StreamingResponse(io.BytesIO(data), media_type=ctype,
         headers={"Content-Disposition": f'attachment; filename="{fname}"'})
@@ -240,10 +244,13 @@ async def _patient_name(pid):
     return f"{p['first_name']} {p['last_name']}" if p else None
 
 
-def _form_pdf(form: dict, clinic: str) -> bytes:
+def _form_pdf(form: dict, clinic: str, rnc: str = "") -> bytes:
     pdf = new_pdf()
     pdf.set_font(FONT, "B", 18)
     pdf.cell(0, 12, (clinic or "")[:60], ln=True)
+    if rnc:
+        pdf.set_font(FONT, "", 9)
+        pdf.cell(0, 5, f"RNC: {rnc}", ln=True)
     pdf.set_font(FONT, "B", 13)
     pdf.cell(0, 9, (form.get("title") or "Patient Form")[:70], ln=True)
     pdf.set_font(FONT, "", 10)
@@ -379,9 +386,10 @@ async def move_form_to_folder(fid: str, data: ToFolder, user: dict = Depends(req
     else:
         s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
         clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
+        rnc = (s or {}).get("rnc", "")
         form_with_name = {**f, "patient_name": pname}
         try:
-            pdf = _form_pdf(form_with_name, clinic)
+            pdf = _form_pdf(form_with_name, clinic, rnc)
         except Exception as e:
             logger.error(f"form pdf failed: {e}")
             raise HTTPException(status_code=500, detail="Could not render form PDF")

@@ -69,10 +69,13 @@ def _mc(pdf, text, bold=False, size=11):
     pdf.multi_cell(0, 6, text)
 
 
-def invoice_pdf(inv: dict, clinic: str) -> bytes:
+def invoice_pdf(inv: dict, clinic: str, rnc: str = "") -> bytes:
     pdf = new_pdf()
     pdf.set_font(FONT, "B", 18)
     pdf.cell(0, 12, (clinic or "")[:60], ln=True)
+    if rnc:
+        pdf.set_font(FONT, "", 9)
+        pdf.cell(0, 5, f"RNC: {rnc}", ln=True)
     pdf.set_font(FONT, "B", 13)
     pdf.cell(0, 9, f"Invoice {inv.get('invoice_number', '')}", ln=True)
     pdf.ln(2)
@@ -113,10 +116,13 @@ def invoice_pdf(inv: dict, clinic: str) -> bytes:
     return pdf_bytes(pdf)
 
 
-def note_pdf(note: dict, clinic: str) -> bytes:
+def note_pdf(note: dict, clinic: str, rnc: str = "") -> bytes:
     pdf = new_pdf()
     pdf.set_font(FONT, "B", 18)
     pdf.cell(0, 12, (clinic or "")[:60], ln=True)
+    if rnc:
+        pdf.set_font(FONT, "", 9)
+        pdf.cell(0, 5, f"RNC: {rnc}", ln=True)
     pdf.set_font(FONT, "B", 13)
     pdf.cell(0, 9, "Progress Note", ln=True)
     pdf.ln(2)

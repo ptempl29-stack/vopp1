@@ -138,6 +138,7 @@ class SettingsInput(BaseModel):
     mailing_address: Optional[str] = ""
     primary_insurance: Optional[str] = ""
     logo: Optional[str] = ""
+    rnc: Optional[str] = ""
     usd_to_dop: Optional[float] = 60.0
     invoice_seq_base: Optional[int] = 36
 

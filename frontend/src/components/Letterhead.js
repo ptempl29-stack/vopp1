@@ -20,6 +20,7 @@ export const Letterhead = ({ settings }) => {
             {settings.clinic_name}
           </h2>
           {settings.tagline && <p className="text-sm text-stone-500">{settings.tagline}</p>}
+          {settings.rnc && <p className="text-xs font-semibold text-stone-600" data-testid="letterhead-rnc">RNC: {settings.rnc}</p>}
         </div>
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-xs text-stone-500">
@@ -70,6 +71,7 @@ export const EditableLetterhead = ({ settings, onSaved, canEdit = false, t = (x)
         email: form.email || "",
         whatsapp: form.whatsapp || "",
         mailing_address: form.mailing_address || "",
+        rnc: form.rnc || "",
         primary_insurance: (settings && settings.primary_insurance) || "",
         logo: form.logo || "",
       };
@@ -115,6 +117,8 @@ export const EditableLetterhead = ({ settings, onSaved, canEdit = false, t = (x)
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <div><label className="text-xs font-semibold text-stone-500">{t("clinicName") || "Clinic Name"}</label>
           <input value={form.clinic_name || ""} onChange={set("clinic_name")} className={cell} data-testid="lh-clinic-name" /></div>
+        <div><label className="text-xs font-semibold text-stone-500">RNC</label>
+          <input value={form.rnc || ""} onChange={set("rnc")} className={cell} data-testid="lh-rnc" /></div>
         <div><label className="text-xs font-semibold text-stone-500">{t("tagline_label") || "Tagline"}</label>
           <input value={form.tagline || ""} onChange={set("tagline")} className={cell} data-testid="lh-tagline" /></div>
         <div className="sm:col-span-2"><label className="text-xs font-semibold text-stone-500">{t("physicalAddress") || "Physical Address"}</label>
