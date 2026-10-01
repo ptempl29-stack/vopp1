@@ -15,6 +15,9 @@ import { AddIcdCodeModal } from "../components/AddIcdCodeModal";
 
 let seq = 0;
 const newItem = () => ({ _uid: `it-${seq++}`, cpt_code: "", description: "", quantity: 1, minutes: 15, amount: 0 });
+// Full-hour therapy codes default to 4 units (4 × 15-min = 60 min) since that's how they're billed.
+const FOUR_UNIT_CODES = ["90837", "90791"];
+const defaultQtyFor = (code) => (FOUR_UNIT_CODES.includes(code) ? 4 : 1);
 const emptyInvoice = {
   patient_id: "", patient_name: "", dob: "", ssn: "", policy_number: "", gender: "",
   invoice_number: "", service_date: new Date().toISOString().slice(0, 10),
@@ -99,6 +102,22 @@ export default function Invoices() {
     loadNumber();
   }, []);
 
+  // Deep link from a note or patient page: /invoices?from_note=<id>&patient_id=<id>
+  useEffect(() => {
+    const noteId = params.get("from_note");
+    const pid = params.get("patient_id");
+    if (!noteId || cpt.length === 0) return;
+    api.get("/notes/for-billing", { params: { patient_id: pid } })
+      .then((r) => {
+        const n = (r.data || []).find((x) => x.id === noteId);
+        if (n) applyNote(n, pid);
+        else toast.error(t("noteNotFound"));
+      })
+      .catch((err) => toast.error(apiErr(err)))
+      .finally(() => { params.delete("from_note"); params.delete("patient_id"); setParams(params, { replace: true }); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cpt, patients]);
+
   const shownInvoices = (statusFilter
     ? invoices.filter((v) => (statusFilter === "outstanding" ? v.status !== "paid" : v.status === statusFilter))
     : invoices
@@ -128,7 +147,8 @@ export default function Invoices() {
   const setItem = (idx, patch) => setItems(items.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   const onCode = (idx, code) => {
     const c = cpt.find((x) => x.code === code);
-    setItem(idx, { cpt_code: code, description: c?.description || "", amount: c?.amount || 0 });
+    const qty = defaultQtyFor(code);
+    setItem(idx, { cpt_code: code, description: c?.description || "", amount: c?.amount || 0, quantity: qty, minutes: qty * 15 });
   };
   const total = items.reduce((s, i) => s + (Number(i.amount) || 0) * (Number(i.quantity) || 0), 0);
 
@@ -146,11 +166,12 @@ export default function Invoices() {
       .catch((err) => toast.error(apiErr(err)))
       .finally(() => setLoadingNotes(false));
   };
-  const applyNote = (n) => {
-    const p = patients.find((x) => x.id === notePatient);
+  const applyNote = (n, pid) => {
+    const patientId = pid || notePatient;
+    const p = patients.find((x) => x.id === patientId);
     setInv((s) => ({
       ...s,
-      patient_id: notePatient,
+      patient_id: patientId,
       patient_name: p ? `${p.first_name} ${p.last_name}` : s.patient_name,
       dob: n.dob || p?.dob || s.dob,
       gender: n.gender || p?.gender || s.gender,
@@ -160,8 +181,13 @@ export default function Invoices() {
       icd10: n.icd10 || s.icd10,
       provider: n.attending_provider || s.provider,
     }));
+    if (n.cpt_code) {
+      const c = cpt.find((x) => x.code === n.cpt_code);
+      const qty = defaultQtyFor(n.cpt_code);
+      setItems([{ _uid: `it-${seq++}`, cpt_code: n.cpt_code, description: c?.description || "", quantity: qty, minutes: qty * 15, amount: c?.amount || 0 }]);
+    }
     setNoteModal(false);
-    loadIcdHistory(notePatient);
+    loadIcdHistory(patientId);
     toast.success(t("prefilledFromNote"));
   };
   const reasonOptions = inv.visit_reason && !reasons.includes(inv.visit_reason)

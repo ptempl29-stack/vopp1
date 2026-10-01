@@ -3,12 +3,13 @@ import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
 import { can } from "../lib/perms";
 import { useAuth } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
-import { Plus, Search, Pencil, Trash2, Eye, Video, MapPin, CalendarClock, FileText, ClipboardList } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Eye, Video, MapPin, CalendarClock, FileText, ClipboardList, Receipt } from "lucide-react";
 import { toast } from "sonner";
 
 const blank = { first_name: "", last_name: "", dob: "", gender: "", ssn: "", phone: "", email: "", address: "", notes: "", status: "active" };
@@ -16,6 +17,9 @@ const blank = { first_name: "", last_name: "", dob: "", gender: "", ssn: "", pho
 export default function Patients() {
   const { t } = useLang();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const canInvoice = can(user?.role, "invoices") || user?.role === "admin";
+  const generateInvoice = (n) => navigate(`/invoices?from_note=${n.id}&patient_id=${n.patient_id || ""}`);
   const allowed = can(user?.role, "patients");
   const [patients, setPatients] = useState([]);
   const [search, setSearch] = useState("");
@@ -203,8 +207,17 @@ export default function Patients() {
                 <Section icon={FileText} title={`${t("notesCount")} (${filteredNotes.length})`} testid="detail-notes">
                   {filteredNotes.length === 0 ? <Empty text={t("noRecords")} /> : filteredNotes.map((n) => (
                     <div key={n.id} className="p-2.5 rounded-md border border-border text-sm" data-testid={`detail-note-${n.id}`}>
-                      <p className="font-semibold text-moneygreen-800 line-clamp-1">{n.title}</p>
-                      <p className="text-stone-500 text-xs">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))} · {n.attending_provider || n.author}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-moneygreen-800 line-clamp-1">{n.title}</p>
+                          <p className="text-stone-500 text-xs">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))} · {n.attending_provider || n.author}</p>
+                        </div>
+                        {canInvoice && (
+                          <button onClick={() => generateInvoice(n)} data-testid={`detail-generate-invoice-${n.id}`} className="shrink-0 text-moneygreen-700 hover:text-moneygreen-900" title={t("generateInvoice")}>
+                            <Receipt className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </Section>

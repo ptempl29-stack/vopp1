@@ -4,6 +4,7 @@ import api, { apiErr } from "../lib/api";
 import { can } from "../lib/perms";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 import { Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Btn, Empty, Card, inputCls } from "../components/ui-kit";
@@ -13,7 +14,7 @@ import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
 import { fmtDate } from "../lib/date";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X, CheckCircle2, Download, ChevronDown } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X, CheckCircle2, Download, ChevronDown, Receipt } from "lucide-react";
 import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
@@ -33,6 +34,9 @@ export default function Notes() {
   const { t } = useLang();
   const { user, refreshUser } = useAuth();
   const allowed = can(user?.role, "notes");
+  const navigate = useNavigate();
+  const canInvoice = can(user?.role, "invoices") || user?.role === "admin";
+  const generateInvoice = (n) => navigate(`/invoices?from_note=${n.id}&patient_id=${n.patient_id || ""}`);
   const sel = useSelection();
   const [notes, setNotes] = useState([]);
   const [patients, setPatients] = useState([]);
@@ -569,6 +573,7 @@ export default function Notes() {
                         <Btn variant="ghost" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
                         {allowed && <Btn variant="ghost" onClick={() => toggleComplete(n)} data-testid={`complete-note-${n.id}`} className={`!px-2 ${n.completed ? "!text-moneygreen-600" : "!text-stone-400"}`} title={n.completed ? t("reopenNote") : t("markComplete")}><CheckCircle2 className="w-4 h-4" /></Btn>}
                         {allowed && <Btn variant="ghost" onClick={() => openEdit(n)} data-testid={`edit-note-${n.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>}
+                        {canInvoice && <Btn variant="ghost" onClick={() => generateInvoice(n)} data-testid={`generate-invoice-${n.id}`} className="!px-2 !text-moneygreen-700" title={t("generateInvoice")}><Receipt className="w-4 h-4" /></Btn>}
                         {allowed && <Btn variant="ghost" onClick={() => duplicateNote(n)} data-testid={`duplicate-note-${n.id}`} className="!px-2" title={t("duplicate")}><Copy className="w-4 h-4" /></Btn>}
                         {allowed && <Btn variant="ghost" onClick={() => deleteNote(n)} data-testid={`delete-note-${n.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>}
                       </div>
@@ -622,6 +627,7 @@ export default function Notes() {
                   <Btn variant="outline" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`}><Eye className="w-4 h-4" />{t("view")}</Btn>
                   {allowed && <Btn variant={n.completed ? "primary" : "outline"} onClick={() => toggleComplete(n)} data-testid={`complete-note-${n.id}`} title={n.completed ? t("reopenNote") : t("markComplete")}><CheckCircle2 className="w-4 h-4" />{n.completed ? t("reopenNote") : t("markComplete")}</Btn>}
                   {allowed && <Btn variant="outline" onClick={() => openEdit(n)} data-testid={`edit-note-${n.id}`}><Pencil className="w-4 h-4" />{t("edit")}</Btn>}
+                  {canInvoice && <Btn variant="outline" onClick={() => generateInvoice(n)} data-testid={`generate-invoice-card-${n.id}`}><Receipt className="w-4 h-4" />{t("generateInvoice")}</Btn>}
                   {allowed && <Btn variant="ghost" onClick={() => duplicateNote(n)} data-testid={`duplicate-note-${n.id}`} className="!px-2" title={t("duplicate")}><Copy className="w-4 h-4" /></Btn>}
                   {allowed && <Btn variant="ghost" onClick={() => deleteNote(n)} data-testid={`delete-note-${n.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>}
                 </div>
@@ -722,6 +728,7 @@ export default function Notes() {
               <Btn variant="outline" onClick={() => { if (viewing?.id) api.post(`/notes/${viewing.id}/to-folder`).then(() => toast.success(t("savedToFolder"))).catch(() => {}); printSection("note-print"); }} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
               <Btn variant="outline" onClick={() => printSection("note-print")} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
               {allowed && <Btn onClick={() => openEdit(viewing)} data-testid="view-edit-btn"><Pencil className="w-4 h-4" />{t("edit")}</Btn>}
+              {canInvoice && <Btn variant="outline" onClick={() => generateInvoice(viewing)} data-testid="view-generate-invoice-btn"><Receipt className="w-4 h-4" />{t("generateInvoice")}</Btn>}
             </div>
           </div>
         )}
