@@ -7,6 +7,7 @@ import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../
 import {
   Mail, Inbox, SendHorizonal, PenSquare, Trash2, Settings, RefreshCw,
   Paperclip, Plug, ChevronLeft, ChevronRight, CheckCircle2, X, Upload,
+  Save, FileText, Image as ImageIcon, File as FileIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -46,6 +47,16 @@ export default function Mailbox() {
   };
   const totalSize = attachments.reduce((s, a) => s + (a.size || 0), 0);
   const overLimit = totalSize > MAX_TOTAL;
+  const [draftId, setDraftId] = useState(null);
+  const [drafts, setDrafts] = useState([]);
+  const isImg = (a) => (a.content_type || "").startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(a.filename || "");
+  const isPdf = (a) => (a.content_type || "") === "application/pdf" || /\.pdf$/i.test(a.filename || "");
+  const attIcon = (a) => {
+    if (isImg(a) && a.local && a.data_b64) return <img src={`data:${a.content_type};base64,${a.data_b64}`} alt="" className="w-6 h-6 rounded object-cover border border-border" />;
+    if (isImg(a)) return <ImageIcon className="w-4 h-4 text-sky-600" />;
+    if (isPdf(a)) return <FileText className="w-4 h-4 text-red-600" />;
+    return <FileIcon className="w-4 h-4 text-stone-500" />;
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(blankSettings);
   const [savingCfg, setSavingCfg] = useState(false);
@@ -83,10 +94,36 @@ export default function Mailbox() {
     api.get(`/mailbox/attachable/${attachPatient}`).then((r) => setFolderItems(r.data || [])).catch(() => setFolderItems([]));
   }, [attachPatient]);
 
-  const openCompose = (preset) => {
+  const loadDrafts = useCallback(async () => {
+    try { const r = await api.get("/mailbox/drafts"); setDrafts(r.data || []); }
+    catch (e) { /* ignore */ }
+  }, []);
+  useEffect(() => { if (configured) loadDrafts(); }, [configured, loadDrafts]);
+
+  const openCompose = (preset, draft) => {
     setCompose(preset || { to: "", cc: "", subject: "", body_text: "" });
-    setAttachments([]); setAttachPatient("");
+    setAttachments(draft?.attachments || []);
+    setDraftId(draft?.id || null);
+    setAttachPatient("");
     setComposeOpen(true);
+  };
+  const openDraft = (d) => openCompose(
+    { to: d.to || "", cc: d.cc || "", subject: d.subject || "", body_text: d.body_text || "" }, d);
+  const saveDraft = async () => {
+    try {
+      const r = await api.post("/mailbox/drafts", {
+        id: draftId, to: compose.to, cc: compose.cc, subject: compose.subject,
+        body_text: compose.body_text, attachments,
+      });
+      setDraftId(r.data.id);
+      toast.success(t("draftSaved"));
+      loadDrafts();
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+  const deleteDraft = async (id, e) => {
+    if (e) e.stopPropagation();
+    try { await api.delete(`/mailbox/drafts/${id}`); loadDrafts(); if (draftId === id) setDraftId(null); }
+    catch (err) { toast.error(apiErr(err)); }
   };
   const addAttachment = (it) => {
     const patientName = patientOpts.find((p) => p.id === attachPatient)?.name;
@@ -145,6 +182,7 @@ export default function Mailbox() {
       setComposeOpen(false);
       setCompose({ to: "", cc: "", subject: "", body_text: "" });
       setAttachments([]); setAttachPatient("");
+      if (draftId) { deleteDraft(draftId); setDraftId(null); }
     } catch (err) { toast.error(apiErr(err)); }
     finally { setSending(false); }
   };
@@ -182,6 +220,7 @@ export default function Mailbox() {
   const folders = [
     { key: "INBOX", label: t("inbox"), icon: Inbox },
     { key: settings.sent_folder || "Sent", label: t("sent"), icon: SendHorizonal },
+    { key: "DRAFTS", label: t("drafts"), icon: FileText, count: drafts.length },
   ];
   const totalPages = Math.max(1, Math.ceil((list.total || 0) / (list.limit || 25)));
 
@@ -213,14 +252,36 @@ export default function Mailbox() {
                 <button key={f.key} onClick={() => { setFolder(f.key); setPage(1); setSelected(null); }}
                   data-testid={`mail-folder-${f.label.toLowerCase()}`}
                   className={`w-full flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors duration-200 ${active ? "bg-moneygreen-700 text-white" : "text-stone-600 hover:bg-tan-50"}`}>
-                  <Icon className="w-4 h-4" />{f.label}
+                  <Icon className="w-4 h-4" /><span className="flex-1 text-left">{f.label}</span>
+                  {f.count > 0 && <span className={`text-xs ${active ? "text-tan-100" : "text-stone-400"}`}>{f.count}</span>}
                 </button>
               );
             })}
           </div>
 
           <Card className="overflow-hidden">
-            {loading ? (
+            {folder === "DRAFTS" ? (
+              drafts.length === 0 ? (
+                <Empty icon={FileText} title={t("noDrafts")} />
+              ) : (
+                <div className="divide-y divide-border" data-testid="mail-drafts-list">
+                  {drafts.map((d, i) => (
+                    <div key={d.id} data-testid={`mail-draft-${d.id}`}
+                      className="w-full px-5 py-3 hover:bg-tan-50 transition-colors duration-150 flex items-center gap-3 cursor-pointer"
+                      onClick={() => openDraft(d)}>
+                      <FileText className="w-4 h-4 text-stone-400 shrink-0" />
+                      <span className="w-44 truncate text-sm shrink-0 text-stone-700">{d.to || t("noRecipient")}</span>
+                      <span className="flex-1 truncate text-sm text-stone-600">
+                        {d.subject || `(${t("noSubject")})`}
+                        {d.attachments?.length > 0 && <span className="ml-1 text-stone-400"><Paperclip className="w-3 h-3 inline" /> {d.attachments.length}</span>}
+                      </span>
+                      <button onClick={(e) => deleteDraft(d.id, e)} data-testid={`mail-draft-delete-${d.id}`}
+                        className="text-stone-400 hover:text-red-600 shrink-0"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : loading ? (
               <div className="p-10 text-center text-stone-400 text-sm">{t("loading")}…</div>
             ) : list.items.length === 0 ? (
               <Empty icon={Mail} title={t("noEmails")} />
@@ -242,6 +303,7 @@ export default function Mailbox() {
                 ))}
               </div>
             )}
+            {folder !== "DRAFTS" && (
             <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-tan-50/40">
               <span className="text-xs text-stone-500">{list.total} {t("messagesTotal")}</span>
               <div className="flex items-center gap-2">
@@ -250,6 +312,7 @@ export default function Mailbox() {
                 <Btn variant="ghost" className="!px-2" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} data-testid="mail-next"><ChevronRight className="w-4 h-4" /></Btn>
               </div>
             </div>
+            )}
           </Card>
         </div>
       )}
@@ -328,8 +391,8 @@ export default function Mailbox() {
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2" data-testid="mail-attachments-list">
                 {attachments.map((a) => (
-                  <span key={a.id} className="inline-flex items-center gap-1.5 text-xs bg-tan-50 border border-border rounded-lg pl-3 pr-1.5 py-1 text-moneygreen-800" data-testid={`mail-attach-chip-${a.id}`}>
-                    <Paperclip className="w-3 h-3" />
+                  <span key={a.id} className="inline-flex items-center gap-1.5 text-xs bg-tan-50 border border-border rounded-lg pl-2 pr-1.5 py-1 text-moneygreen-800" data-testid={`mail-attach-chip-${a.id}`}>
+                    {attIcon(a)}
                     <span>{a.filename || a.label}
                       <span className="text-stone-400">{a.size ? ` · ${fmtSize(a.size)}` : ""}{a.local ? ` · ${t("fromComputer")}` : (a.patientName ? ` · ${a.patientName}` : "")}</span>
                     </span>
@@ -340,9 +403,12 @@ export default function Mailbox() {
             )}
             {overLimit && <p className="text-xs text-red-600 font-semibold mt-2" data-testid="mail-attach-warning">{t("attachmentsTooLarge")}</p>}
           </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <Btn variant="outline" type="button" onClick={() => setComposeOpen(false)}>{t("cancel")}</Btn>
-            <Btn type="submit" disabled={sending || !compose.to || overLimit} data-testid="mail-send"><SendHorizonal className="w-4 h-4" />{t("send")}</Btn>
+          <div className="flex justify-between gap-2 pt-1">
+            <Btn variant="outline" type="button" onClick={saveDraft} data-testid="mail-save-draft"><Save className="w-4 h-4" />{t("saveDraft")}</Btn>
+            <div className="flex gap-2">
+              <Btn variant="outline" type="button" onClick={() => setComposeOpen(false)}>{t("cancel")}</Btn>
+              <Btn type="submit" disabled={sending || !compose.to || overLimit} data-testid="mail-send"><SendHorizonal className="w-4 h-4" />{t("send")}</Btn>
+            </div>
           </div>
         </form>
       </Modal>

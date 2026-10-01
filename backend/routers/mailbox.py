@@ -3,6 +3,7 @@ import imaplib
 import smtplib
 import ssl
 import time
+import uuid
 from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
@@ -341,6 +342,40 @@ async def delete_msg(uid: str, folder: str = "INBOX", user: dict = Depends(requi
     cfg = await _load_cfg()
     pwd = decrypt_text(cfg["password"])
     await run_in_threadpool(_wrap, _delete_message, cfg, pwd, folder, uid)
+    return {"ok": True}
+
+
+class DraftIn(BaseModel):
+    id: Optional[str] = None
+    to: str = ""
+    cc: str = ""
+    subject: str = ""
+    body_text: str = ""
+    attachments: List[dict] = []
+
+
+@router.get("/mailbox/drafts")
+async def list_drafts(user: dict = Depends(require_roles("admin"))):
+    docs = await db.mail_drafts.find({"owner_id": user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(200)
+    return docs
+
+
+@router.post("/mailbox/drafts")
+async def save_draft(data: DraftIn, user: dict = Depends(require_roles("admin"))):
+    inline_bytes = sum(len(a.get("data_b64", "")) for a in (data.attachments or []))
+    if inline_bytes > 12_000_000:
+        raise HTTPException(status_code=400, detail="Draft attachments are too large to save — remove large files first.")
+    did = data.id or str(uuid.uuid4())
+    doc = {"id": did, "owner_id": user["id"], "owner_name": user.get("name"),
+           "to": data.to, "cc": data.cc, "subject": data.subject, "body_text": data.body_text,
+           "attachments": data.attachments or [], "updated_at": now_iso()}
+    await db.mail_drafts.update_one({"id": did, "owner_id": user["id"]}, {"$set": doc}, upsert=True)
+    return {"ok": True, "id": did}
+
+
+@router.delete("/mailbox/drafts/{did}")
+async def delete_draft(did: str, user: dict = Depends(require_roles("admin"))):
+    await db.mail_drafts.delete_one({"id": did, "owner_id": user["id"]})
     return {"ok": True}
 
 
