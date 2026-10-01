@@ -36,6 +36,16 @@ export default function Mailbox() {
   const [patientOpts, setPatientOpts] = useState([]);
   const [folderItems, setFolderItems] = useState([]);
   const [attachments, setAttachments] = useState([]);
+  const [dragOver, setDragOver] = useState(false);
+  const MAX_TOTAL = 20 * 1024 * 1024;
+  const fmtSize = (b) => {
+    if (b == null) return "";
+    if (b < 1024) return `${b} B`;
+    if (b < 1048576) return `${Math.round(b / 1024)} KB`;
+    return `${(b / 1048576).toFixed(1)} MB`;
+  };
+  const totalSize = attachments.reduce((s, a) => s + (a.size || 0), 0);
+  const overLimit = totalSize > MAX_TOTAL;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(blankSettings);
   const [savingCfg, setSavingCfg] = useState(false);
@@ -83,10 +93,9 @@ export default function Mailbox() {
     setAttachments((a) => (a.some((x) => x.id === it.id) ? a : [...a, { ...it, patientName }]));
   };
   const removeAttachment = (id) => setAttachments((a) => a.filter((x) => x.id !== id));
-  const onFilePick = (e) => {
-    const files = Array.from(e.target.files || []);
-    files.forEach((file) => {
-      if (file.size > 15 * 1024 * 1024) { toast.error(t("fileTooLarge")); return; }
+  const addLocalFiles = (files) => {
+    Array.from(files || []).forEach((file) => {
+      if (file.size > 15 * 1024 * 1024) { toast.error(`${file.name}: ${t("fileTooLarge")}`); return; }
       const reader = new FileReader();
       reader.onload = () => {
         const b64 = String(reader.result).split(",")[1] || "";
@@ -97,8 +106,8 @@ export default function Mailbox() {
       };
       reader.readAsDataURL(file);
     });
-    e.target.value = "";
   };
+  const onFilePick = (e) => { addLocalFiles(e.target.files); e.target.value = ""; };
 
   const openMsg = async (uid) => {
     try {
@@ -282,13 +291,24 @@ export default function Mailbox() {
 
       {/* Compose */}
       <Modal open={composeOpen} onClose={() => setComposeOpen(false)} title={t("newMessage")} wide>
-        <form onSubmit={send} className="space-y-3">
+        <form onSubmit={send}
+          onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
+          onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); addLocalFiles(e.dataTransfer.files); }}
+          className={`space-y-3 rounded-lg transition-all duration-150 ${dragOver ? "ring-2 ring-moneygreen-500 ring-offset-2" : ""}`}>
           <Field label={t("to")}><input required value={compose.to} onChange={setC("to")} className={inputCls} placeholder="patient@email.com, other@email.com" data-testid="mail-to" /></Field>
           <Field label="Cc"><input value={compose.cc} onChange={setC("cc")} className={inputCls} data-testid="mail-cc" /></Field>
           <Field label={t("subject")}><input value={compose.subject} onChange={setC("subject")} className={inputCls} data-testid="mail-subject" /></Field>
           <Field label={t("body")}><textarea rows={10} value={compose.body_text} onChange={setC("body_text")} className={inputCls} data-testid="mail-body" /></Field>
           <div className="border-t border-border pt-3">
-            <p className="text-xs font-semibold text-stone-500 mb-2 flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" />{t("attachments")}</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-stone-500 flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" />{t("attachments")}</p>
+              {attachments.length > 0 && (
+                <span className={`text-xs font-semibold ${overLimit ? "text-red-600" : "text-stone-400"}`} data-testid="mail-attach-total">
+                  {fmtSize(totalSize)} / 20 MB
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <select value={attachPatient} onChange={(e) => setAttachPatient(e.target.value)} className={inputCls} data-testid="mail-attach-patient">
                 <option value="">{t("attachFromPatient")}</option>
@@ -304,23 +324,25 @@ export default function Mailbox() {
               <Upload className="w-4 h-4" />{t("attachFromComputer")}
               <input type="file" multiple className="hidden" onChange={onFilePick} data-testid="mail-attach-file" />
             </label>
+            <span className="text-xs text-stone-400 ml-2">{t("dropToAttach")}</span>
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2" data-testid="mail-attachments-list">
                 {attachments.map((a) => (
                   <span key={a.id} className="inline-flex items-center gap-1.5 text-xs bg-tan-50 border border-border rounded-lg pl-3 pr-1.5 py-1 text-moneygreen-800" data-testid={`mail-attach-chip-${a.id}`}>
                     <Paperclip className="w-3 h-3" />
                     <span>{a.filename || a.label}
-                      <span className="text-stone-400">{a.local ? ` · ${t("fromComputer")}` : (a.patientName ? ` · ${a.patientName}` : "")}</span>
+                      <span className="text-stone-400">{a.size ? ` · ${fmtSize(a.size)}` : ""}{a.local ? ` · ${t("fromComputer")}` : (a.patientName ? ` · ${a.patientName}` : "")}</span>
                     </span>
                     <button type="button" onClick={() => removeAttachment(a.id)} className="text-stone-400 hover:text-red-600" data-testid={`mail-attach-remove-${a.id}`}><X className="w-3 h-3" /></button>
                   </span>
                 ))}
               </div>
             )}
+            {overLimit && <p className="text-xs text-red-600 font-semibold mt-2" data-testid="mail-attach-warning">{t("attachmentsTooLarge")}</p>}
           </div>
           <div className="flex justify-end gap-2 pt-1">
             <Btn variant="outline" type="button" onClick={() => setComposeOpen(false)}>{t("cancel")}</Btn>
-            <Btn type="submit" disabled={sending || !compose.to} data-testid="mail-send"><SendHorizonal className="w-4 h-4" />{t("send")}</Btn>
+            <Btn type="submit" disabled={sending || !compose.to || overLimit} data-testid="mail-send"><SendHorizonal className="w-4 h-4" />{t("send")}</Btn>
           </div>
         </form>
       </Modal>
