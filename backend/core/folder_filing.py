@@ -157,7 +157,7 @@ def note_pdf(note: dict, clinic: str) -> bytes:
             _mc(pdf, date_disp, size=9)
         signer = note.get("attending_provider") or "Saday Rodriguez Cabrera"
         pdf.ln(1)
-        _mc(pdf, f"This Document has been electronically signed by {signer} on the date listed in the progress note.", size=8)
+        _mc(pdf, f"This Document has been electronically signed by {signer} on {disp_date(vd)}.", size=8)
     elif note.get("exequatur_number"):
         pdf.ln(4)
         prov = note.get("attending_provider") or note.get("author") or ""

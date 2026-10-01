@@ -89,6 +89,7 @@ export default function Notes() {
     return p ? `${p.first_name} ${p.last_name}` : "—";
   };
   const providerName = (n) => n.attending_provider || n.author || "—";
+  const attestText = (prov, date) => `This Document has been electronically signed by ${prov || "Saday Rodriguez Cabrera"} on ${fmtDate(date)}.`;
   const riskLabel = (r) => (r ? t(riskKey[r] || r) : "—");
   const curPatient = (id) => patients.find((x) => x.id === id) || {};
 
@@ -537,7 +538,7 @@ export default function Notes() {
                     <p className="text-sm font-bold text-moneygreen-800">{t("providerSignature")}</p>
                     {n.exequatur_number && <p className="text-xs text-stone-600" data-testid={`note-exequatur-${n.id}`}>Exequatur Num: {n.exequatur_number}</p>}
                     <p className="text-xs text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</p>
-                    <p className="text-[11px] text-stone-400 italic mt-1" data-testid={`note-attestation-${n.id}`}>This Document has been electronically signed by {n.attending_provider || "Saday Rodriguez Cabrera"} on the date listed in the progress note.</p>
+                    <p className="text-[11px] text-stone-400 italic mt-1" data-testid={`note-attestation-${n.id}`}>{attestText(n.attending_provider, n.visit_date)}</p>
                   </div>
                 )}
                 <div className="mt-3 pt-3 border-t border-border flex justify-end gap-2">
@@ -575,6 +576,7 @@ export default function Notes() {
                 <p className="text-sm font-bold text-moneygreen-800">{t("providerSignature")}</p>
                 {form.exequatur_number && <p className="text-xs text-stone-600">Exequatur Num: {form.exequatur_number}</p>}
                 <p className="text-xs text-stone-500">{fmtDate(form.visit_date)}</p>
+                <p className="text-[11px] text-stone-400 italic mt-1">{attestText(form.attending_provider, form.visit_date)}</p>
               </div>
             )}
           </div>
@@ -635,6 +637,7 @@ export default function Notes() {
                   <p className="text-sm font-bold text-moneygreen-800">{t("providerSignature")}</p>
                   {viewing.exequatur_number && <p className="text-xs text-stone-600" data-testid="view-note-exequatur">Exequatur Num: {viewing.exequatur_number}</p>}
                   <p className="text-xs text-stone-500">{fmtDate(viewing.visit_date)}</p>
+                  <p className="text-[11px] text-stone-400 italic mt-1" data-testid="view-note-attestation">{attestText(viewing.attending_provider, viewing.visit_date)}</p>
                 </div>
               )}
             </div>
