@@ -288,7 +288,7 @@ async def invoice_to_folder(iid: str, user: dict = Depends(require_roles("biller
     ds = fmt_date(sd)
     num = inv.get("invoice_number") or "Invoice"
     try:
-        pdf = invoice_pdf(inv, clinic, rnc)
+        pdf = invoice_pdf(inv, s or {})
     except Exception:
         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
     label = f"Patient Invoice {num} {ds}".strip()
