@@ -556,17 +556,22 @@ async def _build_packet_pdf(c) -> bytes:
     content_w = pdf.w - pdf.l_margin - pdf.r_margin
 
     def band(title, subtitle=None):
+        band_h = 24 if rnc else 20
         y0 = pdf.get_y()
         pdf.set_fill_color(*GREEN)
-        pdf.rect(pdf.l_margin, y0, content_w, 20, style="F")
+        pdf.rect(pdf.l_margin, y0, content_w, band_h, style="F")
         pdf.set_xy(pdf.l_margin + 4, y0 + 3.5)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font(FONT, "B", 9)
-        pdf.cell(content_w - 8, 4.5, ((clinic or "").upper() + (f"   RNC: {rnc}" if rnc else ""))[:80], ln=True)
+        pdf.cell(content_w - 8, 4.5, (clinic or "").upper()[:80], ln=True)
+        if rnc:
+            pdf.set_x(pdf.l_margin + 4)
+            pdf.set_font(FONT, "", 7.5)
+            pdf.cell(content_w - 8, 4, f"RNC: {rnc}", ln=True)
         pdf.set_x(pdf.l_margin + 4)
         pdf.set_font(FONT, "B", 14)
         pdf.cell(content_w - 8, 8, title, ln=True)
-        pdf.set_y(y0 + 20)
+        pdf.set_y(y0 + band_h)
         if subtitle:
             pdf.set_x(pdf.l_margin)
             pdf.set_fill_color(*TAN_LT)
