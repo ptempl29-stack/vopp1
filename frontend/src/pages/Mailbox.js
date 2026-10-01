@@ -6,7 +6,7 @@ import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import {
   Mail, Inbox, SendHorizonal, PenSquare, Trash2, Settings, RefreshCw,
-  Paperclip, Plug, ChevronLeft, ChevronRight, CheckCircle2,
+  Paperclip, Plug, ChevronLeft, ChevronRight, CheckCircle2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -32,6 +32,10 @@ export default function Mailbox() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [compose, setCompose] = useState({ to: "", cc: "", subject: "", body_text: "" });
   const [sending, setSending] = useState(false);
+  const [attachPatient, setAttachPatient] = useState("");
+  const [patientOpts, setPatientOpts] = useState([]);
+  const [folderItems, setFolderItems] = useState([]);
+  const [attachments, setAttachments] = useState([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(blankSettings);
   const [savingCfg, setSavingCfg] = useState(false);
@@ -58,11 +62,33 @@ export default function Mailbox() {
   useEffect(() => { loadStatus(); }, [loadStatus]);
   useEffect(() => { if (configured) loadList(); }, [configured, loadList]);
 
+  useEffect(() => {
+    if (composeOpen && patientOpts.length === 0) {
+      api.get("/folders/patients").then((r) => setPatientOpts(r.data || [])).catch(() => {});
+    }
+  }, [composeOpen, patientOpts.length]);
+
+  useEffect(() => {
+    if (!attachPatient) { setFolderItems([]); return; }
+    api.get(`/mailbox/attachable/${attachPatient}`).then((r) => setFolderItems(r.data || [])).catch(() => setFolderItems([]));
+  }, [attachPatient]);
+
+  const openCompose = (preset) => {
+    setCompose(preset || { to: "", cc: "", subject: "", body_text: "" });
+    setAttachments([]); setAttachPatient("");
+    setComposeOpen(true);
+  };
+  const addAttachment = (it) => {
+    setAttachments((a) => (a.some((x) => x.id === it.id) ? a : [...a, it]));
+  };
+  const removeAttachment = (id) => setAttachments((a) => a.filter((x) => x.id !== id));
+
   const openMsg = async (uid) => {
     try {
       const r = await api.get(`/mailbox/messages/${uid}`, { params: { folder } });
       setSelected(r.data);
       setList((l) => ({ ...l, items: l.items.map((m) => (m.uid === uid ? { ...m, seen: true } : m)) }));
+      window.dispatchEvent(new Event("mailbox-refresh"));
     } catch (e) { toast.error(apiErr(e)); }
   };
 
@@ -72,6 +98,7 @@ export default function Mailbox() {
       toast.success(t("deleted"));
       setSelected(null);
       loadList();
+      window.dispatchEvent(new Event("mailbox-refresh"));
     } catch (e) { toast.error(apiErr(e)); }
   };
 
@@ -83,10 +110,12 @@ export default function Mailbox() {
         to: compose.to.split(",").map((s) => s.trim()).filter(Boolean),
         cc: compose.cc.split(",").map((s) => s.trim()).filter(Boolean),
         subject: compose.subject, body_text: compose.body_text,
+        attachment_item_ids: attachments.map((a) => a.id),
       });
       toast.success(t("mailSent"));
       setComposeOpen(false);
       setCompose({ to: "", cc: "", subject: "", body_text: "" });
+      setAttachments([]); setAttachPatient("");
     } catch (err) { toast.error(apiErr(err)); }
     finally { setSending(false); }
   };
@@ -133,7 +162,7 @@ export default function Mailbox() {
         action={<div className="flex gap-2 flex-wrap">
           <Btn variant="outline" onClick={() => { loadStatus(); loadList(); }} data-testid="mail-refresh"><RefreshCw className="w-4 h-4" />{t("refresh")}</Btn>
           <Btn variant="outline" onClick={() => setSettingsOpen(true)} data-testid="mail-settings-btn"><Settings className="w-4 h-4" />{t("connection")}</Btn>
-          <Btn onClick={() => setComposeOpen(true)} disabled={!configured} data-testid="mail-compose-btn"><PenSquare className="w-4 h-4" />{t("compose")}</Btn>
+          <Btn onClick={() => openCompose()} disabled={!configured} data-testid="mail-compose-btn"><PenSquare className="w-4 h-4" />{t("compose")}</Btn>
         </div>} />
 
       {configured === false && (
@@ -224,7 +253,7 @@ export default function Mailbox() {
               </div>
             )}
             <div className="flex justify-between pt-2">
-              <Btn variant="outline" onClick={() => { setCompose({ to: selected.from_, cc: "", subject: `Re: ${selected.subject || ""}`, body_text: `\n\n----------\n${selected.body_text || ""}` }); setSelected(null); setComposeOpen(true); }} data-testid="mail-reply"><SendHorizonal className="w-4 h-4" />{t("reply")}</Btn>
+              <Btn variant="outline" onClick={() => { openCompose({ to: selected.from_, cc: "", subject: `Re: ${selected.subject || ""}`, body_text: `\n\n----------\n${selected.body_text || ""}` }); setSelected(null); }} data-testid="mail-reply"><SendHorizonal className="w-4 h-4" />{t("reply")}</Btn>
               <Btn variant="ghost" className="!text-destructive" onClick={() => del(selected.uid)} data-testid="mail-delete"><Trash2 className="w-4 h-4" />{t("delete")}</Btn>
             </div>
           </div>
@@ -238,6 +267,30 @@ export default function Mailbox() {
           <Field label="Cc"><input value={compose.cc} onChange={setC("cc")} className={inputCls} data-testid="mail-cc" /></Field>
           <Field label={t("subject")}><input value={compose.subject} onChange={setC("subject")} className={inputCls} data-testid="mail-subject" /></Field>
           <Field label={t("body")}><textarea rows={10} value={compose.body_text} onChange={setC("body_text")} className={inputCls} data-testid="mail-body" /></Field>
+          <div className="border-t border-border pt-3">
+            <p className="text-xs font-semibold text-stone-500 mb-2 flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" />{t("attachFromPatient")}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <select value={attachPatient} onChange={(e) => setAttachPatient(e.target.value)} className={inputCls} data-testid="mail-attach-patient">
+                <option value="">{t("selectPatient")}</option>
+                {patientOpts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.item_count})</option>)}
+              </select>
+              <select value="" onChange={(e) => { const it = folderItems.find((f) => f.id === e.target.value); if (it) addAttachment(it); }}
+                className={inputCls} data-testid="mail-attach-doc" disabled={!attachPatient}>
+                <option value="">{!attachPatient ? t("selectPatient") : (folderItems.length ? t("selectDocument") : t("noDocuments"))}</option>
+                {folderItems.map((it) => <option key={it.id} value={it.id}>{it.label || it.filename}</option>)}
+              </select>
+            </div>
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2" data-testid="mail-attachments-list">
+                {attachments.map((a) => (
+                  <span key={a.id} className="inline-flex items-center gap-1.5 text-xs bg-tan-50 border border-border rounded-lg pl-3 pr-1.5 py-1 text-moneygreen-800" data-testid={`mail-attach-chip-${a.id}`}>
+                    <Paperclip className="w-3 h-3" />{a.filename || a.label}
+                    <button type="button" onClick={() => removeAttachment(a.id)} className="text-stone-400 hover:text-red-600" data-testid={`mail-attach-remove-${a.id}`}><X className="w-3 h-3" /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="flex justify-end gap-2 pt-1">
             <Btn variant="outline" type="button" onClick={() => setComposeOpen(false)}>{t("cancel")}</Btn>
             <Btn type="submit" disabled={sending || !compose.to} data-testid="mail-send"><SendHorizonal className="w-4 h-4" />{t("send")}</Btn>

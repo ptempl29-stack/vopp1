@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { usePrivacy } from "../context/PrivacyContext";
+import api from "../lib/api";
 import {
   LayoutDashboard, Users, CalendarDays, FileText, ReceiptText,
   ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages, Hash,
@@ -39,6 +40,19 @@ export default function Layout({ children }) {
   const { privacy, toggle: togglePrivacy } = usePrivacy();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const hasMailbox = (user?.allowed_tabs || []).includes("mailbox");
+
+  useEffect(() => {
+    if (!hasMailbox) return undefined;
+    let active = true;
+    const fetchUnread = () => api.get("/mailbox/unread")
+      .then((r) => { if (active) setUnread(r.data?.unread || 0); }).catch(() => {});
+    fetchUnread();
+    const id = setInterval(fetchUnread, 60000);
+    window.addEventListener("mailbox-refresh", fetchUnread);
+    return () => { active = false; clearInterval(id); window.removeEventListener("mailbox-refresh", fetchUnread); };
+  }, [hasMailbox]);
 
   const handleLogout = () => { logout(); navigate("/login"); };
 
@@ -66,7 +80,13 @@ export default function Layout({ children }) {
                   isActive ? "bg-moneygreen-600 text-white" : "text-tan-200 hover:bg-moneygreen-700 hover:text-white"
                 }`}>
               <item.icon className="w-[18px] h-[18px]" />
-              {t(item.key)}
+              <span className="flex-1">{t(item.key)}</span>
+              {item.tab === "mailbox" && unread > 0 && (
+                <span data-testid="mailbox-unread-badge"
+                  className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-moneygreen-400 text-moneygreen-900 text-xs font-bold flex items-center justify-center">
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

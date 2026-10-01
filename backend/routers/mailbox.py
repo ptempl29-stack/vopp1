@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from core.db import db, now_iso, logger
 from core.security import require_roles
 from core.mailbox_crypto import encrypt_text, decrypt_text
+from core.storage import get_object
 
 router = APIRouter()
 
@@ -40,6 +41,7 @@ class ComposeIn(BaseModel):
     cc: List[str] = []
     subject: str = ""
     body_text: str = ""
+    attachment_item_ids: List[str] = []
 
 
 async def _load_cfg() -> dict:
@@ -213,7 +215,19 @@ def _delete_message(cfg: dict, pwd: str, folder: str, uid: str):
         except Exception: pass
 
 
-def _send_message(cfg: dict, pwd: str, to, cc, subject, body_text):
+def _unread_count(cfg: dict, pwd: str, folder: str):
+    m = _imap(cfg, pwd)
+    try:
+        m.select(folder, readonly=True)
+        typ, data = m.uid("SEARCH", None, "UNSEEN")
+        uids = data[0].split() if data and data[0] else []
+        return len(uids)
+    finally:
+        try: m.logout()
+        except Exception: pass
+
+
+def _send_message(cfg: dict, pwd: str, to, cc, subject, body_text, attachments=None):
     msg = EmailMessage()
     msg["From"] = cfg["email_address"]
     msg["To"] = ", ".join(to)
@@ -221,6 +235,11 @@ def _send_message(cfg: dict, pwd: str, to, cc, subject, body_text):
         msg["Cc"] = ", ".join(cc)
     msg["Subject"] = subject
     msg.set_content(body_text or "")
+    for att in (attachments or []):
+        ct = att.get("content_type") or "application/octet-stream"
+        maintype, _, subtype = ct.partition("/")
+        msg.add_attachment(att["data"], maintype=maintype or "application",
+                           subtype=subtype or "octet-stream", filename=att["filename"])
     s = _smtp(cfg, pwd)
     try:
         s.send_message(msg)
@@ -318,11 +337,45 @@ async def delete_msg(uid: str, folder: str = "INBOX", user: dict = Depends(requi
     return {"ok": True}
 
 
+@router.get("/mailbox/unread")
+async def unread_count(user: dict = Depends(require_roles("admin"))):
+    doc = await db.mail_settings.find_one({"key": SETTINGS_KEY}, {"_id": 0})
+    if not doc or not doc.get("password"):
+        return {"unread": 0, "configured": False}
+    pwd = decrypt_text(doc["password"])
+    try:
+        n = await run_in_threadpool(_unread_count, doc, pwd, doc.get("inbox_folder", "INBOX"))
+    except Exception as e:
+        logger.error(f"mailbox unread failed: {e}")
+        return {"unread": 0, "configured": True, "error": True}
+    return {"unread": n, "configured": True}
+
+
+@router.get("/mailbox/attachable/{patient_id}")
+async def attachable_folder_items(patient_id: str, user: dict = Depends(require_roles("admin"))):
+    items = await db.folder_items.find(
+        {"patient_id": patient_id}, {"_id": 0, "id": 1, "label": 1, "filename": 1, "size": 1, "content_type": 1}
+    ).sort("created_at", -1).to_list(1000)
+    return items
+
+
 @router.post("/mailbox/send")
 async def send_msg(data: ComposeIn, user: dict = Depends(require_roles("admin"))):
     if not data.to:
         raise HTTPException(status_code=400, detail="At least one recipient is required")
     cfg = await _load_cfg()
     pwd = decrypt_text(cfg["password"])
-    await run_in_threadpool(_wrap, _send_message, cfg, pwd, data.to, data.cc, data.subject, data.body_text)
+    attachments = []
+    for item_id in (data.attachment_item_ids or []):
+        it = await db.folder_items.find_one({"id": item_id}, {"_id": 0})
+        if not it or not it.get("storage_path"):
+            continue
+        try:
+            content, ct = get_object(it["storage_path"])
+        except Exception as e:
+            logger.error(f"mailbox attachment fetch failed ({item_id}): {e}")
+            raise HTTPException(status_code=502, detail="Could not load an attachment from storage")
+        attachments.append({"filename": it.get("filename") or "document",
+                            "content_type": it.get("content_type") or ct, "data": content})
+    await run_in_threadpool(_wrap, _send_message, cfg, pwd, data.to, data.cc, data.subject, data.body_text, attachments)
     return {"ok": True}
