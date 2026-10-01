@@ -1,6 +1,7 @@
 # Changelog — Veterans of Puerto Plata
 
 ## 2026-06 (fork)
+- **One-click date fix**: `_validate_packet` now returns a `fix` suggestion when every document shares one date that differs from the claim date. New `POST /claims/{cid}/fix-date` applies it (updates `claim_number` + packet name). The validation panel shows a "Fix: set claim date to MM/DD/YYYY" button (`claim-validation-fix-date`).
 - **FMP claim validation engine (turned on)**: `_validate_packet` in `routers/claims.py` runs on every claim response (`_claim_response`). Flags date mismatches (note vs claim date, invoice vs claim date, note vs invoice — all **blocked**), patient-name mismatch (invoice=blocked, note=warning), unsigned note / missing ICD-10 / invoice without line-items or CPT, and warns when another packet already exists for the same patient+date. Returned as `validation: {status, issues}` (ready/review/blocked). Frontend `ClaimValidation` panel in `Claims.js` shows a color-coded banner + issue list; "Merge & Save PDF" is disabled when blocked.
 - **Finalize blocked on conflicts**: `_assert_not_blocked` guards `/claims/{cid}/merged`, `/merged/async`, and `/to-folder` (HTTP 400 with the blocking message).
 - **Duplicate claim-item prevention**: `attach-invoice` / `attach-note` / `attach-form` return 400 if the same invoice/note/form is already in the packet.

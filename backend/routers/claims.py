@@ -564,10 +564,20 @@ async def _validate_packet(claim: dict) -> dict:
         if dup:
             add("warning", "Another claim packet already exists for this patient and date of service.")
 
+    # One-click fix: when every document agrees on a single date that differs
+    # from the claim date, the claim date is simply out of sync — offer to apply it.
+    fix = None
+    doc_dates = {d for d in (_norm_date(n.get("visit_date")) for n in notes) if d}
+    doc_dates |= {d for d in (_norm_date(inv.get("service_date")) for inv in invoices) if d}
+    if len(doc_dates) == 1:
+        only = next(iter(doc_dates))
+        if dos and only != dos:
+            fix = {"type": "set_claim_date", "date": only}
+
     status = ("blocked" if any(i["level"] == "blocked" for i in issues)
               else "review" if any(i["level"] == "warning" for i in issues)
               else "ready")
-    return {"status": status, "issues": issues}
+    return {"status": status, "issues": issues, "fix": fix}
 
 
 async def _assert_not_blocked(claim: dict):
@@ -903,6 +913,31 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     await log_audit("create", "claim", actor=user, resource_id=doc["id"],
                     detail=f"from-date {pname} {d} ({len(items)} items)")
     return await _claim_response(doc["id"])
+
+
+class FixDateInput(BaseModel):
+    date: Optional[str] = None
+
+
+@router.post("/claims/{cid}/fix-date")
+async def fix_claim_date(cid: str, data: FixDateInput, user: dict = Depends(require_roles("admin"))):
+    from core.folder_filing import disp_date
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    v = await _validate_packet(c)
+    target = _norm_date(data.date) or (v.get("fix") or {}).get("date")
+    if not target:
+        raise HTTPException(status_code=400, detail="No matching document date is available to apply.")
+    updates = {"claim_number": target, "updated_at": now_iso()}
+    if c.get("patient_id"):
+        p = await db.patients.find_one({"id": c["patient_id"]}, {"_id": 0})
+        if p:
+            updates["name"] = f"{p['first_name']} {p['last_name']} {disp_date(target)} FMP Claim"
+    await db.claim_packets.update_one({"id": cid}, {"$set": updates})
+    await log_audit("update", "claim", actor=user, resource_id=cid,
+                    detail=f"fix claim date -> {target}")
+    return await _claim_response(cid)
 
 
 @router.get("/claims/{cid}")

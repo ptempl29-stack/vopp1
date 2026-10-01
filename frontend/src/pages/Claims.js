@@ -8,7 +8,7 @@ import { fmtDate } from "../lib/date";
 import {
   FolderArchive, Plus, Pencil, Trash2, ChevronLeft, Download, FileText,
   ReceiptText, Upload, FilePlus, CalendarClock, Eye, FolderInput, Send, ArrowUp, ArrowDown,
-  Loader2, ShieldAlert, ShieldCheck, AlertTriangle,
+  Loader2, ShieldAlert, ShieldCheck, AlertTriangle, Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,7 +28,7 @@ const VAL_TONE = {
   ready: { border: "border-l-moneygreen-500", bg: "bg-moneygreen-50", icon: ShieldCheck, iconCls: "text-moneygreen-600", label: "validationReady" },
 };
 
-function ClaimValidation({ v, t }) {
+function ClaimValidation({ v, t, onFix, fixing }) {
   const cfg = VAL_TONE[v.status] || VAL_TONE.review;
   const Icon = cfg.icon;
   return (
@@ -46,6 +46,15 @@ function ClaimValidation({ v, t }) {
             </li>
           ))}
         </ul>
+      )}
+      {v.fix?.type === "set_claim_date" && (
+        <div className="mt-3">
+          <Btn variant="outline" onClick={onFix} disabled={fixing} data-testid="claim-validation-fix-date"
+            className="!border-moneygreen-500 !text-moneygreen-700 hover:!bg-moneygreen-100">
+            {fixing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            {t("fixSetClaimDate")} {fmtDate(v.fix.date)}
+          </Btn>
+        </div>
       )}
       {v.status === "blocked" && <p className="mt-3 text-xs font-medium text-red-700">{t("blockedCannotFinalize")}</p>}
     </Card>
@@ -78,6 +87,7 @@ export default function Claims() {
   const [sendBusy, setSendBusy] = useState(false);
   const [deleting, setDeleting] = useState("");
   const [packetBuilding, setPacketBuilding] = useState(false);
+  const [fixing, setFixing] = useState(false);
 
   const load = useCallback(async () => {
     try { setPackets((await api.get("/claims")).data); } catch (e) { toast.error(apiErr(e)); }
@@ -93,6 +103,17 @@ export default function Claims() {
 
   const refreshSelected = async (cid) => {
     try { setSelected((await api.get(`/claims/${cid}`)).data); } catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const fixClaimDate = async () => {
+    setFixing(true);
+    try {
+      const r = await api.post(`/claims/${selected.id}/fix-date`, {});
+      setSelected(r.data);
+      toast.success(t("dateFixed"));
+      load();
+    } catch (e) { toast.error(apiErr(e)); }
+    finally { setFixing(false); }
   };
 
   const openNew = () => { setEditing(null); setForm(blankForm); setModalOpen(true); };
@@ -339,7 +360,7 @@ export default function Claims() {
             <p className="mt-1 text-stone-600 text-sm">{selected.created_by || "—"}</p>
           </Card>
         </div>
-        {selected.validation && <ClaimValidation v={selected.validation} t={t} />}
+        {selected.validation && <ClaimValidation v={selected.validation} t={t} onFix={fixClaimDate} fixing={fixing} />}
         {selected.invoice_summary && (
           <Card className="p-4 mb-5" data-testid="claim-invoice-summary">
             <p className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">{t("claimSummary")}</p>
