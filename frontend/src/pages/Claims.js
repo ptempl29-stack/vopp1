@@ -107,6 +107,17 @@ export default function Claims() {
   const [deleting, setDeleting] = useState("");
   const [packetBuilding, setPacketBuilding] = useState(false);
   const [fixing, setFixing] = useState(false);
+  const [checkFilter, setCheckFilter] = useState("all");
+
+  const SEV = { blocked: 0, review: 1, ready: 2 };
+  const visiblePackets = [...packets]
+    .filter((p) => checkFilter === "all" || (p.validation?.status || "review") === checkFilter)
+    .sort((a, b) => (SEV[a.validation?.status] ?? 1) - (SEV[b.validation?.status] ?? 1));
+  const checkCounts = packets.reduce((acc, p) => {
+    const s = p.validation?.status || "review";
+    acc[s] = (acc[s] || 0) + 1;
+    return acc;
+  }, {});
 
   const load = useCallback(async () => {
     try { setPackets((await api.get("/claims")).data); } catch (e) { toast.error(apiErr(e)); }
@@ -566,7 +577,22 @@ export default function Claims() {
           </div>} />
 
       <Card className="overflow-hidden">
-        {packets.length === 0 ? <Empty text={t("noData")} /> : (
+        <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-border bg-tan-50/40" data-testid="claim-check-filter">
+          <span className="text-xs font-bold uppercase tracking-wider text-stone-500 mr-1">{t("filterByCheck")}</span>
+          {[
+            { key: "all", label: t("filterAll"), count: packets.length, cls: "data-[on=true]:bg-stone-700 data-[on=true]:text-white border-stone-300" },
+            { key: "blocked", label: t("chipBlocked"), count: checkCounts.blocked || 0, cls: "data-[on=true]:bg-red-600 data-[on=true]:text-white data-[on=true]:border-red-600 border-red-200 text-red-700" },
+            { key: "review", label: t("chipReview"), count: checkCounts.review || 0, cls: "data-[on=true]:bg-amber-500 data-[on=true]:text-white data-[on=true]:border-amber-500 border-amber-200 text-amber-700" },
+            { key: "ready", label: t("chipReady"), count: checkCounts.ready || 0, cls: "data-[on=true]:bg-moneygreen-600 data-[on=true]:text-white data-[on=true]:border-moneygreen-600 border-moneygreen-200 text-moneygreen-700" },
+          ].map((f) => (
+            <button key={f.key} data-on={checkFilter === f.key} onClick={() => setCheckFilter(f.key)}
+              data-testid={`claim-filter-${f.key}`}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold transition-colors ${f.cls}`}>
+              {f.label}<span className="opacity-70">· {f.count}</span>
+            </button>
+          ))}
+        </div>
+        {visiblePackets.length === 0 ? <Empty text={t("noData")} /> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -581,7 +607,7 @@ export default function Claims() {
                 </tr>
               </thead>
               <tbody>
-                {packets.map((p, i) => (
+                {visiblePackets.map((p, i) => (
                   <motion.tr key={p.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
                     data-testid={`claim-row-${p.id}`}
                     className={`border-b border-border/60 hover:bg-tan-50 transition-colors duration-200 cursor-pointer ${p.status === "complete" ? "bg-moneygreen-50" : (i % 2 ? "bg-tan-50/40" : "")}`}
