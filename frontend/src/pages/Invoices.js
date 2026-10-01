@@ -15,6 +15,9 @@ import { AddIcdCodeModal } from "../components/AddIcdCodeModal";
 
 let seq = 0;
 const newItem = () => ({ _uid: `it-${seq++}`, cpt_code: "", description: "", quantity: 1, minutes: 15, amount: 0 });
+// Full-hour therapy codes default to 4 units (4 × 15-min = 60 min) since that's how they're billed.
+const FOUR_UNIT_CODES = ["90837", "90791"];
+const defaultQtyFor = (code) => (FOUR_UNIT_CODES.includes(code) ? 4 : 1);
 const emptyInvoice = {
   patient_id: "", patient_name: "", dob: "", ssn: "", policy_number: "", gender: "",
   invoice_number: "", service_date: new Date().toISOString().slice(0, 10),
@@ -142,7 +145,6 @@ export default function Invoices() {
   const setF = (k) => (e) => setInv({ ...inv, [k]: e.target.value });
 
   const setItem = (idx, patch) => setItems(items.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
-  const defaultQtyFor = (code) => Math.max(1, cpt.find((x) => x.code === code)?.default_units || 1);
   const onCode = (idx, code) => {
     const c = cpt.find((x) => x.code === code);
     const qty = defaultQtyFor(code);

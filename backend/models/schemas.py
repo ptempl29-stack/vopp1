@@ -92,7 +92,6 @@ class CptInput(BaseModel):
     code: str
     description: str
     amount: float
-    default_units: int = 1
 
 
 class InvoiceInput(BaseModel):
