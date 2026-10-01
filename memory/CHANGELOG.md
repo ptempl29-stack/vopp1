@@ -1,9 +1,13 @@
 # Changelog — Veterans of Puerto Plata
 
 ## 2026-10-01
-- **CEO Mailbox connected**: saved valid Yahoo IMAP/SMTP creds (usvopp@yahoo.com, app password jmajthbykqnlrljz) via encrypted `PUT /api/mailbox/settings`. IMAP+SMTP verified. NOTE: creds live in DB (preview vs prod separate) — re-enter in prod via Mailbox → Connection after deploy.
-- **Mailbox unread badge**: `GET /api/mailbox/unread` (IMAP UNSEEN count); Layout.js polls every 60s + on `mailbox-refresh` window event (fired on open/delete), shows green count badge on the Mailbox sidebar tab (admin only).
-- **Attach from patient folder in Mailbox compose/reply**: `GET /api/mailbox/attachable/{patient_id}` lists a patient's folder_items; `ComposeIn.attachment_item_ids` + `_send_message` now pulls bytes from object storage (`get_object`) and attaches them. Compose modal: patient picker → document picker → removable attachment chips. Verified: sent email in Sent folder carried Prog_07-15-2026.pdf.
-- **Progress Notes ICD-10 & CPT dropdowns**: replaced free-text+chips with a "Previously used" dropdown (ICD has per-code delete + Manage footer). Removed the standalone "All codes" select; the **+** button now reveals the full catalog (code — description), with a "New ICD-10 Code" footer to add. Same pattern applied to Invoices ICD field.
-- **Progress Notes completion**: mark-complete toggle (green badge/highlight), bulk complete, open/completed filter + clickable tally, completed date+signer in list/card, auto-complete-on-sign checkbox, completion stamp in PDF, Export Completed CSV (`GET /api/notes/export-completed`).
-- **Attestation line** now prints the session date in MM/DD/YYYY across card/view/print/PDF; "Completed on MM/DD/YYYY by {signer}" stamped on note PDFs.
+- **Configurable unit rules**: CPT codes now carry a `default_units` field (CptInput schema + CPT Codes page form/column). Invoices `defaultQtyFor` reads each code's configured units from the loaded catalog (replaces hard-coded 90837/90791); selecting or note-prefilling a code auto-fills units + minutes. Existing codes backfilled to 1.
+- **Auto-save drafts**: Mailbox compose auto-saves to `mail_drafts` ~2.5s after the last edit (debounced, silent), updating the same draft id; shows a subtle "Auto-saved" indicator. Manual Save draft still available.
+- **Invoice generator (cherry-picked from user ZIP, older snapshot — not applied wholesale)**: Generate-Invoice button on Progress Notes (list/card/view) and Patient-detail notes → `/invoices?from_note=&patient_id=` deep-link prefills patient, DOB/SSN, service date, ICD-10, provider, and the note's CPT line.
+- **CEO Mailbox**: connected (Yahoo IMAP/SMTP, usvopp@yahoo.com); unread badge on sidebar; attach from patient folders + from computer (inline base64, 15MB/file, 20MB total); drag-drop; size hints + over-limit warning; attachment type-icon previews; save/open/delete drafts.
+- **Progress Notes**: mark-complete (green badge/highlight), bulk complete, open/completed filter + clickable tally, completed date+signer in list/card, auto-complete-on-sign, completion stamp in PDF, Export Completed CSV; attestation line prints session date MM/DD/YYYY everywhere.
+- **ICD-10 & CPT dropdowns** (Notes + Invoices): "Previously used" dropdown (ICD has delete + Manage), and the "+" button reveals the full catalog (code — description) with a "New code" footer.
+
+## Notes for next agent
+- User often uploads OLD ZIP snapshots — always diff & cherry-pick, never overwrite (would revert mailbox/completion/dropdown work).
+- Mailbox creds + drafts live in DB (preview vs prod separate) — re-enter in prod via Mailbox → Connection after deploy.

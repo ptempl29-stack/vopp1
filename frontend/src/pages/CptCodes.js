@@ -8,7 +8,7 @@ import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../compone
 import { Plus, Pencil, Trash2, Search, Hash } from "lucide-react";
 import { toast } from "sonner";
 
-const blank = { code: "", description: "", amount: 0 };
+const blank = { code: "", description: "", amount: 0, default_units: 1 };
 
 export default function CptCodes() {
   const { t } = useLang();
@@ -24,13 +24,14 @@ export default function CptCodes() {
   useEffect(() => { load(); }, []);
 
   const openNew = () => { setForm(blank); setEditId(null); setOpen(true); };
-  const openEdit = (c) => { setForm({ code: c.code, description: c.description, amount: c.amount }); setEditId(c.id); setOpen(true); };
+  const openEdit = (c) => { setForm({ code: c.code, description: c.description, amount: c.amount, default_units: c.default_units || 1 }); setEditId(c.id); setOpen(true); };
 
   const save = async (e) => {
     e.preventDefault();
     try {
-      if (editId) await api.put(`/cpt-codes/${editId}`, { ...form, amount: parseFloat(form.amount) });
-      else await api.post("/cpt-codes", { ...form, amount: parseFloat(form.amount) });
+      const payload = { ...form, amount: parseFloat(form.amount), default_units: Math.max(1, parseInt(form.default_units, 10) || 1) };
+      if (editId) await api.put(`/cpt-codes/${editId}`, payload);
+      else await api.post("/cpt-codes", payload);
       toast.success(t("save") + " ✓");
       setOpen(false); load();
     } catch (err) { toast.error(apiErr(err)); }
@@ -64,6 +65,7 @@ export default function CptCodes() {
                 <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
                   <th className="px-5 py-3">{t("cptCode")}</th>
                   <th className="px-5 py-3">{t("description")}</th>
+                  <th className="px-5 py-3 text-center">{t("defaultUnits")}</th>
                   <th className="px-5 py-3 text-right">{t("amount")}</th>
                   {allowed && <th className="px-5 py-3 text-right">{t("actions")}</th>}
                 </tr>
@@ -79,6 +81,7 @@ export default function CptCodes() {
                       </span>
                     </td>
                     <td className="px-5 py-3 text-stone-600">{c.description}</td>
+                    <td className="px-5 py-3 text-center text-stone-600">{c.default_units || 1}</td>
                     <td className="px-5 py-3 text-right font-semibold text-moneygreen-800">${Number(c.amount).toFixed(2)}</td>
                     {allowed && (
                       <td className="px-5 py-3">
@@ -101,6 +104,8 @@ export default function CptCodes() {
           <Field label={t("cptCode")}><input required value={form.code} onChange={set("code")} className={inputCls} data-testid="cf-code" placeholder="99213" /></Field>
           <Field label={t("description")}><input required value={form.description} onChange={set("description")} className={inputCls} data-testid="cf-desc" /></Field>
           <Field label={t("amount")}><input type="number" step="0.01" min="0" required value={form.amount} onChange={set("amount")} className={inputCls} data-testid="cf-amount" /></Field>
+          <Field label={t("defaultUnits")}><input type="number" step="1" min="1" required value={form.default_units} onChange={set("default_units")} className={inputCls} data-testid="cf-default-units" /></Field>
+          <p className="text-xs text-stone-400 -mt-2">{t("defaultUnitsHint")}</p>
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="outline" type="button" onClick={() => setOpen(false)}>{t("cancel")}</Btn>
             <Btn type="submit" data-testid="save-cpt-btn">{t("save")}</Btn>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import DOMPurify from "dompurify";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
@@ -49,6 +49,8 @@ export default function Mailbox() {
   const overLimit = totalSize > MAX_TOTAL;
   const [draftId, setDraftId] = useState(null);
   const [drafts, setDrafts] = useState([]);
+  const [autoSaved, setAutoSaved] = useState(false);
+  const autoSaveTimer = useRef(null);
   const isImg = (a) => (a.content_type || "").startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(a.filename || "");
   const isPdf = (a) => (a.content_type || "") === "application/pdf" || /\.pdf$/i.test(a.filename || "");
   const attIcon = (a) => {
@@ -105,6 +107,7 @@ export default function Mailbox() {
     setAttachments(draft?.attachments || []);
     setDraftId(draft?.id || null);
     setAttachPatient("");
+    setAutoSaved(false);
     setComposeOpen(true);
   };
   const openDraft = (d) => openCompose(
@@ -116,6 +119,7 @@ export default function Mailbox() {
         body_text: compose.body_text, attachments,
       });
       setDraftId(r.data.id);
+      setAutoSaved(true);
       toast.success(t("draftSaved"));
       loadDrafts();
     } catch (err) { toast.error(apiErr(err)); }
@@ -125,6 +129,26 @@ export default function Mailbox() {
     try { await api.delete(`/mailbox/drafts/${id}`); loadDrafts(); if (draftId === id) setDraftId(null); }
     catch (err) { toast.error(apiErr(err)); }
   };
+
+  // Auto-save the open compose as a draft a couple seconds after the last edit.
+  useEffect(() => {
+    if (!composeOpen) return undefined;
+    const hasContent = compose.to || compose.cc || compose.subject || compose.body_text || attachments.length;
+    if (!hasContent) return undefined;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      try {
+        const wasNew = !draftId;
+        const r = await api.post("/mailbox/drafts", {
+          id: draftId, to: compose.to, cc: compose.cc, subject: compose.subject,
+          body_text: compose.body_text, attachments,
+        });
+        if (wasNew) { setDraftId(r.data.id); loadDrafts(); }
+        setAutoSaved(true);
+      } catch { /* silent */ }
+    }, 2500);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [compose, attachments, composeOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const addAttachment = (it) => {
     const patientName = patientOpts.find((p) => p.id === attachPatient)?.name;
     setAttachments((a) => (a.some((x) => x.id === it.id) ? a : [...a, { ...it, patientName }]));
@@ -403,8 +427,11 @@ export default function Mailbox() {
             )}
             {overLimit && <p className="text-xs text-red-600 font-semibold mt-2" data-testid="mail-attach-warning">{t("attachmentsTooLarge")}</p>}
           </div>
-          <div className="flex justify-between gap-2 pt-1">
-            <Btn variant="outline" type="button" onClick={saveDraft} data-testid="mail-save-draft"><Save className="w-4 h-4" />{t("saveDraft")}</Btn>
+          <div className="flex justify-between items-center gap-2 pt-1">
+            <div className="flex items-center gap-2">
+              <Btn variant="outline" type="button" onClick={saveDraft} data-testid="mail-save-draft"><Save className="w-4 h-4" />{t("saveDraft")}</Btn>
+              {autoSaved && <span className="text-xs text-stone-400 flex items-center gap-1" data-testid="mail-autosaved"><CheckCircle2 className="w-3.5 h-3.5 text-moneygreen-500" />{t("draftAutosaved")}</span>}
+            </div>
             <div className="flex gap-2">
               <Btn variant="outline" type="button" onClick={() => setComposeOpen(false)}>{t("cancel")}</Btn>
               <Btn type="submit" disabled={sending || !compose.to || overLimit} data-testid="mail-send"><SendHorizonal className="w-4 h-4" />{t("send")}</Btn>
