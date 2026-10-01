@@ -149,6 +149,7 @@ export default function Invoices() {
     const c = cpt.find((x) => x.code === code);
     const qty = defaultQtyFor(code);
     setItem(idx, { cpt_code: code, description: c?.description || "", amount: c?.amount || 0, quantity: qty, minutes: qty * 15 });
+    if (FOUR_UNIT_CODES.includes(code)) setInv((s) => ({ ...s, visit_reason: "Psychotherapy" }));
   };
   const total = items.reduce((s, i) => s + (Number(i.amount) || 0) * (Number(i.quantity) || 0), 0);
 
@@ -177,7 +178,7 @@ export default function Invoices() {
       gender: n.gender || p?.gender || s.gender,
       ssn: n.ssn || s.ssn,
       service_date: n.visit_date || (n.created_at || "").slice(0, 10) || s.service_date,
-      visit_reason: n.reason_for_visit || s.visit_reason,
+      visit_reason: FOUR_UNIT_CODES.includes(n.cpt_code) ? "Psychotherapy" : (n.reason_for_visit || s.visit_reason),
       icd10: n.icd10 || s.icd10,
       provider: n.attending_provider || s.provider,
     }));
