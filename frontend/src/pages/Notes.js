@@ -526,6 +526,11 @@ export default function Notes() {
                   {n.risk_level && <span><b className="text-stone-600">{t("riskAssessment")}:</b> {riskLabel(n.risk_level)}</span>}
                 </div>
                 <div className="text-sm text-stone-600 whitespace-pre-wrap line-clamp-4">{n.content}</div>
+                {n.completed && (
+                  <p className="mt-2 text-xs text-moneygreen-700 flex items-center gap-1.5" data-testid={`note-completed-info-${n.id}`}>
+                    <CheckCircle2 className="w-3.5 h-3.5" />{t("completed")}: {fmtDate((n.completed_at || "").slice(0, 10))}{n.completed_by ? ` · ${n.completed_by}` : ""}
+                  </p>
+                )}
                 {n.signature && (
                   <div className="mt-3 pt-3 border-t border-border">
                     <img src={n.signature} alt="signature" className="h-12 object-contain my-1" data-testid={`note-sig-${n.id}`} />
