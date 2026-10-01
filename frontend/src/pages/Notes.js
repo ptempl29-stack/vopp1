@@ -102,6 +102,10 @@ export default function Notes() {
     (!dateFilter || noteDate(n) === dateFilter) &&
     (!statusFilter || (statusFilter === "completed" ? !!n.completed : !n.completed))
   ), [notes, providerFilter, patientFilter, dateFilter, statusFilter]);
+  const tally = useMemo(() => {
+    const done = notes.filter((n) => n.completed).length;
+    return { total: notes.length, completed: done, open: notes.length - done };
+  }, [notes]);
 
   const dismissIcd = async (code) => {
     const pid = form.patient_id;
@@ -369,6 +373,22 @@ export default function Notes() {
             {allowed && <Btn onClick={openNew} data-testid="add-note-btn"><Plus className="w-4 h-4" />{t("newNote")}</Btn>}
           </div>
         } />
+
+      {/* Status tally */}
+      <div className="flex flex-wrap items-center gap-2 mb-3" data-testid="notes-tally">
+        <button onClick={() => setStatusFilter("")} data-testid="tally-total"
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border transition-colors ${!statusFilter ? "bg-stone-800 text-white border-stone-800" : "bg-white text-stone-600 border-border hover:bg-stone-50"}`}>
+          <FileText className="w-3.5 h-3.5" />{t("notes")}: {tally.total}
+        </button>
+        <button onClick={() => setStatusFilter("open")} data-testid="tally-open"
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border transition-colors ${statusFilter === "open" ? "bg-tan-600 text-white border-tan-600" : "bg-white text-tan-700 border-tan-300 hover:bg-tan-50"}`}>
+          <PenLine className="w-3.5 h-3.5" />{t("openOnly")}: {tally.open}
+        </button>
+        <button onClick={() => setStatusFilter("completed")} data-testid="tally-completed"
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border transition-colors ${statusFilter === "completed" ? "bg-moneygreen-600 text-white border-moneygreen-600" : "bg-white text-moneygreen-700 border-moneygreen-300 hover:bg-moneygreen-50"}`}>
+          <CheckCircle2 className="w-3.5 h-3.5" />{t("completed")}: {tally.completed}
+        </button>
+      </div>
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
