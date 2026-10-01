@@ -63,8 +63,12 @@ export default function Notes() {
   const [exportEnd, setExportEnd] = useState("");
   const [icdHistOpen, setIcdHistOpen] = useState(false);
   const [cptHistOpen, setCptHistOpen] = useState(false);
+  const [icdAllOpen, setIcdAllOpen] = useState(false);
+  const [cptAllOpen, setCptAllOpen] = useState(false);
   const icdHistRef = useRef(null);
   const cptHistRef = useRef(null);
+  const icdAllRef = useRef(null);
+  const cptAllRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -94,6 +98,8 @@ export default function Notes() {
     const onDown = (e) => {
       if (icdHistRef.current && !icdHistRef.current.contains(e.target)) setIcdHistOpen(false);
       if (cptHistRef.current && !cptHistRef.current.contains(e.target)) setCptHistOpen(false);
+      if (icdAllRef.current && !icdAllRef.current.contains(e.target)) setIcdAllOpen(false);
+      if (cptAllRef.current && !cptAllRef.current.contains(e.target)) setCptAllOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -312,13 +318,22 @@ export default function Notes() {
                     </div>
                   )}
                 </div>
-                <select value="" onChange={(e) => { if (e.target.value) setForm((f) => ({ ...f, icd10: e.target.value })); }}
-                  data-testid="nf-icd-catalog" className={headerInputCls + " shrink-0 max-w-[42%]"} title={t("allCodes")}>
-                  <option value="">{t("allCodes")}</option>
-                  {icdCatalog.map((c) => <option key={c.code} value={c.code}>{c.description ? `${c.code} — ${c.description}` : c.code}</option>)}
-                </select>
-                <button type="button" onClick={() => setAddIcdOpen(true)} title={t("addCode")} data-testid="nf-icd10-add"
-                  className="shrink-0 px-2 rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors"><Plus className="w-4 h-4" /></button>
+                <div className="relative" ref={icdAllRef}>
+                  <button type="button" onClick={() => setIcdAllOpen((o) => !o)} title={t("allCodes")} data-testid="nf-icd10-add"
+                    className="shrink-0 px-2 h-full rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors flex items-center"><Plus className="w-4 h-4" /></button>
+                  {icdAllOpen && (
+                    <div className="absolute z-30 mt-1 right-0 w-72 bg-white border border-border rounded-md shadow-lg max-h-64 overflow-auto" data-testid="nf-icd-all-panel">
+                      {icdCatalog.map((c) => (
+                        <button key={c.code} type="button" onClick={() => { setForm((f) => ({ ...f, icd10: c.code })); setIcdAllOpen(false); }}
+                          data-testid={`nf-icd-all-${c.code}`} className="w-full text-left px-3 py-1.5 text-sm text-stone-700 hover:bg-moneygreen-50">
+                          <span className="font-mono font-semibold text-moneygreen-800">{c.code}</span>{c.description ? ` — ${c.description}` : ""}
+                        </button>
+                      ))}
+                      <button type="button" onClick={() => { setIcdAllOpen(false); setAddIcdOpen(true); }} data-testid="nf-icd-add-new"
+                        className="w-full text-left px-3 py-1.5 text-xs text-moneygreen-700 font-semibold border-t border-border hover:bg-moneygreen-50 flex items-center gap-1"><Plus className="w-3.5 h-3.5" />{t("newIcdCode")}</button>
+                    </div>
+                  )}
+                </div>
               </div>
             </HRow>
           </div>
@@ -342,11 +357,20 @@ export default function Notes() {
                     </div>
                   )}
                 </div>
-                <select value="" onChange={(e) => { if (e.target.value) setForm((f) => ({ ...f, cpt_code: e.target.value })); }}
-                  data-testid="nf-cpt-catalog" className={headerInputCls + " shrink-0 max-w-[42%]"} title={t("allCodes")}>
-                  <option value="">{t("allCodes")}</option>
-                  {cpt.map((c) => <option key={c.code} value={c.code}>{c.description ? `${c.code} — ${c.description}` : c.code}</option>)}
-                </select>
+                <div className="relative" ref={cptAllRef}>
+                  <button type="button" onClick={() => setCptAllOpen((o) => !o)} title={t("allCodes")} data-testid="nf-cpt-add"
+                    className="shrink-0 px-2 h-full rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors flex items-center"><Plus className="w-4 h-4" /></button>
+                  {cptAllOpen && (
+                    <div className="absolute z-30 mt-1 right-0 w-72 bg-white border border-border rounded-md shadow-lg max-h-64 overflow-auto" data-testid="nf-cpt-all-panel">
+                      {cpt.map((c) => (
+                        <button key={c.code} type="button" onClick={() => { setForm((f) => ({ ...f, cpt_code: c.code })); setCptAllOpen(false); }}
+                          data-testid={`nf-cpt-all-${c.code}`} className="w-full text-left px-3 py-1.5 text-sm text-stone-700 hover:bg-moneygreen-50">
+                          <span className="font-mono font-semibold text-moneygreen-800">{c.code}</span>{c.description ? ` — ${c.description}` : ""}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </HRow>
           </div>

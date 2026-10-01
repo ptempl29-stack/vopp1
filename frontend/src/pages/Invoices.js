@@ -55,7 +55,9 @@ export default function Invoices() {
   const [icdCatalog, setIcdCatalog] = useState([]);
   const [addIcdOpen, setAddIcdOpen] = useState(false);
   const [icdHistOpen, setIcdHistOpen] = useState(false);
+  const [icdAllOpen, setIcdAllOpen] = useState(false);
   const icdHistRef = useRef(null);
+  const icdAllRef = useRef(null);
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [deletingInvoice, setDeletingInvoice] = useState("");
 
@@ -79,7 +81,10 @@ export default function Invoices() {
   };
 
   useEffect(() => {
-    const onDown = (e) => { if (icdHistRef.current && !icdHistRef.current.contains(e.target)) setIcdHistOpen(false); };
+    const onDown = (e) => {
+      if (icdHistRef.current && !icdHistRef.current.contains(e.target)) setIcdHistOpen(false);
+      if (icdAllRef.current && !icdAllRef.current.contains(e.target)) setIcdAllOpen(false);
+    };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
@@ -323,13 +328,22 @@ export default function Invoices() {
                         </div>
                       )}
                     </div>
-                    <select value="" onChange={(e) => { if (e.target.value) setF("icd10")({ target: { value: e.target.value } }); }}
-                      data-testid="inv-icd-catalog" className={cellCls + " shrink-0 max-w-[42%]"} title={t("allCodes")}>
-                      <option value="">{t("allCodes")}</option>
-                      {icdCatalog.map((c) => <option key={c.code} value={c.code}>{c.description ? `${c.code} — ${c.description}` : c.code}</option>)}
-                    </select>
-                    <button type="button" onClick={() => setAddIcdOpen(true)} title={t("addCode")} data-testid="inv-icd10-add"
-                      className="shrink-0 px-2 rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors"><Plus className="w-4 h-4" /></button>
+                    <div className="relative" ref={icdAllRef}>
+                      <button type="button" onClick={() => setIcdAllOpen((o) => !o)} title={t("allCodes")} data-testid="inv-icd10-add"
+                        className="shrink-0 px-2 h-full rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors flex items-center"><Plus className="w-4 h-4" /></button>
+                      {icdAllOpen && (
+                        <div className="absolute z-30 mt-1 right-0 w-72 bg-white border border-border rounded-md shadow-lg max-h-64 overflow-auto" data-testid="inv-icd-all-panel">
+                          {icdCatalog.map((c) => (
+                            <button key={c.code} type="button" onClick={() => { setF("icd10")({ target: { value: c.code } }); setIcdAllOpen(false); }}
+                              data-testid={`inv-icd-all-${c.code}`} className="w-full text-left px-3 py-1.5 text-sm text-stone-700 hover:bg-moneygreen-50">
+                              <span className="font-mono font-semibold text-moneygreen-800">{c.code}</span>{c.description ? ` — ${c.description}` : ""}
+                            </button>
+                          ))}
+                          <button type="button" onClick={() => { setIcdAllOpen(false); setAddIcdOpen(true); }} data-testid="inv-icd-add-new"
+                            className="w-full text-left px-3 py-1.5 text-xs text-moneygreen-700 font-semibold border-t border-border hover:bg-moneygreen-50 flex items-center gap-1"><Plus className="w-3.5 h-3.5" />{t("newIcdCode")}</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </CField>
                 <CField label={t("attendingProvider")}>
