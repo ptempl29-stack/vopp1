@@ -96,6 +96,26 @@ async def delete_note(nid: str, user: dict = Depends(require_roles("doctor", "nu
     return {"ok": True}
 
 
+class CompleteInput(BaseModel):
+    completed: bool
+
+
+@router.put("/notes/{nid}/complete")
+async def set_note_complete(nid: str, data: CompleteInput,
+                            user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "admin"))):
+    existing = await db.notes.find_one({"id": nid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if data.completed:
+        upd = {"completed": True, "completed_at": now_iso(), "completed_by": user["name"]}
+    else:
+        upd = {"completed": False, "completed_at": None, "completed_by": None}
+    await db.notes.update_one({"id": nid}, {"$set": upd})
+    await log_audit("update", "note", actor=user, resource_id=nid,
+                    detail="marked complete" if data.completed else "reopened")
+    return {"ok": True, **upd}
+
+
 @router.post("/notes/bulk-delete")
 async def bulk_delete_notes(data: IdList, user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "admin"))):
     docs = await db.notes.find({"id": {"$in": data.ids}}, {"_id": 0, "id": 1, "author": 1}).to_list(1000)

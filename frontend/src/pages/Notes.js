@@ -13,7 +13,7 @@ import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
 import { fmtDate } from "../lib/date";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X } from "lucide-react";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
@@ -196,6 +196,16 @@ export default function Notes() {
   const deleteNote = async (n) => {
     try { await api.delete(`/notes/${n.id}`); toast.success(t("delete") + " ✓"); load(); }
     catch (err) { toast.error(apiErr(err)); }
+  };
+  const toggleComplete = async (n) => {
+    const next = !n.completed;
+    try {
+      await api.put(`/notes/${n.id}/complete`, { completed: next });
+      setNotes((list) => list.map((x) => x.id === n.id
+        ? { ...x, completed: next, completed_at: next ? new Date().toISOString() : null }
+        : x));
+      toast.success(next ? t("noteCompleted") : t("noteReopened"));
+    } catch (err) { toast.error(apiErr(err)); }
   };
   const removeSelected = async () => {
     try { await bulkDelete("/notes/bulk-delete", [...sel.selected], t); sel.clear(); load(); }
@@ -414,14 +424,17 @@ export default function Notes() {
               </thead>
               <tbody>
                 {filtered.map((n, i) => (
-                  <tr key={n.id} data-testid={`note-row-${n.id}`} className={`border-b border-border/60 ${sel.has(n.id) ? "bg-moneygreen-50" : i % 2 ? "bg-tan-50/40" : ""}`}>
+                  <tr key={n.id} data-testid={`note-row-${n.id}`} className={`border-b border-border/60 ${n.completed ? "bg-moneygreen-100/70" : sel.has(n.id) ? "bg-moneygreen-50" : i % 2 ? "bg-tan-50/40" : ""}`}>
                     {allowed && (
                       <td className="px-4 py-3">
                         <input type="checkbox" checked={sel.has(n.id)} onChange={() => sel.toggle(n.id)}
                           data-testid={`select-note-${n.id}`} className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
                       </td>
                     )}
-                    <td className="px-5 py-3 font-semibold text-moneygreen-800 cursor-pointer" onClick={() => setViewing(n)}><Private value={patientName(n.patient_id)} /></td>
+                    <td className="px-5 py-3 font-semibold text-moneygreen-800 cursor-pointer" onClick={() => setViewing(n)}>
+                      <Private value={patientName(n.patient_id)} />
+                      {n.completed && <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-moneygreen-600 text-white text-[10px] font-bold uppercase tracking-wide align-middle" data-testid={`note-completed-badge-${n.id}`}><CheckCircle2 className="w-3 h-3" />{t("completed")}</span>}
+                    </td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{providerName(n)}</td>
                     <td className="px-5 py-3 hidden lg:table-cell text-stone-500 font-mono text-xs">{`${n.icd10 || t("notRecorded")} / ${n.cpt_code || t("notRecorded")}`}</td>
@@ -429,6 +442,7 @@ export default function Notes() {
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         <Btn variant="ghost" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
+                        {allowed && <Btn variant="ghost" onClick={() => toggleComplete(n)} data-testid={`complete-note-${n.id}`} className={`!px-2 ${n.completed ? "!text-moneygreen-600" : "!text-stone-400"}`} title={n.completed ? t("reopenNote") : t("markComplete")}><CheckCircle2 className="w-4 h-4" /></Btn>}
                         {allowed && <Btn variant="ghost" onClick={() => openEdit(n)} data-testid={`edit-note-${n.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>}
                         {allowed && <Btn variant="ghost" onClick={() => duplicateNote(n)} data-testid={`duplicate-note-${n.id}`} className="!px-2" title={t("duplicate")}><Copy className="w-4 h-4" /></Btn>}
                         {allowed && <Btn variant="ghost" onClick={() => deleteNote(n)} data-testid={`delete-note-${n.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>}
@@ -444,7 +458,7 @@ export default function Notes() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {filtered.map((n, i) => (
             <motion.div key={n.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
-              <Card className={`p-5 ${sel.has(n.id) ? "ring-2 ring-moneygreen-500" : ""}`} data-testid={`note-card-${n.id}`}>
+              <Card className={`p-5 ${n.completed ? "ring-2 ring-moneygreen-500 bg-moneygreen-50/60" : sel.has(n.id) ? "ring-2 ring-moneygreen-500" : ""}`} data-testid={`note-card-${n.id}`}>
                 <div className="flex items-start gap-3 mb-2">
                   {allowed && (
                     <input type="checkbox" checked={sel.has(n.id)} onChange={() => sel.toggle(n.id)}
@@ -457,6 +471,7 @@ export default function Notes() {
                     <p className="font-heading font-bold text-moneygreen-800 truncate"><Private value={patientName(n.patient_id)} /></p>
                     <p className="text-xs text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))} · {providerName(n)}</p>
                   </div>
+                  {n.completed && <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-moneygreen-600 text-white text-[10px] font-bold uppercase tracking-wide shrink-0 self-start" data-testid={`note-completed-badge-${n.id}`}><CheckCircle2 className="w-3 h-3" />{t("completed")}</span>}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-stone-500 mb-2">
                   <span><b className="text-stone-600">ICD-10:</b> {n.icd10 || t("notRecorded")}</span>
@@ -475,6 +490,7 @@ export default function Notes() {
                 )}
                 <div className="mt-3 pt-3 border-t border-border flex justify-end gap-2">
                   <Btn variant="outline" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`}><Eye className="w-4 h-4" />{t("view")}</Btn>
+                  {allowed && <Btn variant={n.completed ? "primary" : "outline"} onClick={() => toggleComplete(n)} data-testid={`complete-note-${n.id}`} title={n.completed ? t("reopenNote") : t("markComplete")}><CheckCircle2 className="w-4 h-4" />{n.completed ? t("reopenNote") : t("markComplete")}</Btn>}
                   {allowed && <Btn variant="outline" onClick={() => openEdit(n)} data-testid={`edit-note-${n.id}`}><Pencil className="w-4 h-4" />{t("edit")}</Btn>}
                   {allowed && <Btn variant="ghost" onClick={() => duplicateNote(n)} data-testid={`duplicate-note-${n.id}`} className="!px-2" title={t("duplicate")}><Copy className="w-4 h-4" /></Btn>}
                   {allowed && <Btn variant="ghost" onClick={() => deleteNote(n)} data-testid={`delete-note-${n.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>}

@@ -161,6 +161,7 @@ export const translations = {
     moveToFolderBtn: "Move to Folder", dropToUpload: "Drop files here to upload", or_drop: "or drag & drop files anywhere below",
     preview: "Preview", previewUnavailable: "Preview isn't available for this file type — download to view.",
     uploadingFiles: "Uploading…", savedToFolder: "Also saved to patient folder ✓",
+    markComplete: "Mark complete", reopenNote: "Reopen", completed: "Completed", noteCompleted: "Note marked complete ✓", noteReopened: "Note reopened",
 
     sendSms: "Send via SMS", smsSent: "SMS sent to patient ✓", smsFailed: "Could not send SMS.",
     smsNotConfigured: "SMS is not configured yet. Add Twilio credentials to enable text sending.",
@@ -389,6 +390,7 @@ export const translations = {
     moveToFolderBtn: "Mover a Carpeta", dropToUpload: "Suelte los archivos aquí para subir", or_drop: "o arrastre y suelte archivos debajo",
     preview: "Vista Previa", previewUnavailable: "La vista previa no está disponible para este tipo de archivo — descárguelo para verlo.",
     uploadingFiles: "Subiendo…", savedToFolder: "También guardado en la carpeta del paciente ✓",
+    markComplete: "Marcar completada", reopenNote: "Reabrir", completed: "Completada", noteCompleted: "Nota marcada como completada ✓", noteReopened: "Nota reabierta",
 
     sendSms: "Enviar por SMS", smsSent: "SMS enviado al paciente ✓", smsFailed: "No se pudo enviar el SMS.",
     smsNotConfigured: "SMS aún no está configurado. Agregue credenciales de Twilio para habilitar el envío de textos.",
