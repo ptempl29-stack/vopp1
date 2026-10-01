@@ -36,12 +36,19 @@ class MailboxSettingsIn(BaseModel):
     trash_folder: str = "Trash"
 
 
+class InlineAttachment(BaseModel):
+    filename: str
+    content_type: Optional[str] = None
+    data_b64: str
+
+
 class ComposeIn(BaseModel):
     to: List[str]
     cc: List[str] = []
     subject: str = ""
     body_text: str = ""
     attachment_item_ids: List[str] = []
+    inline_attachments: List[InlineAttachment] = []
 
 
 async def _load_cfg() -> dict:
@@ -377,5 +384,15 @@ async def send_msg(data: ComposeIn, user: dict = Depends(require_roles("admin"))
             raise HTTPException(status_code=502, detail="Could not load an attachment from storage")
         attachments.append({"filename": it.get("filename") or "document",
                             "content_type": it.get("content_type") or ct, "data": content})
+    for ia in (data.inline_attachments or []):
+        try:
+            raw = base64.b64decode(ia.data_b64)
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"Invalid uploaded file: {ia.filename}")
+        attachments.append({"filename": ia.filename or "attachment",
+                            "content_type": ia.content_type or "application/octet-stream", "data": raw})
+    total = sum(len(a["data"]) for a in attachments)
+    if total > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Attachments exceed 20MB total")
     await run_in_threadpool(_wrap, _send_message, cfg, pwd, data.to, data.cc, data.subject, data.body_text, attachments)
     return {"ok": True}

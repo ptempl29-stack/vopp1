@@ -6,7 +6,7 @@ import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import {
   Mail, Inbox, SendHorizonal, PenSquare, Trash2, Settings, RefreshCw,
-  Paperclip, Plug, ChevronLeft, ChevronRight, CheckCircle2, X,
+  Paperclip, Plug, ChevronLeft, ChevronRight, CheckCircle2, X, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -79,9 +79,26 @@ export default function Mailbox() {
     setComposeOpen(true);
   };
   const addAttachment = (it) => {
-    setAttachments((a) => (a.some((x) => x.id === it.id) ? a : [...a, it]));
+    const patientName = patientOpts.find((p) => p.id === attachPatient)?.name;
+    setAttachments((a) => (a.some((x) => x.id === it.id) ? a : [...a, { ...it, patientName }]));
   };
   const removeAttachment = (id) => setAttachments((a) => a.filter((x) => x.id !== id));
+  const onFilePick = (e) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach((file) => {
+      if (file.size > 15 * 1024 * 1024) { toast.error(t("fileTooLarge")); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const b64 = String(reader.result).split(",")[1] || "";
+        setAttachments((a) => [...a, {
+          id: `local-${Date.now()}-${file.name}`, filename: file.name,
+          content_type: file.type, size: file.size, data_b64: b64, local: true,
+        }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
 
   const openMsg = async (uid) => {
     try {
@@ -110,7 +127,10 @@ export default function Mailbox() {
         to: compose.to.split(",").map((s) => s.trim()).filter(Boolean),
         cc: compose.cc.split(",").map((s) => s.trim()).filter(Boolean),
         subject: compose.subject, body_text: compose.body_text,
-        attachment_item_ids: attachments.map((a) => a.id),
+        attachment_item_ids: attachments.filter((a) => !a.local).map((a) => a.id),
+        inline_attachments: attachments.filter((a) => a.local).map((a) => ({
+          filename: a.filename, content_type: a.content_type, data_b64: a.data_b64,
+        })),
       });
       toast.success(t("mailSent"));
       setComposeOpen(false);
@@ -268,10 +288,10 @@ export default function Mailbox() {
           <Field label={t("subject")}><input value={compose.subject} onChange={setC("subject")} className={inputCls} data-testid="mail-subject" /></Field>
           <Field label={t("body")}><textarea rows={10} value={compose.body_text} onChange={setC("body_text")} className={inputCls} data-testid="mail-body" /></Field>
           <div className="border-t border-border pt-3">
-            <p className="text-xs font-semibold text-stone-500 mb-2 flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" />{t("attachFromPatient")}</p>
+            <p className="text-xs font-semibold text-stone-500 mb-2 flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" />{t("attachments")}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <select value={attachPatient} onChange={(e) => setAttachPatient(e.target.value)} className={inputCls} data-testid="mail-attach-patient">
-                <option value="">{t("selectPatient")}</option>
+                <option value="">{t("attachFromPatient")}</option>
                 {patientOpts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.item_count})</option>)}
               </select>
               <select value="" onChange={(e) => { const it = folderItems.find((f) => f.id === e.target.value); if (it) addAttachment(it); }}
@@ -280,11 +300,18 @@ export default function Mailbox() {
                 {folderItems.map((it) => <option key={it.id} value={it.id}>{it.label || it.filename}</option>)}
               </select>
             </div>
+            <label className="mt-2 inline-flex items-center gap-1.5 text-sm text-moneygreen-700 hover:text-moneygreen-800 cursor-pointer font-semibold" data-testid="mail-attach-file-label">
+              <Upload className="w-4 h-4" />{t("attachFromComputer")}
+              <input type="file" multiple className="hidden" onChange={onFilePick} data-testid="mail-attach-file" />
+            </label>
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2" data-testid="mail-attachments-list">
                 {attachments.map((a) => (
                   <span key={a.id} className="inline-flex items-center gap-1.5 text-xs bg-tan-50 border border-border rounded-lg pl-3 pr-1.5 py-1 text-moneygreen-800" data-testid={`mail-attach-chip-${a.id}`}>
-                    <Paperclip className="w-3 h-3" />{a.filename || a.label}
+                    <Paperclip className="w-3 h-3" />
+                    <span>{a.filename || a.label}
+                      <span className="text-stone-400">{a.local ? ` · ${t("fromComputer")}` : (a.patientName ? ` · ${a.patientName}` : "")}</span>
+                    </span>
                     <button type="button" onClick={() => removeAttachment(a.id)} className="text-stone-400 hover:text-red-600" data-testid={`mail-attach-remove-${a.id}`}><X className="w-3 h-3" /></button>
                   </span>
                 ))}
