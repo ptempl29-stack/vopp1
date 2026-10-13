@@ -849,7 +849,17 @@ async def _claim_response(claim_id: str) -> Optional[dict]:
     result = await _claim_with_invoice_summary(claim)
     result["validation"] = await _validate_packet(result)
     result["approval_blockers"] = await _approval_blockers(result)
+    result["ready_to_approve"] = await _ready_to_approve(result, result["approval_blockers"])
     return result
+
+
+async def _ready_to_approve(c: dict, blockers: list = None) -> bool:
+    if c.get("approved") or c.get("status") == "complete" or (c.get("validation") or {}).get("status") == "blocked":
+        return False
+    cats = {it.get("category") for it in c.get("items") or []}
+    if any(cat not in cats for cat, _ in APPROVAL_REQUIRED):
+        return False
+    return not (blockers if blockers is not None else await _approval_blockers(c))
 
 
 async def _build_packet_pdf(c) -> bytes:
@@ -1036,6 +1046,8 @@ async def _build_packet_pdf(c) -> bytes:
 async def list_claims(user: dict = Depends(require_roles("admin"))):
     packets = await db.claim_packets.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     packets = await _attach_validation_bulk(packets)
+    for p in packets:
+        p["ready_to_approve"] = await _ready_to_approve(p)
     await log_audit("view", "claim", actor=user, detail=f"list ({len(packets)})")
     return packets
 

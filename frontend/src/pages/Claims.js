@@ -430,7 +430,8 @@ export default function Claims() {
           </Card>
           <Card className="p-4">
             <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("packetStatus")}</p>
-            <div className="mt-1"><Badge tone={statusTone(selected.status)} data-testid="claim-status-badge">{statusLabel(selected)}</Badge></div>
+            <div className="mt-1 flex flex-wrap gap-2"><Badge tone={statusTone(selected.status)} data-testid="claim-status-badge">{statusLabel(selected)}</Badge>
+              {selected.ready_to_approve && <Badge tone="green" data-testid="claim-ready-badge"><CheckCircle2 className="w-3.5 h-3.5 inline -mt-0.5 mr-1" />{t("readyToApprove")}</Badge>}</div>
           </Card>
           <Card className="p-4 lg:col-span-3" data-testid="claim-required-docs-card">
             <p className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">{t("requiredDocuments")}</p>
@@ -725,7 +726,8 @@ export default function Claims() {
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{p.patient_name || "—"}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-500 font-mono text-xs">{fmtDate(p.claim_number) || "—"}</td>
                     <td className="px-5 py-3 text-stone-600">{(p.items || []).length}</td>
-                    <td className="px-5 py-3"><Badge tone={statusTone(p.status)}>{statusLabel(p)}</Badge></td>
+                    <td className="px-5 py-3"><div className="flex flex-wrap gap-1.5"><Badge tone={statusTone(p.status)}>{statusLabel(p)}</Badge>
+                      {p.ready_to_approve && <Badge tone="green" data-testid={`claim-ready-badge-${p.id}`}><CheckCircle2 className="w-3.5 h-3.5 inline -mt-0.5 mr-1" />{t("readyToApprove")}</Badge>}</div></td>
                     <td className="px-5 py-3 hidden sm:table-cell"><ValChip v={p.validation} t={t} /></td>
                     <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">

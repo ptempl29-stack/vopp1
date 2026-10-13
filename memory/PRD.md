@@ -51,3 +51,4 @@ usvopp@yahoo.com / Football2023? (display name "CEO"). SEED_DEMO_USERS=false.
 - Backend claims.py: cover_sheet added to APPROVAL_REQUIRED (6 docs); POST /claims/{cid}/upload category=cover_sheet replaces existing cover, position 1, refused on approved/submitted packets; _cover_first used in merge + items-order; auto summary page removed for non-frozen packets (legacy approved/submitted/complete keep historical output); >1 cover = blocker.
 - Tests: backend/tests/test_cover_sheet_upload.py 10/10, disability 8/8, iteration_46 frontend 8/8.
 - fmp.py "Generate FMP Packet" template date-stamp flow unchanged.
+- 2026-06: Added "Ready to approve" badge (list + detail; ready_to_approve flag from claims.py _ready_to_approve). Deploy of cover sheet + badge authorized and queued.
