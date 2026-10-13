@@ -45,3 +45,9 @@ usvopp@yahoo.com / Football2023? (display name "CEO"). SEED_DEMO_USERS=false.
 - Fix in backend/routers/claims.py: _disability_letter_candidates (forms + folder category/description/label + expanded ES/EN keywords, patient-scoped, dedup); attaches only when exactly 1; >1 => approval blocker for staff review; warning log when not attached.
 - Test: backend/tests/test_disability_letter_match.py (8/8 pass) + E2E from-date in Preview with ZZTEST data.
 - Awaiting user authorization to deploy.
+
+## 2026-06 FMP Cover Sheet upload (PREVIEW ONLY, not deployed)
+- Cover row stays at top; "generated automatically" removed; Upload/Replace/View/Remove on the row (Claims.js, i18n.js).
+- Backend claims.py: cover_sheet added to APPROVAL_REQUIRED (6 docs); POST /claims/{cid}/upload category=cover_sheet replaces existing cover, position 1, refused on approved/submitted packets; _cover_first used in merge + items-order; auto summary page removed for non-frozen packets (legacy approved/submitted/complete keep historical output); >1 cover = blocker.
+- Tests: backend/tests/test_cover_sheet_upload.py 10/10, disability 8/8, iteration_46 frontend 8/8.
+- fmp.py "Generate FMP Packet" template date-stamp flow unchanged.
