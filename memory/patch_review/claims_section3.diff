@@ -1,0 +1,158 @@
+@@ -609,6 +817,24 @@ async def attachable_patients(user: dict = Depends(require_roles("admin"))):
+     return [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}"} for p in pts]
+ 
+ 
++@router.get("/claims/options/patients-by-date")
++async def patients_with_completed_visit_on_date(date: str, user: dict = Depends(require_roles("admin"))):
++    """For the Bill From Date flow: list patients with a COMPLETED visit on the
++    given date, so staff pick the date first and then the patient. Cancelled
++    (and any non-completed) appointments are excluded; this app has no
++    separate no-show status today."""
++    d = date[:10]
++    appts = await db.appointments.find(
++        {"status": "completed"}, {"_id": 0, "patient_id": 1, "date": 1}).to_list(5000)
++    patient_ids = {a["patient_id"] for a in appts if _same_day(a.get("date"), d)}
++    if not patient_ids:
++        return []
++    pts = await db.patients.find(
++        {"id": {"$in": list(patient_ids)}}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).to_list(1000)
++    pts.sort(key=lambda p: (p["first_name"].lower(), p["last_name"].lower()))
++    return [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}"} for p in pts]
++
++
+ @router.post("/claims/{cid}/attach-invoice")
+ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
+     c = await db.claim_packets.find_one({"id": cid})
+@@ -617,9 +843,9 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
+     inv = await db.invoices.find_one({"id": payload.get("invoice_id")}, {"_id": 0})
+     if not inv:
+         raise HTTPException(status_code=404, detail="Invoice not found")
+-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
++    settings_doc = await get_settings_doc()
+     try:
+-        pdf_bytes = _invoice_pdf(inv, clinic)
++        pdf_bytes = _invoice_pdf(inv, settings_doc)
+     except Exception as e:
+         logger.error(f"invoice pdf failed: {e}")
+         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
+@@ -635,6 +861,8 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
+             "size": result.get("size")}
+     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach invoice {inv.get('invoice_number')}")
++    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
++    await _sync_credentials_and_checklist(c)
+     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+ 
+ 
+@@ -669,6 +897,8 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
+             "size": result.get("size")}
+     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach note {fname}")
++    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
++    await _sync_credentials_and_checklist(c)
+     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+ 
+ 
+@@ -697,14 +927,68 @@ async def download_item(cid: str, item_id: str, user: dict = Depends(require_rol
+         headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Content-Type-Options": "nosniff"})
+ 
+ 
++@router.get("/claims/{cid}/checklist")
++async def claim_checklist(cid: str, user: dict = Depends(require_roles("admin"))):
++    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
++    if not c:
++        raise HTTPException(status_code=404, detail="Claim packet not found")
++    _items, checklist, warnings = await _sync_credentials_and_checklist(c)
++    return {"checklist": checklist, "warnings": warnings}
++
++
++async def _auto_file_packet_to_folder(c: dict, pdf: bytes, user: dict):
++    """Whenever a completed FMP claim packet is generated, file a copy into
++    the correct patient's folder, under a 'Full Name – Date of Service'
++    subfolder (reusing it if it already exists — never duplicating), without
++    ever overwriting an earlier version. Never raises: a filing failure must
++    never break the actual download the user is waiting on."""
++    try:
++        pid = c.get("patient_id")
++        dos = (c.get("claim_number") or "").strip()
++        if not pid or not dos:
++            logger.error(f"packet auto-file skipped for {c.get('id')}: missing patient_id or date of service")
++            return
++        p = await db.patients.find_one({"id": pid}, {"_id": 0, "first_name": 1, "last_name": 1})
++        if not p:
++            logger.error(f"packet auto-file skipped for {c.get('id')}: patient {pid} not found")
++            return
++        folder_name = f"{p['first_name']} {p['last_name']} – {dos}"[:80]
++        sf = await db.folder_subfolders.find_one({"patient_id": pid, "name": folder_name}, {"_id": 0})
++        if not sf:
++            sf = {"id": str(uuid.uuid4()), "patient_id": pid, "name": folder_name,
++                  "created_at": now_iso(), "created_by": user["name"], "created_by_id": user["id"]}
++            await db.folder_subfolders.insert_one(dict(sf))
++        version = await db.folder_items.count_documents(
++            {"patient_id": pid, "subfolder_id": sf["id"], "claim_packet_id": c["id"]}) + 1
++        path = f"{APP_NAME}/folders/{pid}/{uuid.uuid4()}.pdf"
++        result = put_object(path, pdf, "application/pdf")
++        item = {"id": str(uuid.uuid4()), "patient_id": pid, "subfolder_id": sf["id"],
++                "source": "claim_packet", "claim_packet_id": c["id"], "form_id": None,
++                "storage_path": result["path"], "filename": f"FMP_Claim_Packet_{dos}_v{version}.pdf",
++                "label": f"FMP Claim Packet ({dos}) v{version}"[:120], "content_type": "application/pdf",
++                "size": result.get("size"), "created_at": now_iso(),
++                "created_by": user["name"], "created_by_id": user["id"]}
++        await db.folder_items.insert_one(item)
++        await log_audit("create", "folder", actor=user, resource_id=pid,
++                        detail=f"auto-filed FMP packet v{version} into '{folder_name}'")
++    except Exception as e:
++        logger.error(f"packet auto-file failed for {c.get('id')}: {e}")
++
++
+ @router.get("/claims/{cid}/merged")
+ async def merged_pdf(cid: str, user: dict = Depends(require_roles("admin"))):
++    """Preview/download the combined packet. This is a READ-ONLY preview: it
++    never changes the claim's status and never files a version into the
++    patient's folder — that only happens on an explicit save (claim_to_folder
++    below, or the FMP builder's 'Approve Packet' action). A packet can be
++    previewed any number of times without creating duplicate saved versions."""
+     c = await db.claim_packets.find_one({"id": cid})
+     if not c:
+         raise HTTPException(status_code=404, detail="Claim packet not found")
++    items, _checklist, _warnings = await _sync_credentials_and_checklist(c)
++    c = {**c, "items": items}
+     pdf = await _build_packet_pdf(c)
+-    await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
+-    await log_audit("update", "claim", actor=user, resource_id=cid, detail="merged PDF · marked complete")
++    await log_audit("view", "claim", actor=user, resource_id=cid, detail="previewed merged PDF")
+     fname = (c.get("name") or "claim_packet").replace('"', "").replace(" ", "_")[:60]
+     return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
+         headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'})
+@@ -822,8 +1106,11 @@ async def send_packet_email(cid: str, data: SendPacket, user: dict = Depends(req
+ 
+ @router.post("/claims/{cid}/to-folder")
+ async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))):
+-    from datetime import datetime, timezone
+-    from core.folder_filing import file_pdf_into_folder
++    """Explicitly SAVE the packet: builds the current combined PDF, marks the
++    claim complete, and files a new version into the patient's
++    'Full Name – Date of Service' folder (never overwriting a prior save).
++    This is the one place a packet actually gets filed — previewing/
++    downloading via GET /claims/{cid}/merged never does."""
+     c = await db.claim_packets.find_one({"id": cid})
+     if not c:
+         raise HTTPException(status_code=404, detail="Claim packet not found")
+@@ -833,12 +1120,10 @@ async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))
+     p = await db.patients.find_one({"id": pid}, {"_id": 0})
+     if not p:
+         raise HTTPException(status_code=404, detail="Patient not found")
++    items, _checklist, _warnings = await _sync_credentials_and_checklist(c)
++    c = {**c, "items": items}
+     pdf = await _build_packet_pdf(c)
+-    ds = datetime.now(timezone.utc).strftime("%m-%d-%Y")
+-    name = (c.get("name") or "Claim Packet")[:40]
+-    item = await file_pdf_into_folder(pid, p["first_name"], pdf,
+-                                      f"{name} {ds}", f"Claim_Packet_{ds}.pdf", user)
+-    if not item:
+-        raise HTTPException(status_code=502, detail="Could not file PDF")
+-    await log_audit("create", "folder", actor=user, resource_id=pid, detail=f"auto-filed claim {cid}")
++    await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
++    await log_audit("update", "claim", actor=user, resource_id=cid, detail="packet saved · marked complete")
++    await _auto_file_packet_to_folder(c, pdf, user)
+     return {"ok": True, "patient_name": f"{p['first_name']} {p['last_name']}"}

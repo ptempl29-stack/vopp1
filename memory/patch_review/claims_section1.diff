@@ -1,0 +1,199 @@
+diff --git a/backend/routers/claims.py b/backend/routers/claims.py
+index 5869208..1bbd32b 100644
+--- a/backend/routers/claims.py
++++ b/backend/routers/claims.py
+@@ -17,48 +17,159 @@
+ router = APIRouter()
+ 
+ 
+-def _invoice_pdf(inv: dict, clinic: str) -> bytes:
++def _invoice_pdf(inv: dict, settings: dict) -> bytes:
++    """Render an invoice exactly as it appears in the saved-invoice view:
++    same letterhead/logo, same patient & invoice info, same 6-column items
++    table (CPT, Description, Units, Minutes, Unit Price, Fee), same total."""
++    import base64
++    from io import BytesIO
+     from core.folder_filing import disp_date
++
++    settings = settings or {}
++    clinic = settings.get("clinic_name") or "Veterans of Puerto Plata"
++    GREEN = (25, 90, 60)
++    GREY = (105, 105, 105)
++
+     pdf = new_pdf()
+-    pdf.set_font(FONT, "B", 18)
+-    pdf.cell(0, 12, (clinic or "")[:60], ln=True)
++    content_w = pdf.w - pdf.l_margin - pdf.r_margin
++
++    # ---------------- Letterhead (logo + clinic info) ----------------
++    logo = settings.get("logo") or ""
++    text_x = pdf.l_margin
++    y0 = pdf.get_y()
++    if logo.startswith("data:image"):
++        try:
++            img = BytesIO(base64.b64decode(logo.split(",", 1)[1]))
++            pdf.image(img, x=pdf.l_margin, y=y0, w=16, h=16)
++            text_x = pdf.l_margin + 20
++        except Exception as e:
++            logger.error(f"invoice pdf logo render failed: {e}")
++            text_x = pdf.l_margin
++    pdf.set_xy(text_x, y0)
++    pdf.set_font(FONT, "B", 16)
++    pdf.cell(content_w - (text_x - pdf.l_margin), 7, clinic[:70], ln=True)
++    if settings.get("tagline"):
++        pdf.set_x(text_x)
++        pdf.set_font(FONT, "", 9)
++        pdf.set_text_color(*GREY)
++        pdf.cell(0, 5, settings["tagline"][:100], ln=True)
++    contact = [v for v in [
++        settings.get("address"), settings.get("phone"),
++        f"WhatsApp: {settings['whatsapp']}" if settings.get("whatsapp") else "",
++        settings.get("email")] if v]
++    if contact:
++        pdf.set_x(text_x)
++        pdf.set_font(FONT, "", 8)
++        pdf.set_text_color(*GREY)
++        pdf.cell(0, 5, "   |   ".join(contact)[:160], ln=True)
++    extra = [v for v in [
++        f"Mailing Address: {settings['mailing_address']}" if settings.get("mailing_address") else "",
++        f"Primary Insurance: {settings['primary_insurance']}" if settings.get("primary_insurance") else ""] if v]
++    if extra:
++        pdf.set_x(text_x)
++        pdf.cell(0, 5, "   |   ".join(extra)[:160], ln=True)
++    pdf.set_text_color(0, 0, 0)
++    pdf.set_y(max(pdf.get_y(), y0 + 18) + 2)
++    pdf.set_draw_color(*GREEN)
++    pdf.set_line_width(0.5)
++    pdf.line(pdf.l_margin, pdf.get_y(), pdf.l_margin + content_w, pdf.get_y())
++    pdf.ln(5)
++
++    # ---------------- Invoice # / service date ----------------
+     pdf.set_font(FONT, "B", 13)
+-    pdf.cell(0, 9, f"Invoice {inv.get('invoice_number', '')}", ln=True)
+-    pdf.ln(2)
+-    pdf.set_font(FONT, "", 11)
+-
+-    def row(label, val):
+-        if val:
+-            pdf.cell(45, 7, label, border=0)
+-            pdf.cell(0, 7, str(val), ln=True)
+-
+-    row("Patient:", inv.get("patient_name"))
+-    row("DOB:", disp_date(inv.get("dob")) if inv.get("dob") else "")
+-    row("Service Date:", disp_date(inv.get("service_date")) if inv.get("service_date") else "")
+-    row("Provider:", inv.get("provider"))
+-    row("Visit Reason:", inv.get("visit_reason"))
+-    row("ICD-10:", inv.get("icd10"))
+-    row("Status:", inv.get("status"))
++    pdf.cell(0, 8, f"Invoice {inv.get('invoice_number', '')}", ln=True)
++    pdf.set_font(FONT, "", 9)
++    pdf.set_text_color(*GREY)
++    pdf.cell(0, 5, disp_date(inv.get("service_date")) if inv.get("service_date") else "", ln=True)
++    pdf.set_text_color(0, 0, 0)
+     pdf.ln(3)
+-    pdf.set_font(FONT, "B", 10)
+-    pdf.cell(28, 8, "CPT", border=1)
+-    pdf.cell(90, 8, "Description", border=1)
+-    pdf.cell(20, 8, "Qty", border=1, align="R")
+-    pdf.cell(0, 8, "Amount", border=1, ln=True, align="R")
+-    pdf.set_font(FONT, "", 10)
++
++    # ---------------- Patient Information / Invoice Information ----------------
++    col_gap = 8
++    col_w = (content_w - col_gap) / 2
++    left_x = pdf.l_margin
++    right_x = pdf.l_margin + col_w + col_gap
++    top_y = pdf.get_y()
++
++    def info_block(x, title, rows):
++        pdf.set_xy(x, top_y)
++        pdf.set_font(FONT, "B", 8.5)
++        pdf.set_text_color(*GREEN)
++        pdf.cell(col_w, 5, title.upper(), ln=True)
++        pdf.set_draw_color(*GREEN)
++        pdf.line(x, pdf.get_y(), x + col_w, pdf.get_y())
++        pdf.ln(1.5)
++        for label, val in rows:
++            pdf.set_x(x)
++            pdf.set_font(FONT, "B", 8)
++            pdf.set_text_color(*GREY)
++            pdf.cell(28, 5.5, label)
++            pdf.set_font(FONT, "", 8.5)
++            pdf.set_text_color(0, 0, 0)
++            pdf.cell(col_w - 28, 5.5, str(val or "-")[:60], ln=True)
++        return pdf.get_y()
++
++    left_rows = [
++        ("Full Name", inv.get("patient_name")),
++        ("DOB", disp_date(inv.get("dob")) if inv.get("dob") else ""),
++        ("SSN", inv.get("ssn")),
++        ("Gender", inv.get("gender")),
++        ("Policy No.", inv.get("policy_number")),
++    ]
++    right_rows = [
++        ("Invoice No.", inv.get("invoice_number")),
++        ("Service Date", disp_date(inv.get("service_date")) if inv.get("service_date") else ""),
++        ("Completed", disp_date(inv.get("completed_at")) if inv.get("completed_at") else ""),
++        ("Status", (inv.get("status") or "").replace("_", " ").title()),
++        ("Visit Reason", inv.get("visit_reason")),
++        ("ICD-10-CM", inv.get("icd10")),
++        ("Provider", inv.get("provider")),
++    ]
++    y_left = info_block(left_x, "Patient Information", left_rows)
++    y_right = info_block(right_x, "Invoice Information", right_rows)
++    pdf.set_text_color(0, 0, 0)
++    pdf.set_y(max(y_left, y_right) + 3)
++
++    # ---------------- Items table: CPT | Description | Units | Minutes | Unit Price | Fee ----------------
++    cpt_w, desc_w, units_w, min_w, price_w = 22, 58, 18, 20, 28
++    fee_w = content_w - (cpt_w + desc_w + units_w + min_w + price_w)
++
++    pdf.set_font(FONT, "B", 8.5)
++    pdf.set_fill_color(*GREEN)
++    pdf.set_text_color(255, 255, 255)
++    pdf.cell(cpt_w, 7, "CPT", border=1, fill=True)
++    pdf.cell(desc_w, 7, "Description", border=1, fill=True)
++    pdf.cell(units_w, 7, "Units", border=1, align="R", fill=True)
++    pdf.cell(min_w, 7, "Minutes", border=1, align="R", fill=True)
++    pdf.cell(price_w, 7, "Unit Price", border=1, align="R", fill=True)
++    pdf.cell(fee_w, 7, "Fee", border=1, align="R", ln=True, fill=True)
++    pdf.set_text_color(0, 0, 0)
++    pdf.set_font(FONT, "", 8.5)
+     for it in inv.get("items", []):
+-        qty = it.get("quantity", 1)
+-        pdf.cell(28, 8, str(it.get("cpt_code", ""))[:12], border=1)
+-        pdf.cell(90, 8, str(it.get("description", ""))[:55], border=1)
+-        pdf.cell(20, 8, str(qty), border=1, align="R")
+-        pdf.cell(0, 8, f"${it.get('amount', 0) * qty:.2f}", border=1, ln=True, align="R")
+-    pdf.set_font(FONT, "B", 11)
+-    pdf.cell(138, 9, "Total", border=1)
+-    pdf.cell(0, 9, f"${inv.get('total', 0):.2f}", border=1, ln=True, align="R")
++        qty = it.get("quantity", 1) or 0
++        unit_price = it.get("amount", 0) or 0
++        fee = unit_price * qty
++        pdf.cell(cpt_w, 7, str(it.get("cpt_code", ""))[:12], border=1)
++        pdf.cell(desc_w, 7, str(it.get("description", ""))[:46], border=1)
++        pdf.cell(units_w, 7, str(qty), border=1, align="R")
++        pdf.cell(min_w, 7, str(qty * 15), border=1, align="R")
++        pdf.cell(price_w, 7, f"${unit_price:.2f}", border=1, align="R")
++        pdf.cell(fee_w, 7, f"${fee:.2f}", border=1, align="R", ln=True)
++
++    # ---------------- Total (unchanged: stored invoice total, not recomputed) ----------------
++    pdf.ln(4)
++    pdf.set_font(FONT, "B", 9)
++    pdf.cell(content_w - 45, 8, "TOTAL", align="R")
++    pdf.set_font(FONT, "B", 15)
++    pdf.set_text_color(*GREEN)
++    pdf.cell(45, 8, f"${inv.get('total', 0):.2f}", align="R", ln=True)
++    pdf.set_text_color(0, 0, 0)
++
+     if inv.get("notes"):
+         pdf.ln(3)
+-        pdf.set_font(FONT, "", 10)
+-        pdf.multi_cell(0, 6, f"Notes: {inv['notes']}")
++        pdf.set_font(FONT, "", 9)
++        pdf.multi_cell(0, 5.5, f"Notes: {inv['notes']}")
++
+     return pdf_bytes(pdf)
+ 
+ CLAIM_STATUSES = {"draft", "submitted", "complete"}

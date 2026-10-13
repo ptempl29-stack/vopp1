@@ -1,0 +1,2812 @@
+diff --git a/backend/models/schemas.py b/backend/models/schemas.py
+index bc12fae..e724701 100644
+--- a/backend/models/schemas.py
++++ b/backend/models/schemas.py
+@@ -119,6 +119,7 @@ class MessageInput(BaseModel):
+ 
+ class FormInput(BaseModel):
+     patient_id: Optional[str] = None
++    provider_id: Optional[str] = None
+     title: str
+     form_type: str
+     fields: Optional[dict] = None
+diff --git a/backend/routers/appointments.py b/backend/routers/appointments.py
+index 42d8b6f..f92b0e0 100644
+--- a/backend/routers/appointments.py
++++ b/backend/routers/appointments.py
+@@ -22,7 +22,7 @@ async def list_appointments(patient_id: Optional[str] = None, appointment_type:
+         q["appointment_type"] = appointment_type
+     if provider:
+         q["provider"] = provider
+-    appts = await db.appointments.find(q, {"_id": 0}).sort("date", 1).to_list(500)
++    appts = await db.appointments.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+     patients = {p["id"]: f"{p['first_name']} {p['last_name']}"
+                 async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).limit(5000)}
+     for a in appts:
+diff --git a/backend/routers/claims.py b/backend/routers/claims.py
+index 5869208..1bbd32b 100644
+--- a/backend/routers/claims.py
++++ b/backend/routers/claims.py
+@@ -17,48 +17,159 @@
+ router = APIRouter()
+ 
+ 
+-def _invoice_pdf(inv: dict, clinic: str) -> bytes:
++def _invoice_pdf(inv: dict, settings: dict) -> bytes:
++    """Render an invoice exactly as it appears in the saved-invoice view:
++    same letterhead/logo, same patient & invoice info, same 6-column items
++    table (CPT, Description, Units, Minutes, Unit Price, Fee), same total."""
++    import base64
++    from io import BytesIO
+     from core.folder_filing import disp_date
++
++    settings = settings or {}
++    clinic = settings.get("clinic_name") or "Veterans of Puerto Plata"
++    GREEN = (25, 90, 60)
++    GREY = (105, 105, 105)
++
+     pdf = new_pdf()
+-    pdf.set_font(FONT, "B", 18)
+-    pdf.cell(0, 12, (clinic or "")[:60], ln=True)
++    content_w = pdf.w - pdf.l_margin - pdf.r_margin
++
++    # ---------------- Letterhead (logo + clinic info) ----------------
++    logo = settings.get("logo") or ""
++    text_x = pdf.l_margin
++    y0 = pdf.get_y()
++    if logo.startswith("data:image"):
++        try:
++            img = BytesIO(base64.b64decode(logo.split(",", 1)[1]))
++            pdf.image(img, x=pdf.l_margin, y=y0, w=16, h=16)
++            text_x = pdf.l_margin + 20
++        except Exception as e:
++            logger.error(f"invoice pdf logo render failed: {e}")
++            text_x = pdf.l_margin
++    pdf.set_xy(text_x, y0)
++    pdf.set_font(FONT, "B", 16)
++    pdf.cell(content_w - (text_x - pdf.l_margin), 7, clinic[:70], ln=True)
++    if settings.get("tagline"):
++        pdf.set_x(text_x)
++        pdf.set_font(FONT, "", 9)
++        pdf.set_text_color(*GREY)
++        pdf.cell(0, 5, settings["tagline"][:100], ln=True)
++    contact = [v for v in [
++        settings.get("address"), settings.get("phone"),
++        f"WhatsApp: {settings['whatsapp']}" if settings.get("whatsapp") else "",
++        settings.get("email")] if v]
++    if contact:
++        pdf.set_x(text_x)
++        pdf.set_font(FONT, "", 8)
++        pdf.set_text_color(*GREY)
++        pdf.cell(0, 5, "   |   ".join(contact)[:160], ln=True)
++    extra = [v for v in [
++        f"Mailing Address: {settings['mailing_address']}" if settings.get("mailing_address") else "",
++        f"Primary Insurance: {settings['primary_insurance']}" if settings.get("primary_insurance") else ""] if v]
++    if extra:
++        pdf.set_x(text_x)
++        pdf.cell(0, 5, "   |   ".join(extra)[:160], ln=True)
++    pdf.set_text_color(0, 0, 0)
++    pdf.set_y(max(pdf.get_y(), y0 + 18) + 2)
++    pdf.set_draw_color(*GREEN)
++    pdf.set_line_width(0.5)
++    pdf.line(pdf.l_margin, pdf.get_y(), pdf.l_margin + content_w, pdf.get_y())
++    pdf.ln(5)
++
++    # ---------------- Invoice # / service date ----------------
+     pdf.set_font(FONT, "B", 13)
+-    pdf.cell(0, 9, f"Invoice {inv.get('invoice_number', '')}", ln=True)
+-    pdf.ln(2)
+-    pdf.set_font(FONT, "", 11)
+-
+-    def row(label, val):
+-        if val:
+-            pdf.cell(45, 7, label, border=0)
+-            pdf.cell(0, 7, str(val), ln=True)
+-
+-    row("Patient:", inv.get("patient_name"))
+-    row("DOB:", disp_date(inv.get("dob")) if inv.get("dob") else "")
+-    row("Service Date:", disp_date(inv.get("service_date")) if inv.get("service_date") else "")
+-    row("Provider:", inv.get("provider"))
+-    row("Visit Reason:", inv.get("visit_reason"))
+-    row("ICD-10:", inv.get("icd10"))
+-    row("Status:", inv.get("status"))
++    pdf.cell(0, 8, f"Invoice {inv.get('invoice_number', '')}", ln=True)
++    pdf.set_font(FONT, "", 9)
++    pdf.set_text_color(*GREY)
++    pdf.cell(0, 5, disp_date(inv.get("service_date")) if inv.get("service_date") else "", ln=True)
++    pdf.set_text_color(0, 0, 0)
+     pdf.ln(3)
+-    pdf.set_font(FONT, "B", 10)
+-    pdf.cell(28, 8, "CPT", border=1)
+-    pdf.cell(90, 8, "Description", border=1)
+-    pdf.cell(20, 8, "Qty", border=1, align="R")
+-    pdf.cell(0, 8, "Amount", border=1, ln=True, align="R")
+-    pdf.set_font(FONT, "", 10)
++
++    # ---------------- Patient Information / Invoice Information ----------------
++    col_gap = 8
++    col_w = (content_w - col_gap) / 2
++    left_x = pdf.l_margin
++    right_x = pdf.l_margin + col_w + col_gap
++    top_y = pdf.get_y()
++
++    def info_block(x, title, rows):
++        pdf.set_xy(x, top_y)
++        pdf.set_font(FONT, "B", 8.5)
++        pdf.set_text_color(*GREEN)
++        pdf.cell(col_w, 5, title.upper(), ln=True)
++        pdf.set_draw_color(*GREEN)
++        pdf.line(x, pdf.get_y(), x + col_w, pdf.get_y())
++        pdf.ln(1.5)
++        for label, val in rows:
++            pdf.set_x(x)
++            pdf.set_font(FONT, "B", 8)
++            pdf.set_text_color(*GREY)
++            pdf.cell(28, 5.5, label)
++            pdf.set_font(FONT, "", 8.5)
++            pdf.set_text_color(0, 0, 0)
++            pdf.cell(col_w - 28, 5.5, str(val or "-")[:60], ln=True)
++        return pdf.get_y()
++
++    left_rows = [
++        ("Full Name", inv.get("patient_name")),
++        ("DOB", disp_date(inv.get("dob")) if inv.get("dob") else ""),
++        ("SSN", inv.get("ssn")),
++        ("Gender", inv.get("gender")),
++        ("Policy No.", inv.get("policy_number")),
++    ]
++    right_rows = [
++        ("Invoice No.", inv.get("invoice_number")),
++        ("Service Date", disp_date(inv.get("service_date")) if inv.get("service_date") else ""),
++        ("Completed", disp_date(inv.get("completed_at")) if inv.get("completed_at") else ""),
++        ("Status", (inv.get("status") or "").replace("_", " ").title()),
++        ("Visit Reason", inv.get("visit_reason")),
++        ("ICD-10-CM", inv.get("icd10")),
++        ("Provider", inv.get("provider")),
++    ]
++    y_left = info_block(left_x, "Patient Information", left_rows)
++    y_right = info_block(right_x, "Invoice Information", right_rows)
++    pdf.set_text_color(0, 0, 0)
++    pdf.set_y(max(y_left, y_right) + 3)
++
++    # ---------------- Items table: CPT | Description | Units | Minutes | Unit Price | Fee ----------------
++    cpt_w, desc_w, units_w, min_w, price_w = 22, 58, 18, 20, 28
++    fee_w = content_w - (cpt_w + desc_w + units_w + min_w + price_w)
++
++    pdf.set_font(FONT, "B", 8.5)
++    pdf.set_fill_color(*GREEN)
++    pdf.set_text_color(255, 255, 255)
++    pdf.cell(cpt_w, 7, "CPT", border=1, fill=True)
++    pdf.cell(desc_w, 7, "Description", border=1, fill=True)
++    pdf.cell(units_w, 7, "Units", border=1, align="R", fill=True)
++    pdf.cell(min_w, 7, "Minutes", border=1, align="R", fill=True)
++    pdf.cell(price_w, 7, "Unit Price", border=1, align="R", fill=True)
++    pdf.cell(fee_w, 7, "Fee", border=1, align="R", ln=True, fill=True)
++    pdf.set_text_color(0, 0, 0)
++    pdf.set_font(FONT, "", 8.5)
+     for it in inv.get("items", []):
+-        qty = it.get("quantity", 1)
+-        pdf.cell(28, 8, str(it.get("cpt_code", ""))[:12], border=1)
+-        pdf.cell(90, 8, str(it.get("description", ""))[:55], border=1)
+-        pdf.cell(20, 8, str(qty), border=1, align="R")
+-        pdf.cell(0, 8, f"${it.get('amount', 0) * qty:.2f}", border=1, ln=True, align="R")
+-    pdf.set_font(FONT, "B", 11)
+-    pdf.cell(138, 9, "Total", border=1)
+-    pdf.cell(0, 9, f"${inv.get('total', 0):.2f}", border=1, ln=True, align="R")
++        qty = it.get("quantity", 1) or 0
++        unit_price = it.get("amount", 0) or 0
++        fee = unit_price * qty
++        pdf.cell(cpt_w, 7, str(it.get("cpt_code", ""))[:12], border=1)
++        pdf.cell(desc_w, 7, str(it.get("description", ""))[:46], border=1)
++        pdf.cell(units_w, 7, str(qty), border=1, align="R")
++        pdf.cell(min_w, 7, str(qty * 15), border=1, align="R")
++        pdf.cell(price_w, 7, f"${unit_price:.2f}", border=1, align="R")
++        pdf.cell(fee_w, 7, f"${fee:.2f}", border=1, align="R", ln=True)
++
++    # ---------------- Total (unchanged: stored invoice total, not recomputed) ----------------
++    pdf.ln(4)
++    pdf.set_font(FONT, "B", 9)
++    pdf.cell(content_w - 45, 8, "TOTAL", align="R")
++    pdf.set_font(FONT, "B", 15)
++    pdf.set_text_color(*GREEN)
++    pdf.cell(45, 8, f"${inv.get('total', 0):.2f}", align="R", ln=True)
++    pdf.set_text_color(0, 0, 0)
++
+     if inv.get("notes"):
+         pdf.ln(3)
+-        pdf.set_font(FONT, "", 10)
+-        pdf.multi_cell(0, 6, f"Notes: {inv['notes']}")
++        pdf.set_font(FONT, "", 9)
++        pdf.multi_cell(0, 5.5, f"Notes: {inv['notes']}")
++
+     return pdf_bytes(pdf)
+ 
+ CLAIM_STATUSES = {"draft", "submitted", "complete"}
+@@ -110,7 +221,7 @@ async def _auto_attach_credentials(items: list, patient_id: str, provider_name:
+     if patient_id and "va_disability_letter" not in have:
+         docs = await db.folder_items.find({"patient_id": patient_id}, {"_id": 0}) \
+             .sort("created_at", -1).to_list(200)
+-        match = next((d for d in docs if _guess_category(d.get("filename") or d.get("label") or "") == "va_disability_letter"), None)
++        match = next((d for d in docs if (d.get("category") or _guess_category(d.get("filename") or d.get("label") or "")) == "va_disability_letter"), None)
+         if match:
+             items.append({"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
+                          "storage_path": match["storage_path"],
+@@ -120,6 +231,109 @@ async def _auto_attach_credentials(items: list, patient_id: str, provider_name:
+     return items
+ 
+ 
++def _packet_categories(items: list) -> set:
++    """Checklist categories satisfied by the current item list. 'invoice' and
++    'progress_note' are inferred from an item's source (attach-invoice /
++    attach-note items don't carry an explicit category); everything else
++    (uploads, auto-attached credentials/disability letter) uses its own
++    'category' field."""
++    return {_item_category(it) for it in items if _item_category(it)}
++
++
++async def _derive_provider_name(items: list) -> Optional[str]:
++    """Same priority as the from-date bulk flow: attending provider on an
++    attached note first, then the provider on an attached invoice."""
++    for it in items:
++        if it.get("source") == "note" and it.get("note_id"):
++            n = await db.notes.find_one({"id": it["note_id"]}, {"_id": 0, "attending_provider": 1})
++            if n and n.get("attending_provider"):
++                return n["attending_provider"]
++    for it in items:
++        if it.get("source") == "invoice" and it.get("invoice_id"):
++            inv = await db.invoices.find_one({"id": it["invoice_id"]}, {"_id": 0, "attending_provider": 1, "provider": 1})
++            if inv and (inv.get("attending_provider") or inv.get("provider")):
++                return inv.get("attending_provider") or inv.get("provider")
++    return None
++
++
++async def _credential_warnings(patient_id: Optional[str], provider_name: Optional[str], cats: set) -> list:
++    """Plain-language warnings for FMP-required documents still missing or
++    unmatched after auto-attach: the veteran's VA disability letter, and the
++    assigned provider's diploma/exequatur. `cats` is the packet's current
++    checklist-category set (after auto-attach has already run)."""
++    warnings = []
++    if not patient_id:
++        warnings.append("No patient linked to this claim — the VA disability letter can't be looked up.")
++    elif "va_disability_letter" not in cats:
++        warnings.append("VA Disability Verification Letter not found in the patient's documents.")
++    if not provider_name:
++        warnings.append("No provider could be determined for this claim — "
++                        "provider diploma/exequatur can't be auto-attached yet.")
++    else:
++        prov = await db.users.find_one({"name": provider_name}, {"_id": 0, "diploma_doc": 1, "exequatur_doc": 1})
++        if prov is None:
++            warnings.append(f"No staff account matches provider name \"{provider_name}\" exactly — "
++                            "credentials could not be matched (check for a typo or name mismatch).")
++        else:
++            if "provider_diploma" not in cats:
++                warnings.append(f"No diploma on file for {provider_name}.")
++            if "provider_exequatur" not in cats:
++                warnings.append(f"No exequatur on file for {provider_name}.")
++    return warnings
++
++
++# Fixed order the merged packet's documents are assembled in, after the
++# auto-generated summary + checklist pages. Anything not in this list (e.g.
++# an extra manually-attached file) keeps its original relative position at
++# the end, so nothing is ever silently dropped from the merge.
++_MERGE_ORDER = ["cover_sheet", "va_disability_letter", "invoice", "progress_note",
++                "provider_exequatur", "provider_diploma"]
++
++
++def _item_category(item: dict) -> str:
++    cat = item.get("category")
++    if cat:
++        return cat
++    if item.get("source") == "invoice":
++        return "invoice"
++    if item.get("source") == "note":
++        return "progress_note"
++    return ""
++
++
++def _sorted_for_merge(items: list) -> list:
++    def key(item):
++        cat = _item_category(item)
++        try:
++            return _MERGE_ORDER.index(cat)
++        except ValueError:
++            return len(_MERGE_ORDER)
++    return sorted(items, key=key)  # stable: ties keep their original relative order
++
++
++async def _sync_credentials_and_checklist(c: dict) -> tuple:
++    """Auto-attach provider credentials + the veteran's VA disability letter
++    (persisting any change), then report checklist status and plain-language
++    warnings for anything still missing or that couldn't be matched."""
++    items = c.get("items", [])
++    provider_name = await _derive_provider_name(items)
++    before_ids = {it["id"] for it in items}
++    items = await _auto_attach_credentials(items, c.get("patient_id"), provider_name)
++    if {it["id"] for it in items} != before_ids:
++        await db.claim_packets.update_one({"id": c["id"]}, {"$set": {"items": items, "updated_at": now_iso()}})
++
++    cats = _packet_categories(items)
++    checklist = [{"category": cat, "label": label, "present": cat in cats} for cat, label in FMP_CHECKLIST]
++
++    warnings = []
++    if "invoice" not in cats:
++        warnings.append("No itemized invoice attached yet.")
++    if "progress_note" not in cats:
++        warnings.append("No signed clinical progress note attached yet.")
++    warnings += await _credential_warnings(c.get("patient_id"), provider_name, cats)
++    return items, checklist, warnings
++
++
+ class ClaimInput(BaseModel):
+     name: str
+     patient_id: Optional[str] = None
+@@ -320,14 +534,7 @@ def prow(label, val, idx):
+     pdf.add_page()
+     band("FMP Fully Developed Claim - Document Checklist",
+          "Enclosed documents are marked complete below")
+-    cats = set()
+-    for it in items:
+-        if it.get("source") == "invoice":
+-            cats.add("invoice")
+-        elif it.get("source") == "note":
+-            cats.add("progress_note")
+-        if it.get("category"):
+-            cats.add(it["category"])
++    cats = _packet_categories(items)
+ 
+     section_title("Required Documents")
+     box, rh = 5, 9
+@@ -370,7 +577,7 @@ def prow(label, val, idx):
+     writer = PdfWriter()
+     for page in PdfReader(io.BytesIO(cover_bytes)).pages:
+         writer.add_page(page)
+-    for item in items:
++    for item in _sorted_for_merge(items):
+         try:
+             data, _ = get_object(item["storage_path"])
+             fn = item["filename"].lower()
+@@ -438,7 +645,8 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
+     if not invs and not notes:
+         raise HTTPException(status_code=404, detail="No invoice or progress note found for that patient on that date")
+ 
+-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
++    settings_doc = await get_settings_doc()
++    clinic = settings_doc.get("clinic_name", "Veterans of Puerto Plata")
+     m = d.split("-")
+     disp = f"{m[1]}/{m[2]}/{m[0]}" if len(m) == 3 else d
+     packet_name = f"{pname} {disp} FMP Claim"
+@@ -446,7 +654,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
+     items = []
+     for inv in invs:
+         try:
+-            pdf = _invoice_pdf(inv, clinic)
++            pdf = _invoice_pdf(inv, settings_doc)
+         except Exception as e:
+             logger.error(f"from-date invoice pdf failed: {e}")
+             continue
+@@ -609,6 +817,24 @@ async def attachable_patients(user: dict = Depends(require_roles("admin"))):
+     return [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}"} for p in pts]
+ 
+ 
++@router.get("/claims/options/patients-by-date")
++async def patients_with_completed_visit_on_date(date: str, user: dict = Depends(require_roles("admin"))):
++    """For the Bill From Date flow: list patients with a COMPLETED visit on the
++    given date, so staff pick the date first and then the patient. Cancelled
++    (and any non-completed) appointments are excluded; this app has no
++    separate no-show status today."""
++    d = date[:10]
++    appts = await db.appointments.find(
++        {"status": "completed"}, {"_id": 0, "patient_id": 1, "date": 1}).to_list(5000)
++    patient_ids = {a["patient_id"] for a in appts if _same_day(a.get("date"), d)}
++    if not patient_ids:
++        return []
++    pts = await db.patients.find(
++        {"id": {"$in": list(patient_ids)}}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).to_list(1000)
++    pts.sort(key=lambda p: (p["first_name"].lower(), p["last_name"].lower()))
++    return [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}"} for p in pts]
++
++
+ @router.post("/claims/{cid}/attach-invoice")
+ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
+     c = await db.claim_packets.find_one({"id": cid})
+@@ -617,9 +843,9 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
+     inv = await db.invoices.find_one({"id": payload.get("invoice_id")}, {"_id": 0})
+     if not inv:
+         raise HTTPException(status_code=404, detail="Invoice not found")
+-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
++    settings_doc = await get_settings_doc()
+     try:
+-        pdf_bytes = _invoice_pdf(inv, clinic)
++        pdf_bytes = _invoice_pdf(inv, settings_doc)
+     except Exception as e:
+         logger.error(f"invoice pdf failed: {e}")
+         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
+@@ -635,6 +861,8 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
+             "size": result.get("size")}
+     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach invoice {inv.get('invoice_number')}")
++    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
++    await _sync_credentials_and_checklist(c)
+     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+ 
+ 
+@@ -669,6 +897,8 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
+             "size": result.get("size")}
+     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach note {fname}")
++    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
++    await _sync_credentials_and_checklist(c)
+     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+ 
+ 
+@@ -697,14 +927,68 @@ async def download_item(cid: str, item_id: str, user: dict = Depends(require_rol
+         headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Content-Type-Options": "nosniff"})
+ 
+ 
++@router.get("/claims/{cid}/checklist")
++async def claim_checklist(cid: str, user: dict = Depends(require_roles("admin"))):
++    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
++    if not c:
++        raise HTTPException(status_code=404, detail="Claim packet not found")
++    _items, checklist, warnings = await _sync_credentials_and_checklist(c)
++    return {"checklist": checklist, "warnings": warnings}
++
++
++async def _auto_file_packet_to_folder(c: dict, pdf: bytes, user: dict):
++    """Whenever a completed FMP claim packet is generated, file a copy into
++    the correct patient's folder, under a 'Full Name – Date of Service'
++    subfolder (reusing it if it already exists — never duplicating), without
++    ever overwriting an earlier version. Never raises: a filing failure must
++    never break the actual download the user is waiting on."""
++    try:
++        pid = c.get("patient_id")
++        dos = (c.get("claim_number") or "").strip()
++        if not pid or not dos:
++            logger.error(f"packet auto-file skipped for {c.get('id')}: missing patient_id or date of service")
++            return
++        p = await db.patients.find_one({"id": pid}, {"_id": 0, "first_name": 1, "last_name": 1})
++        if not p:
++            logger.error(f"packet auto-file skipped for {c.get('id')}: patient {pid} not found")
++            return
++        folder_name = f"{p['first_name']} {p['last_name']} – {dos}"[:80]
++        sf = await db.folder_subfolders.find_one({"patient_id": pid, "name": folder_name}, {"_id": 0})
++        if not sf:
++            sf = {"id": str(uuid.uuid4()), "patient_id": pid, "name": folder_name,
++                  "created_at": now_iso(), "created_by": user["name"], "created_by_id": user["id"]}
++            await db.folder_subfolders.insert_one(dict(sf))
++        version = await db.folder_items.count_documents(
++            {"patient_id": pid, "subfolder_id": sf["id"], "claim_packet_id": c["id"]}) + 1
++        path = f"{APP_NAME}/folders/{pid}/{uuid.uuid4()}.pdf"
++        result = put_object(path, pdf, "application/pdf")
++        item = {"id": str(uuid.uuid4()), "patient_id": pid, "subfolder_id": sf["id"],
++                "source": "claim_packet", "claim_packet_id": c["id"], "form_id": None,
++                "storage_path": result["path"], "filename": f"FMP_Claim_Packet_{dos}_v{version}.pdf",
++                "label": f"FMP Claim Packet ({dos}) v{version}"[:120], "content_type": "application/pdf",
++                "size": result.get("size"), "created_at": now_iso(),
++                "created_by": user["name"], "created_by_id": user["id"]}
++        await db.folder_items.insert_one(item)
++        await log_audit("create", "folder", actor=user, resource_id=pid,
++                        detail=f"auto-filed FMP packet v{version} into '{folder_name}'")
++    except Exception as e:
++        logger.error(f"packet auto-file failed for {c.get('id')}: {e}")
++
++
+ @router.get("/claims/{cid}/merged")
+ async def merged_pdf(cid: str, user: dict = Depends(require_roles("admin"))):
++    """Preview/download the combined packet. This is a READ-ONLY preview: it
++    never changes the claim's status and never files a version into the
++    patient's folder — that only happens on an explicit save (claim_to_folder
++    below, or the FMP builder's 'Approve Packet' action). A packet can be
++    previewed any number of times without creating duplicate saved versions."""
+     c = await db.claim_packets.find_one({"id": cid})
+     if not c:
+         raise HTTPException(status_code=404, detail="Claim packet not found")
++    items, _checklist, _warnings = await _sync_credentials_and_checklist(c)
++    c = {**c, "items": items}
+     pdf = await _build_packet_pdf(c)
+-    await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
+-    await log_audit("update", "claim", actor=user, resource_id=cid, detail="merged PDF · marked complete")
++    await log_audit("view", "claim", actor=user, resource_id=cid, detail="previewed merged PDF")
+     fname = (c.get("name") or "claim_packet").replace('"', "").replace(" ", "_")[:60]
+     return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
+         headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'})
+@@ -822,8 +1106,11 @@ async def send_packet_email(cid: str, data: SendPacket, user: dict = Depends(req
+ 
+ @router.post("/claims/{cid}/to-folder")
+ async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))):
+-    from datetime import datetime, timezone
+-    from core.folder_filing import file_pdf_into_folder
++    """Explicitly SAVE the packet: builds the current combined PDF, marks the
++    claim complete, and files a new version into the patient's
++    'Full Name – Date of Service' folder (never overwriting a prior save).
++    This is the one place a packet actually gets filed — previewing/
++    downloading via GET /claims/{cid}/merged never does."""
+     c = await db.claim_packets.find_one({"id": cid})
+     if not c:
+         raise HTTPException(status_code=404, detail="Claim packet not found")
+@@ -833,12 +1120,10 @@ async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))
+     p = await db.patients.find_one({"id": pid}, {"_id": 0})
+     if not p:
+         raise HTTPException(status_code=404, detail="Patient not found")
++    items, _checklist, _warnings = await _sync_credentials_and_checklist(c)
++    c = {**c, "items": items}
+     pdf = await _build_packet_pdf(c)
+-    ds = datetime.now(timezone.utc).strftime("%m-%d-%Y")
+-    name = (c.get("name") or "Claim Packet")[:40]
+-    item = await file_pdf_into_folder(pid, p["first_name"], pdf,
+-                                      f"{name} {ds}", f"Claim_Packet_{ds}.pdf", user)
+-    if not item:
+-        raise HTTPException(status_code=502, detail="Could not file PDF")
+-    await log_audit("create", "folder", actor=user, resource_id=pid, detail=f"auto-filed claim {cid}")
++    await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
++    await log_audit("update", "claim", actor=user, resource_id=cid, detail="packet saved · marked complete")
++    await _auto_file_packet_to_folder(c, pdf, user)
+     return {"ok": True, "patient_name": f"{p['first_name']} {p['last_name']}"}
+diff --git a/backend/routers/fmp.py b/backend/routers/fmp.py
+index 402c91c..0cfff57 100644
+--- a/backend/routers/fmp.py
++++ b/backend/routers/fmp.py
+@@ -16,7 +16,9 @@
+ from core.storage import put_object, get_object, delete_object
+ from core.folder_filing import disp_date, fmt_date
+ from routers.settings import get_settings_doc
+-from routers.claims import _invoice_pdf, _guess_category, _auto_attach_credentials, FMP_CHECKLIST
++from routers.claims import (_invoice_pdf, _guess_category, _auto_attach_credentials, FMP_CHECKLIST,
++                            _packet_categories, _credential_warnings, _build_packet_pdf,
++                            _auto_file_packet_to_folder, _sync_credentials_and_checklist)
+ 
+ _DOC_CATEGORY_LABELS = dict(FMP_CHECKLIST)
+ from routers.billing import _compute_next_number
+@@ -289,7 +291,8 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
+         if status == "ready":
+             status = "review"
+ 
+-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
++    settings_doc = await get_settings_doc()
++    clinic = settings_doc.get("clinic_name", "Veterans of Puerto Plata")
+     items = []
+     cover_review = None
+ 
+@@ -316,7 +319,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
+     if invoice:
+         try:
+             inv = {**invoice, "patient_name": pname, "dob": p.get("dob")}
+-            pdf = _invoice_pdf(inv, clinic)
++            pdf = _invoice_pdf(inv, settings_doc)
+             path = f"{APP_NAME}/fmp/{data.patient_id}/generated/{uuid.uuid4()}.pdf"
+             result = put_object(path, pdf, "application/pdf")
+             items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
+@@ -352,7 +355,16 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
+                           "content_type": fi.get("content_type", "application/pdf"),
+                           "size": fi.get("size"), "category": _guess_category(fi.get("filename") or fi.get("label") or "")})
+ 
+-    items = await _auto_attach_credentials(items, data.patient_id, note.get("attending_provider"))
++    provider_name = note.get("attending_provider")
++    items = await _auto_attach_credentials(items, data.patient_id, provider_name)
++
++    # Warn (don't block) on required documents still missing or unmatched
++    # after auto-attach: veteran's VA disability letter, provider diploma/exequatur.
++    doc_warnings = await _credential_warnings(data.patient_id, provider_name, _packet_categories(items))
++    for w in doc_warnings:
++        issues.append({"level": "warning", "message": w})
++    if doc_warnings and status == "ready":
++        status = "review"
+ 
+     packet = {"id": str(uuid.uuid4()), "name": f"{pname} {disp_date(dos) or ''} FMP Claim".strip(),
+               "patient_id": data.patient_id, "patient_name": pname, "claim_number": dos,
+@@ -387,6 +399,13 @@ async def approve_packet(cid: str, data: ApproveInput, user: dict = Depends(requ
+         "approved": True, "approved_by": user["name"], "approved_at": now_iso(),
+         "status": "complete", "updated_at": now_iso()}})
+     await log_audit("update", "claim", actor=user, resource_id=cid, detail="approved FMP packet")
++    # Approving is the explicit save moment for the builder flow: file the
++    # final combined PDF now. Earlier previews/downloads never filed anything.
++    approved_c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
++    items, _checklist, _warnings = await _sync_credentials_and_checklist(approved_c)
++    approved_c = {**approved_c, "items": items}
++    pdf = await _build_packet_pdf(approved_c)
++    await _auto_file_packet_to_folder(approved_c, pdf, user)
+     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+ 
+ 
+diff --git a/backend/routers/folders.py b/backend/routers/folders.py
+index 54ad401..1108f25 100644
+--- a/backend/routers/folders.py
++++ b/backend/routers/folders.py
+@@ -33,6 +33,14 @@ class MoveItem(BaseModel):
+     subfolder_id: Optional[str] = None
+ 
+ 
++SERVICING_STATUSES = {"complete", "needs_servicing"}
++
++
++class ServicingStatusInput(BaseModel):
++    status: str
++    note: Optional[str] = None
++
++
+ class AttachForm(BaseModel):
+     form_id: str
+     subfolder_id: Optional[str] = None
+@@ -48,14 +56,17 @@ async def _patient_name(pid):
+ @router.get("/folders/patients")
+ async def list_patient_folders(user: dict = Depends(require_roles(*FOLDERS_ROLES))):
+     pts = await db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "dob": 1, "folder_ready": 1}).to_list(2000)
+-    counts, subcounts = {}, {}
+-    async for it in db.folder_items.find({}, {"_id": 0, "patient_id": 1}):
++    counts, subcounts, needs_servicing = {}, {}, {}
++    async for it in db.folder_items.find({}, {"_id": 0, "patient_id": 1, "servicing_status": 1}):
+         counts[it["patient_id"]] = counts.get(it["patient_id"], 0) + 1
++        if it.get("servicing_status") == "needs_servicing":
++            needs_servicing[it["patient_id"]] = needs_servicing.get(it["patient_id"], 0) + 1
+     async for sf in db.folder_subfolders.find({}, {"_id": 0, "patient_id": 1}):
+         subcounts[sf["patient_id"]] = subcounts.get(sf["patient_id"], 0) + 1
+     result = [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob"),
+                "ready": bool(p.get("folder_ready")),
+-               "item_count": counts.get(p["id"], 0), "subfolder_count": subcounts.get(p["id"], 0)} for p in pts]
++               "item_count": counts.get(p["id"], 0), "subfolder_count": subcounts.get(p["id"], 0),
++               "needs_servicing_count": needs_servicing.get(p["id"], 0)} for p in pts]
+     result.sort(key=lambda x: x["name"].lower())
+     await log_audit("view", "folder", actor=user, detail=f"list ({len(result)})")
+     return result
+@@ -202,6 +213,32 @@ async def edit_item(item_id: str, data: ItemEdit, user: dict = Depends(require_r
+     return await db.folder_items.find_one({"id": item_id}, {"_id": 0})
+ 
+ 
++@router.put("/folders/items/{item_id}/servicing-status")
++async def set_item_servicing_status(item_id: str, data: ServicingStatusInput,
++                                    user: dict = Depends(require_roles(*FOLDERS_ROLES))):
++    """Internal-only readiness flag for a saved document (in practice, a
++    filed FMP claim packet): Complete (reviewed, ready to submit) or Needs
++    Servicing (corrections/missing documents needed), with who/when recorded.
++    Never surfaced on any VA-facing document, and never submits anything."""
++    if data.status not in SERVICING_STATUSES:
++        raise HTTPException(status_code=400, detail="status must be 'complete' or 'needs_servicing'")
++    if data.status == "needs_servicing" and not (data.note or "").strip():
++        raise HTTPException(status_code=400, detail="Please explain what needs to be corrected")
++    it = await db.folder_items.find_one({"id": item_id}, {"_id": 0})
++    if not it:
++        raise HTTPException(status_code=404, detail="Item not found")
++    note_text = (data.note or "").strip()[:2000] or None
++    history_entry = {"status": data.status, "note": note_text,
++                     "changed_by": user["name"], "changed_at": now_iso()}
++    await db.folder_items.update_one({"id": item_id}, {"$set": {
++        "servicing_status": data.status, "servicing_note": note_text,
++        "servicing_changed_by": user["name"], "servicing_changed_at": history_entry["changed_at"]},
++        "$push": {"servicing_history": history_entry}})
++    await log_audit("update", "folder", actor=user, resource_id=item_id,
++                    detail=f"servicing status: {data.status}" + (f" — {note_text}" if note_text else ""))
++    return await db.folder_items.find_one({"id": item_id}, {"_id": 0})
++
++
+ @router.post("/folders/items/{item_id}/move")
+ async def move_item(item_id: str, data: MoveItem, user: dict = Depends(require_roles(*FOLDERS_ROLES))):
+     it = await db.folder_items.find_one({"id": item_id}, {"_id": 0})
+diff --git a/backend/routers/forms.py b/backend/routers/forms.py
+index dd6f9cf..eeeae87 100644
+--- a/backend/routers/forms.py
++++ b/backend/routers/forms.py
+@@ -100,7 +100,8 @@ async def list_forms(user: dict = Depends(require_roles("doctor", "nurse", "rece
+ @router.post("/forms")
+ async def create_form(data: FormInput, user: dict = Depends(require_roles(*FORMS_ROLES))):
+     doc = {"id": str(uuid.uuid4()), "public_token": uuid.uuid4().hex,
+-           "patient_id": data.patient_id, "title": data.title, "form_type": data.form_type,
++           "patient_id": data.patient_id, "provider_id": data.provider_id,
++           "title": data.title, "form_type": data.form_type,
+            "fields": data.fields, "external_url": data.external_url, "status": data.status,
+            "template": FORM_TEMPLATES.get(data.form_type, []), "responses": None,
+            "attachment": None, "email_sent": False,
+@@ -124,9 +125,36 @@ async def create_form(data: FormInput, user: dict = Depends(require_roles(*FORMS
+     return doc
+ 
+ 
++# Form types that feed straight into the same storage the FMP packet
++# auto-attach logic (claims.py:_auto_attach_credentials) already reads —
++# so a document filed under one of these stays available for automatic
++# attachment, same as uploading it directly via Team credentials / a
++# patient folder upload.
++_CREDENTIAL_FORM_KIND = {"Provider Exequatur": "exequatur", "Provider Diploma": "diploma"}
++DISABILITY_LETTER_FORM_TYPE = "Disability Breakdown Letter"
++
++
++async def _sync_form_attachment(form_doc: dict):
++    """After a form of a credential type gets its attachment, mirror it into
++    the provider's credential doc so it's immediately usable for auto-attach.
++    No-op for any other form type."""
++    kind = _CREDENTIAL_FORM_KIND.get(form_doc.get("form_type"))
++    att = form_doc.get("attachment")
++    if not kind or not att or not form_doc.get("provider_id"):
++        return
++    prov = await db.users.find_one({"id": form_doc["provider_id"]}, {"_id": 0, "name": 1})
++    if not prov:
++        return
++    await db.users.update_one({"id": form_doc["provider_id"]}, {"$set": {f"{kind}_doc": {
++        "storage_path": att["storage_path"], "filename": att.get("filename") or f"{kind}.pdf",
++        "content_type": att.get("content_type", "application/octet-stream"),
++        "size": att.get("size"), "uploaded_at": now_iso(), "uploaded_by": form_doc.get("created_by")}}})
++
++
+ @router.post("/forms/upload")
+ async def upload_form(file: UploadFile = File(...), title: str = Form(...),
+                       form_type: str = Form("Uploaded"), patient_id: str = Form(""),
++                      provider_id: str = Form(""),
+                       user: dict = Depends(require_roles(*FORMS_ROLES))):
+     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "bin"
+     if ext not in EXT_CONTENT_TYPES:
+@@ -143,11 +171,13 @@ async def upload_form(file: UploadFile = File(...), title: str = Form(...),
+         raise HTTPException(status_code=502, detail="File storage failed")
+     doc = {"id": str(uuid.uuid4()), "public_token": uuid.uuid4().hex,
+            "title": title, "form_type": form_type, "patient_id": patient_id or None,
++           "provider_id": provider_id or None,
+            "template": [], "responses": None, "status": "received",
+            "attachment": {"storage_path": result["path"], "filename": file.filename,
+                           "content_type": safe_ct, "size": result.get("size")},
+            "created_at": now_iso(), "created_by": user["name"]}
+     await db.forms.insert_one(doc)
++    await _sync_form_attachment(doc)
+     doc.pop("_id", None)
+     await log_audit("create", "form", actor=user, resource_id=doc["id"],
+                     detail=f"upload: {file.filename}")
+@@ -206,6 +236,7 @@ class FormUpdate(BaseModel):
+     form_type: Optional[str] = None
+     status: Optional[str] = None
+     patient_id: Optional[str] = None
++    provider_id: Optional[str] = None
+     external_url: Optional[str] = None
+     recipient_email: Optional[str] = None
+     responses: Optional[dict] = None
+@@ -275,7 +306,7 @@ async def update_form(fid: str, data: FormUpdate, user: dict = Depends(require_r
+     if user["role"] != "admin" and existing.get("created_by") not in (user["name"], None):
+         raise HTTPException(status_code=403, detail="You can only edit forms you created")
+     updates = {}
+-    for k in ("title", "form_type", "patient_id", "external_url", "recipient_email", "responses"):
++    for k in ("title", "form_type", "patient_id", "provider_id", "external_url", "recipient_email", "responses"):
+         v = getattr(data, k)
+         if v is not None:
+             updates[k] = v
+@@ -287,8 +318,11 @@ async def update_form(fid: str, data: FormUpdate, user: dict = Depends(require_r
+         updates["updated_at"] = now_iso()
+         updates["updated_by"] = user["name"]
+         await db.forms.update_one({"id": fid}, {"$set": updates})
++    updated = await db.forms.find_one({"id": fid}, {"_id": 0})
++    if "provider_id" in updates or "form_type" in updates:
++        await _sync_form_attachment(updated)
+     await log_audit("update", "form", actor=user, resource_id=fid, detail="edit form")
+-    return await db.forms.find_one({"id": fid}, {"_id": 0})
++    return updated
+ 
+ 
+ @router.post("/forms/{fid}/send-email")
+@@ -357,6 +391,10 @@ async def move_form_to_folder(fid: str, data: ToFolder, user: dict = Depends(req
+     base = {"id": str(uuid.uuid4()), "patient_id": data.patient_id, "subfolder_id": data.subfolder_id or None,
+             "form_id": f["id"], "description": f.get("form_type") or "",
+             "created_at": now_iso(), "created_by": user["name"], "created_by_id": user["id"]}
++    if f.get("form_type") == DISABILITY_LETTER_FORM_TYPE:
++        # Explicit category — the veteran's disability letter stays matchable
++        # for FMP auto-attach regardless of what the file happens to be named.
++        base["category"] = "va_disability_letter"
+     if f.get("attachment"):
+         att = f["attachment"]
+         item = {**base, "source": "form", "storage_path": att["storage_path"], "filename": att["filename"],
+@@ -468,8 +506,9 @@ async def public_upload_back(token: str, file: UploadFile = File(...)):
+     except Exception as e:
+         logger.error(f"patient upload failed: {e}")
+         raise HTTPException(status_code=502, detail="File storage failed")
++    attachment = {"storage_path": result["path"], "filename": file.filename,
++                  "content_type": safe_ct, "size": result.get("size")}
+     await db.forms.update_one({"public_token": token}, {"$set": {
+-        "attachment": {"storage_path": result["path"], "filename": file.filename,
+-                       "content_type": safe_ct, "size": result.get("size")},
+-        "status": "received", "submitted_at": now_iso()}})
++        "attachment": attachment, "status": "received", "submitted_at": now_iso()}})
++    await _sync_form_attachment({**f, "attachment": attachment})
+     return {"ok": True}
+diff --git a/backend/routers/messages.py b/backend/routers/messages.py
+index c16324d..bda73b9 100644
+--- a/backend/routers/messages.py
++++ b/backend/routers/messages.py
+@@ -1,10 +1,15 @@
+ import uuid
+ 
+-from fastapi import APIRouter, HTTPException, Depends
++from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
++from fastapi.responses import Response
++from typing import Optional
+ 
+-from core.db import db, now_iso
++from core.db import db, now_iso, logger
++from core.config import APP_NAME, EXT_CONTENT_TYPES
+ from core.security import get_current_user
+-from models.schemas import MessageInput, IdList
++from core.audit import log_audit
++from core.storage import put_object, get_object
++from models.schemas import IdList
+ 
+ router = APIRouter()
+ 
+@@ -13,21 +18,67 @@
+ async def list_messages(user: dict = Depends(get_current_user)):
+     msgs = await db.messages.find(
+         {"$or": [{"to_user_id": user["id"]}, {"from_user_id": user["id"]}]},
+-        {"_id": 0}).sort("created_at", -1).to_list(500)
++        {"_id": 0}).sort("created_at", 1).to_list(2000)
+     return msgs
+ 
+ 
++@router.get("/messages/unread-count")
++async def unread_count(user: dict = Depends(get_current_user)):
++    n = await db.messages.count_documents({"to_user_id": user["id"], "read": False})
++    return {"unread": n}
++
++
+ @router.post("/messages")
+-async def send_message(data: MessageInput, user: dict = Depends(get_current_user)):
+-    to = await db.users.find_one({"id": data.to_user_id}, {"_id": 0})
+-    doc = {"id": str(uuid.uuid4()), "from_user_id": user["id"], "from_name": user["name"],
+-           "to_user_id": data.to_user_id, "to_name": to["name"] if to else "Unknown",
+-           "subject": data.subject, "body": data.body, "read": False, "created_at": now_iso()}
++async def send_message(to_user_id: str = Form(...), subject: str = Form(""), body: str = Form(...),
++                       thread_id: str = Form(""), file: Optional[UploadFile] = File(None),
++                       user: dict = Depends(get_current_user)):
++    if not body.strip() and not file:
++        raise HTTPException(status_code=400, detail="Message body is required")
++    to = await db.users.find_one({"id": to_user_id}, {"_id": 0, "name": 1})
++    if not to:
++        raise HTTPException(status_code=404, detail="Recipient not found")
++    attachment = None
++    if file is not None:
++        ext = file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin"
++        if ext not in EXT_CONTENT_TYPES:
++            raise HTTPException(status_code=400, detail="Unsupported file type")
++        payload = await file.read()
++        if len(payload) > 15 * 1024 * 1024:
++            raise HTTPException(status_code=400, detail="File too large (max 15MB)")
++        path = f"{APP_NAME}/messages/{user['id']}/{uuid.uuid4()}.{ext}"
++        try:
++            result = put_object(path, payload, EXT_CONTENT_TYPES[ext])
++        except Exception as e:
++            logger.error(f"message attachment upload failed: {e}")
++            raise HTTPException(status_code=502, detail="File storage failed")
++        attachment = {"storage_path": result["path"], "filename": file.filename,
++                      "content_type": EXT_CONTENT_TYPES[ext], "size": result.get("size")}
++    doc = {"id": str(uuid.uuid4()), "thread_id": thread_id or str(uuid.uuid4()),
++           "from_user_id": user["id"], "from_name": user["name"],
++           "to_user_id": to_user_id, "to_name": to["name"],
++           "subject": subject or "", "body": body, "attachment": attachment,
++           "read": False, "created_at": now_iso()}
+     await db.messages.insert_one(doc)
+     doc.pop("_id", None)
++    await log_audit("create", "message", actor=user, resource_id=doc["id"], detail=f"to {to['name']}")
+     return doc
+ 
+ 
++@router.get("/messages/{mid}/attachment")
++async def download_attachment(mid: str, user: dict = Depends(get_current_user)):
++    m = await db.messages.find_one({"id": mid}, {"_id": 0})
++    if not m or not m.get("attachment"):
++        raise HTTPException(status_code=404, detail="Attachment not found")
++    if user["id"] not in (m["from_user_id"], m["to_user_id"]):
++        raise HTTPException(status_code=403, detail="You are not a participant in this conversation")
++    data, _ = get_object(m["attachment"]["storage_path"])
++    fname = m["attachment"]["filename"].replace('"', "").replace("\n", "").replace("\r", "")
++    await log_audit("view", "message", actor=user, resource_id=mid, detail=f"download: {fname}")
++    return Response(content=data, media_type="application/octet-stream",
++        headers={"Content-Disposition": f'attachment; filename="{fname}"',
++                 "X-Content-Type-Options": "nosniff"})
++
++
+ @router.put("/messages/{mid}/read")
+ async def mark_read(mid: str, user: dict = Depends(get_current_user)):
+     res = await db.messages.update_one({"id": mid, "to_user_id": user["id"]}, {"$set": {"read": True}})
+@@ -36,6 +87,13 @@ async def mark_read(mid: str, user: dict = Depends(get_current_user)):
+     return {"ok": True}
+ 
+ 
++@router.put("/messages/thread/{thread_id}/read")
++async def mark_thread_read(thread_id: str, user: dict = Depends(get_current_user)):
++    await db.messages.update_many({"thread_id": thread_id, "to_user_id": user["id"], "read": False},
++                                  {"$set": {"read": True}})
++    return {"ok": True}
++
++
+ @router.post("/messages/bulk-delete")
+ async def bulk_delete_messages(data: IdList, user: dict = Depends(get_current_user)):
+     q = {"id": {"$in": data.ids}}
+diff --git a/backend/routers/notes.py b/backend/routers/notes.py
+index 7e91a60..a257320 100644
+--- a/backend/routers/notes.py
++++ b/backend/routers/notes.py
+@@ -3,6 +3,7 @@
+ from typing import Optional
+ 
+ from fastapi import APIRouter, HTTPException, Depends
++from pydantic import BaseModel
+ 
+ from emergentintegrations.llm.chat import LlmChat, UserMessage
+ 
+@@ -13,6 +14,16 @@
+ 
+ router = APIRouter()
+ 
++# Admin billing-readiness review of a signed progress note. This is an
++# administrative/billing check only — it is NOT a clinical co-signature or
++# review of care, and it never alters the provider's own clinical signature.
++BILLING_REVIEW_STATUSES = {"approved", "needs_correction"}
++
++
++class BillingReviewInput(BaseModel):
++    status: str
++    note: Optional[str] = None
++
+ 
+ @router.get("/notes")
+ async def list_notes(patient_id: Optional[str] = None, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
+@@ -38,6 +49,9 @@ async def create_note(data: NoteInput, user: dict = Depends(require_roles("docto
+     if doc.get("signature"):
+         doc["signed_by"] = user["name"]
+         doc["signed_at"] = now_iso()
++        doc["billing_review_status"] = "pending_review"
++    else:
++        doc["billing_review_status"] = "unsigned"
+     await db.notes.insert_one(doc)
+     doc.pop("_id", None)
+     await log_audit("create", "note", actor=user, resource_id=doc["id"],
+@@ -61,15 +75,84 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
+         raise HTTPException(status_code=400, detail="Note content is required")
+     doc["updated_at"] = now_iso()
+     doc["updated_by"] = user["name"]
+-    if doc.get("signature") and doc.get("signature") != existing.get("signature"):
++
++    was_signed = bool(existing.get("signature"))
++    was_approved = existing.get("billing_review_status") == "approved"
++    resigned = bool(doc.get("signature")) and doc.get("signature") != existing.get("signature")
++
++    if was_signed and (resigned or was_approved):
++        # Archive the prior signed version + its full approval history before
++        # changing anything — nothing about a past approval is ever lost.
++        history_entry = {
++            "content": existing.get("content"), "signature": existing.get("signature"),
++            "signed_by": existing.get("signed_by"), "signed_at": existing.get("signed_at"),
++            "billing_review_status": existing.get("billing_review_status"),
++            "billing_reviewed_by": existing.get("billing_reviewed_by"),
++            "billing_reviewed_at": existing.get("billing_reviewed_at"),
++            "billing_review_note": existing.get("billing_review_note"),
++            "archived_at": now_iso(), "archived_by": user["name"],
++            "archived_reason": "re-signed" if resigned else "edited after billing approval",
++        }
++        doc["history"] = (existing.get("history") or []) + [history_entry]
++
++    if resigned:
++        # (Re-)signed: a new signature always needs a fresh billing review.
+         doc["signed_by"] = user["name"]
+         doc["signed_at"] = now_iso()
++        doc["billing_review_status"] = "pending_review"
++        doc["billing_reviewed_by"] = None
++        doc["billing_reviewed_at"] = None
++        doc["billing_review_note"] = None
++    elif was_approved:
++        # Approved note edited without drawing a fresh signature: the carried-over
++        # signature image is now stale for the edited content. Require the
++        # provider to actually re-sign, and billing to re-approve, before this
++        # note counts as ready again.
++        doc["signature"] = None
++        doc["signed_by"] = None
++        doc["signed_at"] = None
++        doc["billing_review_status"] = "unsigned"
++        doc["billing_reviewed_by"] = None
++        doc["billing_reviewed_at"] = None
++        doc["billing_review_note"] = None
++    elif not doc.get("signature") and existing.get("signature"):
++        # Signature removed: nothing left to bill-review.
++        doc["billing_review_status"] = "unsigned"
++        doc["billing_reviewed_by"] = None
++        doc["billing_reviewed_at"] = None
++        doc["billing_review_note"] = None
+     await db.notes.update_one({"id": nid}, {"$set": doc})
+     await log_audit("update", "note", actor=user, resource_id=nid,
+                     detail=f"{doc.get('note_type','free')}: {doc.get('title','')}")
+     return await db.notes.find_one({"id": nid}, {"_id": 0})
+ 
+ 
++@router.put("/notes/{nid}/billing-review")
++async def billing_review_note(nid: str, data: BillingReviewInput, user: dict = Depends(require_roles("admin"))):
++    """Admin billing-readiness check on a signed progress note: confirms the
++    note is ready to bill, or flags it for correction. This is an
++    administrative/billing approval only — it is NOT a clinical co-signature,
++    does not review the clinical content of care, and never touches the
++    provider's own signature."""
++    if data.status not in BILLING_REVIEW_STATUSES:
++        raise HTTPException(status_code=400, detail="status must be 'approved' or 'needs_correction'")
++    existing = await db.notes.find_one({"id": nid}, {"_id": 0})
++    if not existing:
++        raise HTTPException(status_code=404, detail="Note not found")
++    if not existing.get("signature"):
++        raise HTTPException(status_code=400, detail="This note has not been signed by its provider yet")
++    note_text = (data.note or "").strip() or None
++    await db.notes.update_one({"id": nid}, {"$set": {
++        "billing_review_status": data.status,
++        "billing_reviewed_by": user["name"],
++        "billing_reviewed_at": now_iso(),
++        "billing_review_note": note_text,
++    }})
++    await log_audit("update", "note", actor=user, resource_id=nid,
++                    detail=f"billing review: {data.status}" + (f" — {note_text}" if note_text else ""))
++    return await db.notes.find_one({"id": nid}, {"_id": 0})
++
++
+ @router.delete("/notes/{nid}")
+ async def delete_note(nid: str, user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "admin"))):
+     existing = await db.notes.find_one({"id": nid}, {"_id": 0})
+diff --git a/backend/routers/patients.py b/backend/routers/patients.py
+index 559780f..183da30 100644
+--- a/backend/routers/patients.py
++++ b/backend/routers/patients.py
+@@ -19,7 +19,7 @@ async def list_patients(search: Optional[str] = None, user: dict = Depends(get_c
+         safe = re.escape(search.strip()[:80])
+         q = {"$or": [{"first_name": {"$regex": safe, "$options": "i"}},
+                      {"last_name": {"$regex": safe, "$options": "i"}}]}
+-    patients = await db.patients.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
++    patients = await db.patients.find(q, {"_id": 0}).sort([("first_name", 1), ("last_name", 1)]).to_list(500)
+     await log_audit("view", "patient", actor=user,
+                     detail=f"list ({len(patients)})" + (f" search='{search[:40]}'" if search else ""))
+     return patients
+diff --git a/backend/routers/reports.py b/backend/routers/reports.py
+new file mode 100644
+index 0000000..78eb5b6
+--- /dev/null
++++ b/backend/routers/reports.py
+@@ -0,0 +1,216 @@
++import io
++from typing import Optional
++
++from fastapi import APIRouter, Depends
++from fastapi.responses import StreamingResponse
++
++from core.db import db
++from core.security import require_roles
++from core.pdf_utils import new_pdf, pdf_bytes, FONT
++from core.folder_filing import disp_date
++
++router = APIRouter()
++
++REPORT_ROLES = ("admin", "biller")
++
++
++def _in_range(date_str, start, end) -> bool:
++    d = (date_str or "")[:10]
++    if not d:
++        return False
++    if start and d < start:
++        return False
++    if end and d > end:
++        return False
++    return True
++
++
++async def _patients_map():
++    return {p["id"]: p async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1})}
++
++
++async def _fetch_completed_invoices(start, end, patient_id, status):
++    invoices = await db.invoices.find({}, {"_id": 0}).to_list(5000)
++    pmap = await _patients_map()
++    out = []
++    for inv in invoices:
++        d = (inv.get("service_date") or "")[:10]
++        if not _in_range(d, start, end):
++            continue
++        if patient_id and inv.get("patient_id") != patient_id:
++            continue
++        if status and status != "all" and inv.get("status") != status:
++            continue
++        p = pmap.get(inv.get("patient_id"))
++        pname = inv.get("patient_name") or (f"{p['first_name']} {p['last_name']}" if p else "Unknown")
++        cpt = "; ".join(it.get("cpt_code", "") for it in inv.get("items", []) if it.get("cpt_code"))
++        out.append({
++            "invoice_id": inv["id"], "patient_id": inv.get("patient_id"), "patient_name": pname,
++            "invoice_number": inv.get("invoice_number"), "service_date": d,
++            "diagnosis": inv.get("icd10") or "", "cpt_code": cpt,
++            "amount": inv.get("total", 0), "status": inv.get("status") or "",
++        })
++    out.sort(key=lambda r: r["service_date"])
++    return out
++
++
++async def _fetch_completed_notes(start, end, patient_id):
++    notes = await db.notes.find({}, {"_id": 0}).to_list(5000)
++    pmap = await _patients_map()
++    out = []
++    for n in notes:
++        d = (n.get("visit_date") or (n.get("created_at") or ""))[:10]
++        if not _in_range(d, start, end):
++            continue
++        if patient_id and n.get("patient_id") != patient_id:
++            continue
++        if not n.get("signature"):
++            continue  # a note isn't "completed" work until its provider has signed it
++        p = pmap.get(n.get("patient_id"))
++        pname = f"{p['first_name']} {p['last_name']}" if p else (n.get("patient_name") or "Unknown")
++        out.append({
++            "note_id": n["id"], "patient_id": n.get("patient_id"), "patient_name": pname,
++            "visit_date": d, "diagnosis": n.get("icd10") or "",
++            "provider": n.get("attending_provider") or n.get("author") or "",
++            "note_type": n.get("note_type") or "free",
++            "billing_review_status": n.get("billing_review_status") or "unsigned",
++        })
++    out.sort(key=lambda r: r["visit_date"])
++    return out
++
++
++async def _fetch_completed_packets(start, end, patient_id, status):
++    q = {"source": "claim_packet"}
++    if patient_id:
++        q["patient_id"] = patient_id
++    items = await db.folder_items.find(q, {"_id": 0}).to_list(5000)
++    pmap = await _patients_map()
++    claim_ids = [cid for cid in {it.get("claim_packet_id") for it in items if it.get("claim_packet_id")}]
++    claims_map = {}
++    if claim_ids:
++        async for c in db.claim_packets.find({"id": {"$in": claim_ids}}, {"_id": 0, "id": 1, "claim_number": 1}):
++            claims_map[c["id"]] = c
++    out = []
++    for it in items:
++        claim = claims_map.get(it.get("claim_packet_id")) or {}
++        d = (claim.get("claim_number") or "")[:10]
++        if not _in_range(d, start, end):
++            continue
++        st = it.get("servicing_status") or "not_set"
++        if status and status != "all" and st != status:
++            continue
++        p = pmap.get(it.get("patient_id"))
++        pname = f"{p['first_name']} {p['last_name']}" if p else "Unknown"
++        out.append({
++            "item_id": it["id"], "patient_id": it.get("patient_id"), "patient_name": pname,
++            "service_date": d, "filename": it.get("filename"), "version_label": it.get("label"),
++            "servicing_status": st, "servicing_note": it.get("servicing_note"),
++            "filed_at": it.get("created_at"),
++        })
++    out.sort(key=lambda r: r["service_date"])
++    return out
++
++
++@router.get("/reports/completed-invoices")
++async def completed_invoices_report(start: Optional[str] = None, end: Optional[str] = None,
++                                    patient_id: Optional[str] = None, status: str = "paid",
++                                    user: dict = Depends(require_roles(*REPORT_ROLES))):
++    return await _fetch_completed_invoices(start, end, patient_id, status)
++
++
++@router.get("/reports/completed-notes")
++async def completed_notes_report(start: Optional[str] = None, end: Optional[str] = None,
++                                 patient_id: Optional[str] = None,
++                                 user: dict = Depends(require_roles(*REPORT_ROLES))):
++    return await _fetch_completed_notes(start, end, patient_id)
++
++
++@router.get("/reports/completed-packets")
++async def completed_packets_report(start: Optional[str] = None, end: Optional[str] = None,
++                                   patient_id: Optional[str] = None, status: str = "complete",
++                                   user: dict = Depends(require_roles(*REPORT_ROLES))):
++    return await _fetch_completed_packets(start, end, patient_id, status)
++
++
++def _report_pdf(title: str, clinic: str, columns: list, rows: list) -> bytes:
++    pdf = new_pdf()
++    pdf.set_font(FONT, "B", 16)
++    pdf.cell(0, 10, clinic[:70], ln=True)
++    pdf.set_font(FONT, "B", 13)
++    pdf.cell(0, 9, title, ln=True)
++    pdf.ln(2)
++    content_w = pdf.w - pdf.l_margin - pdf.r_margin
++    col_w = content_w / len(columns)
++    pdf.set_font(FONT, "B", 8.5)
++    pdf.set_fill_color(25, 90, 60)
++    pdf.set_text_color(255, 255, 255)
++    for label, _key in columns:
++        pdf.cell(col_w, 7, label, border=1, fill=True)
++    pdf.ln(7)
++    pdf.set_text_color(0, 0, 0)
++    pdf.set_font(FONT, "", 8)
++    for row in rows:
++        if pdf.get_y() > pdf.h - 20:
++            pdf.add_page()
++        for label, key in columns:
++            val = row.get(key, "")
++            pdf.cell(col_w, 6.5, str(val)[:40], border=1)
++        pdf.ln(6.5)
++    if not rows:
++        pdf.ln(2)
++        pdf.cell(0, 8, "No records match this filter.", ln=True)
++    pdf.ln(4)
++    pdf.set_font(FONT, "", 8)
++    pdf.cell(0, 6, f"{len(rows)} record(s)", ln=True)
++    return pdf_bytes(pdf)
++
++
++async def _clinic_name():
++    s = await db.settings.find_one({"key": "clinic"}, {"_id": 0, "clinic_name": 1})
++    return (s or {}).get("clinic_name") or "Veterans of Puerto Plata"
++
++
++@router.get("/reports/completed-invoices/pdf")
++async def completed_invoices_pdf(start: Optional[str] = None, end: Optional[str] = None,
++                                 patient_id: Optional[str] = None, status: str = "paid",
++                                 user: dict = Depends(require_roles(*REPORT_ROLES))):
++    rows = await _fetch_completed_invoices(start, end, patient_id, status)
++    for r in rows:
++        r["service_date"] = disp_date(r["service_date"])
++        r["amount"] = f"${r['amount']:.2f}"
++    pdf = _report_pdf("Completed Invoices Report", await _clinic_name(), [
++        ("Patient", "patient_name"), ("Date of Service", "service_date"), ("Diagnosis", "diagnosis"),
++        ("CPT", "cpt_code"), ("Amount", "amount"), ("Status", "status"),
++    ], rows)
++    return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
++        headers={"Content-Disposition": 'attachment; filename="completed_invoices_report.pdf"'})
++
++
++@router.get("/reports/completed-notes/pdf")
++async def completed_notes_pdf(start: Optional[str] = None, end: Optional[str] = None,
++                              patient_id: Optional[str] = None,
++                              user: dict = Depends(require_roles(*REPORT_ROLES))):
++    rows = await _fetch_completed_notes(start, end, patient_id)
++    for r in rows:
++        r["visit_date"] = disp_date(r["visit_date"])
++    pdf = _report_pdf("Completed Progress Notes Report", await _clinic_name(), [
++        ("Patient", "patient_name"), ("Date of Service", "visit_date"), ("Diagnosis", "diagnosis"),
++        ("Provider", "provider"), ("Billing Status", "billing_review_status"),
++    ], rows)
++    return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
++        headers={"Content-Disposition": 'attachment; filename="completed_notes_report.pdf"'})
++
++
++@router.get("/reports/completed-packets/pdf")
++async def completed_packets_pdf(start: Optional[str] = None, end: Optional[str] = None,
++                                patient_id: Optional[str] = None, status: str = "complete",
++                                user: dict = Depends(require_roles(*REPORT_ROLES))):
++    rows = await _fetch_completed_packets(start, end, patient_id, status)
++    for r in rows:
++        r["service_date"] = disp_date(r["service_date"])
++    pdf = _report_pdf("Completed Claim Packets Report", await _clinic_name(), [
++        ("Patient", "patient_name"), ("Date of Service", "service_date"), ("File", "filename"),
++        ("Status", "servicing_status"),
++    ], rows)
++    return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
++        headers={"Content-Disposition": 'attachment; filename="completed_packets_report.pdf"'})
+diff --git a/backend/routers/users.py b/backend/routers/users.py
+index cfff3f7..350aca5 100644
+--- a/backend/routers/users.py
++++ b/backend/routers/users.py
+@@ -92,6 +92,22 @@ async def set_user_active(uid: str, payload: dict, current: dict = Depends(requi
+     return u
+ 
+ 
++@router.put("/users/{uid}/provider-active")
++async def set_provider_active(uid: str, payload: dict, current: dict = Depends(require_roles("admin"))):
++    """Whether this provider shows up in provider-selection dropdowns
++    (notes, forms, appointments, claim credentials). Completely separate
++    from account suspension ('active' above) — this never affects login,
++    and the provider's own historical records are always kept."""
++    target = await db.users.find_one({"id": uid})
++    if not target:
++        raise HTTPException(status_code=404, detail="User not found")
++    provider_active = bool(payload.get("provider_active", True))
++    await db.users.update_one({"id": uid}, {"$set": {"provider_active": provider_active}})
++    await log_audit("update", "user", actor=current, resource_id=uid,
++                    detail=f"provider selection {'enabled' if provider_active else 'disabled'}")
++    return await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
++
++
+ @router.put("/users/{uid}/password")
+ async def admin_reset_password(uid: str, payload: dict, current: dict = Depends(require_roles("admin"))):
+     if uid == current["id"]:
+diff --git a/backend/server.py b/backend/server.py
+index af2f8bf..c0d5345 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -17,7 +17,7 @@
+ 
+ from routers import (auth, settings, patients, appointments, notes,
+                      billing, messages, forms, folders, dashboard, audit, telehealth, claims, invites, assistant,
+-                     users, roles, mailbox, fmp, chat)
++                     users, roles, mailbox, fmp, chat, reports)
+ 
+ app = FastAPI()
+ api_router = APIRouter(prefix="/api")
+@@ -29,7 +29,7 @@ async def health():
+ 
+ for module in (auth, settings, patients, appointments, notes,
+                billing, messages, forms, folders, dashboard, audit, telehealth, claims, invites, assistant,
+-               users, roles, mailbox, fmp, chat):
++               users, roles, mailbox, fmp, chat, reports):
+     api_router.include_router(module.router)
+ 
+ 
+diff --git a/frontend/src/App.js b/frontend/src/App.js
+index aedd9f2..79ee922 100644
+--- a/frontend/src/App.js
++++ b/frontend/src/App.js
+@@ -19,6 +19,7 @@ import PatientFolders from "./pages/PatientFolders";
+ import Messages from "./pages/Messages";
+ import PublicForm from "./pages/PublicForm";
+ import BillingReports from "./pages/BillingReports";
++import CompletedReports from "./pages/CompletedReports";
+ import Team from "./pages/Team";
+ import AcceptInvite from "./pages/AcceptInvite";
+ import AIAssistant from "./pages/AIAssistant";
+@@ -62,6 +63,7 @@ function App() {
+               <Route path="/invoices" element={<Protected tab="invoices"><Invoices /></Protected>} />
+               <Route path="/cpt-codes" element={<Protected tab="cpt"><CptCodes /></Protected>} />
+               <Route path="/reports" element={<Protected tab="reports"><BillingReports /></Protected>} />
++              <Route path="/completed-reports" element={<Protected tab="reports"><CompletedReports /></Protected>} />
+               <Route path="/forms" element={<Protected tab="forms"><Forms /></Protected>} />
+               <Route path="/folders" element={<Protected tab="folders"><PatientFolders /></Protected>} />
+               <Route path="/messages" element={<Protected tab="messages"><Messages /></Protected>} />
+diff --git a/frontend/src/components/Layout.js b/frontend/src/components/Layout.js
+index f1063ac..27123ea 100644
+--- a/frontend/src/components/Layout.js
++++ b/frontend/src/components/Layout.js
+@@ -1,14 +1,40 @@
+-import React, { useState } from "react";
++import React, { useEffect, useRef, useState } from "react";
+ import { NavLink, useNavigate } from "react-router-dom";
++import api from "../lib/api";
++import { playDing } from "../lib/sound";
+ import { useAuth } from "../context/AuthContext";
+ import { useLang } from "../context/LanguageContext";
+ import { usePrivacy } from "../context/PrivacyContext";
+ import {
+   LayoutDashboard, Users, CalendarDays, FileText, ReceiptText,
+   ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages, Hash,
+-  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff, FolderTree, Mail, DollarSign,
++  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff, FolderTree, Mail, DollarSign, ClipboardCheck,
+ } from "lucide-react";
+ 
++const UNREAD_POLL_MS = 20000;
++
++function useUnreadMessages(enabled) {
++  const [unread, setUnread] = useState(0);
++  const seen = useRef(null); // null = not yet initialized, so first load never dings
++
++  useEffect(() => {
++    if (!enabled) return;
++    let stopped = false;
++    const poll = () => api.get("/messages/unread-count").then((r) => {
++      if (stopped) return;
++      const n = r.data.unread || 0;
++      if (seen.current !== null && n > seen.current) playDing();
++      seen.current = n;
++      setUnread(n);
++    }).catch(() => {});
++    poll();
++    const id = setInterval(poll, UNREAD_POLL_MS);
++    return () => { stopped = true; clearInterval(id); };
++  }, [enabled]);
++
++  return unread;
++}
++
+ const nav = [
+   { to: "/", tab: "dashboard", key: "dashboard", icon: LayoutDashboard, end: true },
+   { to: "/patients", tab: "patients", key: "patients", icon: Users },
+@@ -18,6 +44,7 @@ const nav = [
+   { to: "/invoices", tab: "invoices", key: "invoices", icon: ReceiptText },
+   { to: "/cpt-codes", tab: "cpt", key: "cptCodes", icon: Hash },
+   { to: "/reports", tab: "reports", key: "reports", icon: BarChart3 },
++  { to: "/completed-reports", tab: "reports", key: "completedWorkReports", icon: ClipboardCheck },
+   { to: "/forms", tab: "forms", key: "forms", icon: ClipboardList },
+   { to: "/folders", tab: "folders", key: "patientFolders", icon: FolderTree },
+   { to: "/claims", tab: "claims", key: "claims", icon: FolderArchive },
+@@ -39,6 +66,7 @@ export default function Layout({ children }) {
+   const { privacy, toggle: togglePrivacy } = usePrivacy();
+   const navigate = useNavigate();
+   const [open, setOpen] = useState(false);
++  const unreadMessages = useUnreadMessages(!!user && (user.allowed_tabs || []).includes("messages"));
+ 
+   const handleLogout = () => { logout(); navigate("/login"); };
+ 
+@@ -66,7 +94,13 @@ export default function Layout({ children }) {
+                   isActive ? "bg-moneygreen-600 text-white" : "text-tan-200 hover:bg-moneygreen-700 hover:text-white"
+                 }`}>
+               <item.icon className="w-[18px] h-[18px]" />
+-              {t(item.key)}
++              <span className="flex-1">{t(item.key)}</span>
++              {item.tab === "messages" && unreadMessages > 0 && (
++                <span data-testid="nav-messages-unread-badge"
++                  className="min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
++                  {unreadMessages > 99 ? "99+" : unreadMessages}
++                </span>
++              )}
+             </NavLink>
+           ))}
+         </nav>
+diff --git a/frontend/src/i18n.js b/frontend/src/i18n.js
+index 46ec31b..8ea755a 100644
+--- a/frontend/src/i18n.js
++++ b/frontend/src/i18n.js
+@@ -22,6 +22,16 @@ export const translations = {
+     emailFormLink: "Email Form Link To (optional)", emailLinkHint: "If provided, the patient is emailed the secure form link.",
+     emailSent: "Form link emailed to patient ✓", emailNotSent: "Form saved — email not sent (email not configured).",
+     providerSignature: "Provider Signature", signedBy: "Signed by", required: "Required fields", signed: "Signed",
++    billingReview: "Admin Billing Review", billingReviewHint: "Confirms this note is ready for billing. This is an administrative check only — it is not a clinical co-signature or review of care.",
++    billingStatusUnsigned: "Unsigned", billingStatusPendingReview: "Pending Billing Review",
++    billingStatusApproved: "Approved for Billing", billingStatusNeedsCorrection: "Needs Correction",
++    allBillingStatuses: "All Billing Statuses", filterBillingStatus: "Billing Status",
++    approveForBilling: "Approve for Billing", markNeedsCorrection: "Needs Correction",
++    billingReviewedBy: "Billing reviewed by", billingReviewNoteLabel: "Correction note",
++    billingReviewNotePlaceholder: "What needs to be corrected before this can be billed?",
++    billingReviewSaved: "Billing review saved ✓", signFirstToReview: "This note must be signed by its provider before it can be billing-reviewed.",
++    reviewHistory: "Review history", historyResigned: "Re-signed", historyEditedAfterApproval: "Edited after billing approval",
++    editApprovedWarning: "This note was already approved for billing. Saving changes will clear its signature and billing approval — the provider must re-sign it, and an admin must re-approve it, before it can be billed again.",
+     noteType: "Note Type", freeText: "Free Text", soapNote: "SOAP Note",
+     letterhead: "Clinic Letterhead", clinicName: "Clinic Name", logo: "Logo",
+     usdToDop: "USD → DOP Rate (RD$ in Spanish view)",
+@@ -55,7 +65,11 @@ export const translations = {
+     newNote: "New Note", title: "Title", content: "Content", aiSummarize: "AI Summarize",
+     summarizing: "Summarizing...", aiSummary: "AI Summary", author: "Author",
+     newInvoice: "New Invoice", cptCode: "CPT Code", description: "Description", amount: "Amount",
+-    quantity: "Qty", total: "Total", addItem: "Add Item", paid: "Paid", unpaid: "Unpaid",
++    quantity: "Qty", total: "Total", addItem: "Add Item", paid: "Paid", unpaid: "Unpaid", void: "Void",
++    diagnosis: "Diagnosis", downloadPdf: "Download PDF", records: "records",
++    today: "Today", thisWeek: "This Week", thisMonth: "This Month", customRange: "Custom",
++    completedWorkReports: "Completed Work Reports", completedWorkReportsSubtitle: "Accurate reports of completed invoices, progress notes, and claim packets",
++    completedInvoicesReport: "Completed Invoices Report", completedNotesReport: "Completed Progress Notes Report", completedPacketsReport: "Completed Claim Packets Report",
+     markPaid: "Mark Paid", items: "Items",
+     dailyNote: "Daily Progress Note", dailyNoteNoAi: "Progress Note sin AI", reasonForVisit: "Reason For Visit", referringProvider: "Referring Provider",
+     selectReferring: "Select Referring", visitDate: "Visit Date", notesLabel: "Notes", selectProvider: "Select Provider", exequaturNo: "Exequatur No.", exequaturPlaceholder: "Provider exequatur number",
+@@ -75,6 +89,7 @@ export const translations = {
+     received: "Received", pending: "Pending", markReceived: "Mark Received",
+     newMessage: "New Message", to: "To", subject: "Subject", body: "Message", send: "Send",
+     from: "From", inbox: "Inbox", noData: "No records yet.",
++    unread: "unread", you: "You", readStatus: "Read", sentStatus: "Sent",
+     mailbox: "Mailbox", mailboxSubtitle: "Send and receive email from your clinic mailbox",
+     refresh: "Refresh", connection: "Connection", compose: "Compose", loading: "Loading",
+     mailboxNotConnected: "Mailbox not connected", mailboxConnectHint: "Connect your clinic mailbox (IMAP/SMTP) to send and receive email here.",
+@@ -124,9 +139,11 @@ export const translations = {
+     providerDiploma: "Diploma", providerExequatur: "Exequatur", onFile: "On file", notUploaded: "Not uploaded", replace: "Replace", upload: "Upload",
+     packetContents: "Packet Contents", attachExistingForm: "Attach Existing Form", attachInvoice: "Attach Invoice", attachNote: "Attach Progress Note",
+     uploadDocument: "Upload Document", downloadMergedPdf: "Download Merged PDF", itemSource: "Source",
+-    src_form: "Form", src_invoice: "Invoice", src_upload: "Upload", src_note: "Progress Note", noItemsYet: "No documents in this packet yet.",
++    src_form: "Form", src_invoice: "Invoice", src_upload: "Upload", src_note: "Progress Note", src_claim_packet: "FMP Claim Packet", noItemsYet: "No documents in this packet yet.",
+     buildFromDate: "Build from Date", buildFromDateTitle: "Build Claim from Date",
+-    buildFromDateHint: "Pick a patient and a date to auto-pull that day's invoice and progress note into a new FMP Claim packet.",
++    buildFromDateHint: "Pick a date of service first, then choose from the patients with a completed visit that day to auto-pull that day's invoice and progress note into a new FMP Claim packet.",
++    selectDateFirst: "Select a date first", noCompletedVisitsOnDate: "No completed visits on this date",
++    noCompletedVisitsOnDateHint: "No patient has a completed appointment on this date. Cancelled and no-show visits are excluded.",
+     build: "Build Packet", serviceDate: "Date",
+     selectForm: "Select a form…", selectInvoice: "Select an invoice…", selectNote: "Select a progress note…", addToPacket: "Add to Packet",
+     removeFromPacket: "Remove", backToPackets: "Back to Packets", packetSaved: "Packet saved ✓",
+@@ -142,6 +159,11 @@ export const translations = {
+     markReady: "Mark as Ready", markNotReady: "Mark Not Ready", folderReady: "Ready", folderReadyToast: "Folder marked as ready ✓", folderNotReadyToast: "Folder marked as not ready",
+     attachToFolder: "Attach Existing Form", subfolderCreated: "Folder created ✓", movedOk: "Item moved ✓",
+     itemSaved: "Item saved ✓", openFolder: "Open Folder", noDocsInFolder: "No documents in this folder yet.",
++    servicingStatus: "Status", servicingStatusHint: "Internal only — never shown on documents sent to the VA. Marking this does not submit anything.",
++    packetComplete: "Complete", packetCompleteHint: "This packet has been reviewed, contains all required documents, and is ready for submission.",
++    needsServicing: "Needs Servicing", notSetYet: "Not set", editServicingStatus: "Set status",
++    servicingNoteLabel: "What needs to be corrected", servicingNotePlaceholder: "Describe the missing documents or corrections needed...",
++    statusSaved: "Status saved ✓",
+     confirmDeleteFolder: "Delete this folder? Documents inside will be moved to Unfiled.",
+     rootFolder: "Unfiled", searchPatients: "Search patients…", movingItem: "Moving item",
+     sendByEmail: "Send by Email", emailForm: "Email Form", recipientEmail: "Recipient Email",
+@@ -165,6 +187,9 @@ export const translations = {
+     editRoleTemplate: "Edit Role Access", applyToExisting: "Apply to all existing users of this role",
+     suspended: "Suspended", suspend: "Suspend access", restore: "Restore access",
+     accessSuspended: "Access suspended", accessRestored: "Access restored",
++    providerSelectable: "Provider Dropdowns", selectable: "Selectable", notSelectable: "Not Selectable",
++    makeSelectable: "Show in provider dropdowns", makeNotSelectable: "Hide from provider dropdowns",
++    providerActivated: "Now shows in provider dropdowns ✓", providerDeactivated: "Hidden from provider dropdowns ✓",
+     confirmSuspend: "Suspend this user's access to the site? They will be logged out and blocked from signing in.",
+     roleTemplateSaved: "Role access saved ✓",
+     changePassword: "Change Password", mustChangeTitle: "Set a new password",
+@@ -243,6 +268,16 @@ export const translations = {
+     emailFormLink: "Enviar Enlace por Correo A (opcional)", emailLinkHint: "Si se indica, se envía al paciente el enlace seguro del formulario.",
+     emailSent: "Enlace del formulario enviado al paciente ✓", emailNotSent: "Formulario guardado — correo no enviado (no configurado).",
+     providerSignature: "Firma del Proveedor", signedBy: "Firmado por", required: "Campos obligatorios", signed: "Firmado",
++    billingReview: "Revisión Administrativa de Facturación", billingReviewHint: "Confirma que esta nota está lista para facturar. Es solo una verificación administrativa — no es una co-firma clínica ni una revisión del cuidado brindado.",
++    billingStatusUnsigned: "Sin firmar", billingStatusPendingReview: "Pendiente de Revisión de Facturación",
++    billingStatusApproved: "Aprobada para Facturación", billingStatusNeedsCorrection: "Requiere Corrección",
++    allBillingStatuses: "Todos los Estados de Facturación", filterBillingStatus: "Estado de Facturación",
++    approveForBilling: "Aprobar para Facturación", markNeedsCorrection: "Requiere Corrección",
++    billingReviewedBy: "Revisión de facturación por", billingReviewNoteLabel: "Nota de corrección",
++    billingReviewNotePlaceholder: "¿Qué debe corregirse antes de poder facturar esto?",
++    billingReviewSaved: "Revisión de facturación guardada ✓", signFirstToReview: "Esta nota debe ser firmada por su proveedor antes de poder revisarla para facturación.",
++    reviewHistory: "Historial de revisión", historyResigned: "Vuelta a firmar", historyEditedAfterApproval: "Editada después de la aprobación de facturación",
++    editApprovedWarning: "Esta nota ya fue aprobada para facturación. Guardar cambios borrará su firma y aprobación — el proveedor deberá firmarla de nuevo y un administrador deberá aprobarla nuevamente antes de poder facturarla.",
+     noteType: "Tipo de Nota", freeText: "Texto Libre", soapNote: "Nota SOAP",
+     letterhead: "Membrete de la Clínica", clinicName: "Nombre de la Clínica", logo: "Logo",
+     usdToDop: "Tasa USD → DOP (RD$ en vista en español)",
+@@ -276,7 +311,11 @@ export const translations = {
+     newNote: "Nueva Nota", title: "Título", content: "Contenido", aiSummarize: "Resumir con IA",
+     summarizing: "Resumiendo...", aiSummary: "Resumen de IA", author: "Autor",
+     newInvoice: "Nueva Factura", cptCode: "Código CPT", description: "Descripción", amount: "Monto",
+-    quantity: "Cant.", total: "Total", addItem: "Agregar Ítem", paid: "Pagada", unpaid: "Pendiente",
++    quantity: "Cant.", total: "Total", addItem: "Agregar Ítem", paid: "Pagada", unpaid: "Pendiente", void: "Anulada",
++    diagnosis: "Diagnóstico", downloadPdf: "Descargar PDF", records: "registros",
++    today: "Hoy", thisWeek: "Esta Semana", thisMonth: "Este Mes", customRange: "Personalizado",
++    completedWorkReports: "Informes de Trabajo Completado", completedWorkReportsSubtitle: "Informes precisos de facturas, notas de progreso y paquetes de reclamo completados",
++    completedInvoicesReport: "Informe de Facturas Completadas", completedNotesReport: "Informe de Notas de Progreso Completadas", completedPacketsReport: "Informe de Paquetes de Reclamo Completados",
+     markPaid: "Marcar Pagada", items: "Ítems",
+     dailyNote: "Nota de Progreso Diaria", dailyNoteNoAi: "Nota de Progreso sin AI", reasonForVisit: "Motivo de Visita", referringProvider: "Proveedor Referente",
+     selectReferring: "Seleccionar Referente", visitDate: "Fecha de Visita", notesLabel: "Notas", selectProvider: "Seleccionar Proveedor", exequaturNo: "No. de Exequátur", exequaturPlaceholder: "Número de exequátur del proveedor",
+@@ -296,6 +335,7 @@ export const translations = {
+     received: "Recibido", pending: "Pendiente", markReceived: "Marcar Recibido",
+     newMessage: "Nuevo Mensaje", to: "Para", subject: "Asunto", body: "Mensaje", send: "Enviar",
+     from: "De", inbox: "Bandeja", noData: "Aún no hay registros.",
++    unread: "sin leer", you: "Tú", readStatus: "Leído", sentStatus: "Enviado",
+     mailbox: "Correo", mailboxSubtitle: "Envíe y reciba correos desde el buzón de la clínica",
+     refresh: "Actualizar", connection: "Conexión", compose: "Redactar", loading: "Cargando",
+     mailboxNotConnected: "Buzón no conectado", mailboxConnectHint: "Conecte el buzón de la clínica (IMAP/SMTP) para enviar y recibir correos aquí.",
+@@ -345,9 +385,11 @@ export const translations = {
+     providerDiploma: "Diploma", providerExequatur: "Exequátur", onFile: "Archivado", notUploaded: "No subido", replace: "Reemplazar", upload: "Subir",
+     packetContents: "Contenido del Paquete", attachExistingForm: "Adjuntar Formulario Existente", attachInvoice: "Adjuntar Factura", attachNote: "Adjuntar Nota de Progreso",
+     uploadDocument: "Subir Documento", downloadMergedPdf: "Descargar PDF Combinado", itemSource: "Origen",
+-    src_form: "Formulario", src_invoice: "Factura", src_upload: "Subida", src_note: "Nota de Progreso", noItemsYet: "Aún no hay documentos en este paquete.",
++    src_form: "Formulario", src_invoice: "Factura", src_upload: "Subida", src_note: "Nota de Progreso", src_claim_packet: "Paquete de Reclamo FMP", noItemsYet: "Aún no hay documentos en este paquete.",
+     buildFromDate: "Crear por Fecha", buildFromDateTitle: "Crear Reclamación por Fecha",
+-    buildFromDateHint: "Seleccione un paciente y una fecha para agregar automáticamente la factura y la nota de progreso de ese día a un nuevo paquete FMP.",
++    buildFromDateHint: "Seleccione primero una fecha de servicio y luego elija entre los pacientes con una visita completada ese día para agregar automáticamente la factura y la nota de progreso a un nuevo paquete FMP.",
++    selectDateFirst: "Seleccione una fecha primero", noCompletedVisitsOnDate: "No hay visitas completadas en esta fecha",
++    noCompletedVisitsOnDateHint: "Ningún paciente tiene una cita completada en esta fecha. Las visitas canceladas y las ausencias quedan excluidas.",
+     build: "Crear Paquete", serviceDate: "Fecha",
+     selectForm: "Seleccione un formulario…", selectInvoice: "Seleccione una factura…", selectNote: "Seleccione una nota de progreso…", addToPacket: "Agregar al Paquete",
+     removeFromPacket: "Quitar", backToPackets: "Volver a Paquetes", packetSaved: "Paquete guardado ✓",
+@@ -363,6 +405,11 @@ export const translations = {
+     markReady: "Marcar como Lista", markNotReady: "Marcar como No Lista", folderReady: "Lista", folderReadyToast: "Carpeta marcada como lista ✓", folderNotReadyToast: "Carpeta marcada como no lista",
+     attachToFolder: "Adjuntar Formulario Existente", subfolderCreated: "Carpeta creada ✓", movedOk: "Documento movido ✓",
+     itemSaved: "Documento guardado ✓", openFolder: "Abrir Carpeta", noDocsInFolder: "Aún no hay documentos en esta carpeta.",
++    servicingStatus: "Estado", servicingStatusHint: "Solo interno — nunca se muestra en documentos enviados al VA. Marcar esto no envía nada.",
++    packetComplete: "Completo", packetCompleteHint: "Este paquete ha sido revisado, contiene todos los documentos requeridos y está listo para presentarse.",
++    needsServicing: "Requiere Atención", notSetYet: "Sin definir", editServicingStatus: "Definir estado",
++    servicingNoteLabel: "Qué debe corregirse", servicingNotePlaceholder: "Describa los documentos faltantes o correcciones necesarias...",
++    statusSaved: "Estado guardado ✓",
+     confirmDeleteFolder: "¿Eliminar esta carpeta? Los documentos dentro se moverán a Sin Archivar.",
+     rootFolder: "Sin Archivar", searchPatients: "Buscar pacientes…", movingItem: "Moviendo documento",
+     sendByEmail: "Enviar por Correo", emailForm: "Enviar Formulario", recipientEmail: "Correo del Destinatario",
+@@ -386,6 +433,9 @@ export const translations = {
+     editRoleTemplate: "Editar Acceso del Rol", applyToExisting: "Aplicar a todos los usuarios existentes de este rol",
+     suspended: "Suspendido", suspend: "Suspender acceso", restore: "Restaurar acceso",
+     accessSuspended: "Acceso suspendido", accessRestored: "Acceso restaurado",
++    providerSelectable: "Listas de Proveedores", selectable: "Seleccionable", notSelectable: "No Seleccionable",
++    makeSelectable: "Mostrar en listas de proveedores", makeNotSelectable: "Ocultar de listas de proveedores",
++    providerActivated: "Ahora aparece en listas de proveedores ✓", providerDeactivated: "Oculto de listas de proveedores ✓",
+     confirmSuspend: "¿Suspender el acceso de este usuario al sitio? Se cerrará su sesión y no podrá iniciar sesión.",
+     roleTemplateSaved: "Acceso del rol guardado ✓",
+     changePassword: "Cambiar Contraseña", mustChangeTitle: "Establezca una nueva contraseña",
+diff --git a/frontend/src/lib/sound.js b/frontend/src/lib/sound.js
+new file mode 100644
+index 0000000..4033d8c
+--- /dev/null
++++ b/frontend/src/lib/sound.js
+@@ -0,0 +1,26 @@
++// Short two-tone notification "ding" using the Web Audio API — no audio
++// asset needed. Safe no-op if the browser blocks audio before user gesture.
++export function playDing() {
++  try {
++    const Ctx = window.AudioContext || window.webkitAudioContext;
++    if (!Ctx) return;
++    const ctx = new Ctx();
++    const now = ctx.currentTime;
++    [880, 1320].forEach((freq, i) => {
++      const osc = ctx.createOscillator();
++      const gain = ctx.createGain();
++      osc.type = "sine";
++      osc.frequency.value = freq;
++      const start = now + i * 0.12;
++      gain.gain.setValueAtTime(0, start);
++      gain.gain.linearRampToValueAtTime(0.18, start + 0.015);
++      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.28);
++      osc.connect(gain).connect(ctx.destination);
++      osc.start(start);
++      osc.stop(start + 0.3);
++    });
++    setTimeout(() => ctx.close().catch(() => {}), 900);
++  } catch {
++    // ignore — notification sound is a nicety, never block the app on it
++  }
++}
+diff --git a/frontend/src/pages/Appointments.js b/frontend/src/pages/Appointments.js
+index 71a8222..ff34e51 100644
+--- a/frontend/src/pages/Appointments.js
++++ b/frontend/src/pages/Appointments.js
+@@ -39,7 +39,9 @@ export default function Appointments() {
+   useEffect(() => {
+     load();
+     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
+-    api.get("/users").then((r) => setStaff(r.data.filter((u) => ["doctor", "nurse", "psychologist", "receptionist", "admin"].includes(u.role)))).catch(() => {});
++    api.get("/users").then((r) => setStaff(r.data.filter((u) =>
++      ["doctor", "nurse", "psychologist", "receptionist", "admin"].includes(u.role) &&
++      (!["doctor", "nurse", "psychologist"].includes(u.role) || u.provider_active !== false)))).catch(() => {});
+   }, []);
+ 
+   const providers = useMemo(
+diff --git a/frontend/src/pages/Claims.js b/frontend/src/pages/Claims.js
+index ce339a6..4455880 100644
+--- a/frontend/src/pages/Claims.js
++++ b/frontend/src/pages/Claims.js
+@@ -39,6 +39,8 @@ export default function Claims() {
+   const fileRef = useRef(null);
+   const [fromDateOpen, setFromDateOpen] = useState(false);
+   const [fromDate, setFromDate] = useState({ patient_id: "", date: "" });
++  const [datePatients, setDatePatients] = useState([]);
++  const [datePatientsLoading, setDatePatientsLoading] = useState(false);
+   const [building, setBuilding] = useState(false);
+   const [preview, setPreview] = useState(null);
+   const [renameItem, setRenameItem] = useState(null);
+@@ -108,6 +110,25 @@ export default function Claims() {
+     catch (e) { toast.error(apiErr(e)); }
+   };
+ 
++  const pickFromDateDate = async (e) => {
++    const date = e.target.value;
++    setFromDate({ patient_id: "", date });
++    setDatePatients([]);
++    if (!date) return;
++    setDatePatientsLoading(true);
++    try {
++      const r = await api.get("/claims/options/patients-by-date", { params: { date } });
++      setDatePatients(r.data);
++    } catch (err) { toast.error(apiErr(err)); }
++    finally { setDatePatientsLoading(false); }
++  };
++
++  const closeFromDate = () => {
++    setFromDateOpen(false);
++    setFromDate({ patient_id: "", date: "" });
++    setDatePatients([]);
++  };
++
+   const buildFromDate = async (e) => {
+     e.preventDefault();
+     if (!fromDate.patient_id || !fromDate.date) return;
+@@ -115,8 +136,7 @@ export default function Claims() {
+     try {
+       const r = await api.post("/claims/from-date", fromDate);
+       toast.success(t("packetSaved"));
+-      setFromDateOpen(false);
+-      setFromDate({ patient_id: "", date: "" });
++      closeFromDate();
+       load();
+       setSelected(r.data);
+     } catch (err) { toast.error(apiErr(err)); }
+@@ -402,7 +422,7 @@ export default function Claims() {
+       <PageHeader title={t("claims")} subtitle={t("claimsSubtitle")}
+         action={
+           <div className="flex flex-wrap gap-2">
+-            <Btn variant="outline" onClick={() => setFromDateOpen(true)} data-testid="build-from-date-btn"><CalendarClock className="w-4 h-4" />{t("buildFromDate")}</Btn>
++            <Btn variant="outline" onClick={() => { setFromDateOpen(true); setFromDate({ patient_id: "", date: "" }); setDatePatients([]); }} data-testid="build-from-date-btn"><CalendarClock className="w-4 h-4" />{t("buildFromDate")}</Btn>
+             <Btn onClick={openNew} data-testid="new-claim-btn"><FilePlus className="w-4 h-4" />{t("newClaim")}</Btn>
+           </div>} />
+ 
+@@ -452,20 +472,27 @@ export default function Claims() {
+         form={form} set={set} save={save} patients={patients} t={t}
+         setClaimPatient={setClaimPatient} setClaimDate={setClaimDate} />
+ 
+-      <Modal open={fromDateOpen} onClose={() => setFromDateOpen(false)} title={t("buildFromDateTitle")}>
++      <Modal open={fromDateOpen} onClose={closeFromDate} title={t("buildFromDateTitle")}>
+         <form onSubmit={buildFromDate} className="space-y-4">
+           <p className="text-sm text-stone-500">{t("buildFromDateHint")}</p>
++          <Field label={t("serviceDate")}>
++            <input required type="date" value={fromDate.date} onChange={pickFromDateDate} className={inputCls} data-testid="fd-date" />
++          </Field>
+           <Field label={t("patient")}>
+-            <ManagedSelect listKey="patients" required value={fromDate.patient_id} onChange={(e) => setFromDate((f) => ({ ...f, patient_id: e.target.value }))} className={inputCls} data-testid="fd-patient">
+-              <option value="">{t("selectPatient")}</option>
+-              {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
++            <ManagedSelect listKey="patients" required disabled={!fromDate.date || datePatientsLoading}
++              value={fromDate.patient_id} onChange={(e) => setFromDate((f) => ({ ...f, patient_id: e.target.value }))}
++              className={inputCls} data-testid="fd-patient">
++              <option value="">
++                {!fromDate.date ? t("selectDateFirst") : datePatientsLoading ? t("loading") : datePatients.length === 0 ? t("noCompletedVisitsOnDate") : t("selectPatient")}
++              </option>
++              {datePatients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+             </ManagedSelect>
+-          </Field>
+-          <Field label={t("serviceDate")}>
+-            <input required type="date" value={fromDate.date} onChange={(e) => setFromDate((f) => ({ ...f, date: e.target.value }))} className={inputCls} data-testid="fd-date" />
++            {fromDate.date && !datePatientsLoading && datePatients.length === 0 && (
++              <p className="text-xs text-stone-500 mt-1.5">{t("noCompletedVisitsOnDateHint")}</p>
++            )}
+           </Field>
+           <div className="flex justify-end gap-2 pt-2">
+-            <Btn variant="outline" type="button" onClick={() => setFromDateOpen(false)}>{t("cancel")}</Btn>
++            <Btn variant="outline" type="button" onClick={closeFromDate}>{t("cancel")}</Btn>
+             <Btn type="submit" disabled={building || !fromDate.patient_id || !fromDate.date} data-testid="fd-build-btn">{t("build")}</Btn>
+           </div>
+         </form>
+diff --git a/frontend/src/pages/CompletedReports.js b/frontend/src/pages/CompletedReports.js
+new file mode 100644
+index 0000000..44e727d
+--- /dev/null
++++ b/frontend/src/pages/CompletedReports.js
+@@ -0,0 +1,195 @@
++import React, { useEffect, useState } from "react";
++import api, { apiErr } from "../lib/api";
++import { useLang } from "../context/LanguageContext";
++import { Private } from "../context/PrivacyContext";
++import { PageHeader, Card, Btn, Badge, Empty, inputCls } from "../components/ui-kit";
++import { ManagedSelect } from "../components/ManagedSelect";
++import { printSection } from "../lib/print";
++import { fmtDate } from "../lib/date";
++import { ReceiptText, FileText, FolderArchive, Download, Printer } from "lucide-react";
++import { toast } from "sonner";
++
++const TABS = [
++  { key: "invoices", path: "completed-invoices", icon: ReceiptText },
++  { key: "notes", path: "completed-notes", icon: FileText },
++  { key: "packets", path: "completed-packets", icon: FolderArchive },
++];
++
++const today = () => new Date().toISOString().slice(0, 10);
++const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
++
++const presets = {
++  day: () => ({ start: today(), end: today() }),
++  week: () => ({ start: daysAgo(7), end: today() }),
++  month: () => ({ start: daysAgo(30), end: today() }),
++};
++
++export default function CompletedReports() {
++  const { t } = useLang();
++  const [tab, setTab] = useState("invoices");
++  const [patients, setPatients] = useState([]);
++  const [patientId, setPatientId] = useState("");
++  const [preset, setPreset] = useState("month");
++  const [start, setStart] = useState(daysAgo(30));
++  const [end, setEnd] = useState(today());
++  const [status, setStatus] = useState("");
++  const [rows, setRows] = useState([]);
++  const [loading, setLoading] = useState(false);
++
++  useEffect(() => { api.get("/patients").then((r) => setPatients(r.data)).catch(() => {}); }, []);
++
++  const applyPreset = (p) => {
++    setPreset(p);
++    if (p !== "custom") { const r = presets[p](); setStart(r.start); setEnd(r.end); }
++  };
++
++  const currentTab = TABS.find((x) => x.key === tab);
++  const statusOptions = tab === "invoices"
++    ? [["paid", t("paid")], ["all", t("allBillingStatuses")], ["unpaid", t("unpaid")], ["denied", t("denied")], ["void", t("void")]]
++    : tab === "packets"
++    ? [["complete", t("packetComplete")], ["all", t("allBillingStatuses")], ["needs_servicing", t("needsServicing")], ["not_set", t("notSetYet")]]
++    : null;
++
++  useEffect(() => { if (statusOptions) setStatus(statusOptions[0][0]); else setStatus(""); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
++
++  const load = async () => {
++    setLoading(true);
++    try {
++      const params = { start, end };
++      if (patientId) params.patient_id = patientId;
++      if (status) params.status = status;
++      const r = await api.get(`/reports/${currentTab.path}`, { params });
++      setRows(r.data);
++    } catch (err) { toast.error(apiErr(err)); }
++    finally { setLoading(false); }
++  };
++
++  useEffect(() => { load(); }, [tab, start, end, patientId, status]); // eslint-disable-line react-hooks/exhaustive-deps
++
++  const downloadPdf = async () => {
++    try {
++      const params = { start, end };
++      if (patientId) params.patient_id = patientId;
++      if (status) params.status = status;
++      const r = await api.get(`/reports/${currentTab.path}/pdf`, { params, responseType: "blob" });
++      const url = window.URL.createObjectURL(r.data);
++      const a = document.createElement("a");
++      a.href = url; a.download = `${currentTab.path}_report.pdf`;
++      document.body.appendChild(a); a.click(); a.remove();
++      window.URL.revokeObjectURL(url);
++    } catch (err) { toast.error(apiErr(err)); }
++  };
++
++  const patientName = patients.find((p) => p.id === patientId);
++  const title = {
++    invoices: t("completedInvoicesReport"), notes: t("completedNotesReport"), packets: t("completedPacketsReport"),
++  }[tab];
++
++  const billingStatusLabel = {
++    unsigned: t("billingStatusUnsigned"), pending_review: t("billingStatusPendingReview"),
++    approved: t("billingStatusApproved"), needs_correction: t("billingStatusNeedsCorrection"),
++  };
++  const servicingLabel = { complete: t("packetComplete"), needs_servicing: t("needsServicing"), not_set: t("notSetYet") };
++
++  return (
++    <div>
++      <PageHeader title={t("completedWorkReports")} subtitle={t("completedWorkReportsSubtitle")} />
++
++      <div className="flex gap-2 mb-5">
++        {TABS.map((tb) => (
++          <button key={tb.key} onClick={() => setTab(tb.key)} data-testid={`report-tab-${tb.key}`}
++            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-colors ${tab === tb.key ? "bg-moneygreen-600 text-white" : "bg-white border border-border text-stone-600 hover:bg-tan-50"}`}>
++            <tb.icon className="w-4 h-4" />{t(tb.key === "invoices" ? "invoices" : tb.key === "notes" ? "notes" : "claims")}
++          </button>
++        ))}
++      </div>
++
++      <Card className="p-4 mb-5">
++        <div className="flex flex-wrap items-end gap-3">
++          <div>
++            <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("patient")}</label>
++            <ManagedSelect listKey="patients" value={patientId} onChange={(e) => setPatientId(e.target.value)}
++              className={`${inputCls} mt-1.5`} data-testid="report-patient-filter">
++              <option value="">{t("allPatients")}</option>
++              {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
++            </ManagedSelect>
++          </div>
++          <div>
++            <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("dateRange")}</label>
++            <div className="flex gap-1 mt-1.5">
++              {["day", "week", "month", "custom"].map((p) => (
++                <button key={p} onClick={() => applyPreset(p)} data-testid={`report-preset-${p}`}
++                  className={`px-2.5 py-1.5 rounded-md text-xs font-semibold border ${preset === p ? "bg-moneygreen-600 text-white border-moneygreen-600" : "border-border text-stone-600 hover:bg-tan-50"}`}>
++                  {t(p === "day" ? "today" : p === "week" ? "thisWeek" : p === "month" ? "thisMonth" : "customRange")}
++                </button>
++              ))}
++            </div>
++          </div>
++          <div>
++            <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("from")}</label>
++            <input type="date" value={start} onChange={(e) => { setStart(e.target.value); setPreset("custom"); }} className={`${inputCls} mt-1.5`} data-testid="report-start-date" />
++          </div>
++          <div>
++            <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("to")}</label>
++            <input type="date" value={end} onChange={(e) => { setEnd(e.target.value); setPreset("custom"); }} className={`${inputCls} mt-1.5`} data-testid="report-end-date" />
++          </div>
++          {statusOptions && (
++            <div>
++              <label className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("status")}</label>
++              <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${inputCls} mt-1.5`} data-testid="report-status-filter">
++                {statusOptions.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
++              </select>
++            </div>
++          )}
++          <div className="flex gap-2 ml-auto">
++            <Btn variant="outline" onClick={downloadPdf} data-testid="report-download-pdf"><Download className="w-4 h-4" />{t("downloadPdf")}</Btn>
++            <Btn variant="outline" onClick={() => printSection("report-table")} data-testid="report-print"><Printer className="w-4 h-4" />{t("print")}</Btn>
++          </div>
++        </div>
++      </Card>
++
++      <Card className="overflow-hidden">
++        <div id="report-table" className="p-5">
++          <h3 className="font-heading text-lg font-bold text-moneygreen-800 mb-1">{title}</h3>
++          <p className="text-xs text-stone-500 mb-4">
++            {fmtDate(start)} – {fmtDate(end)} · {patientName ? `${patientName.first_name} ${patientName.last_name}` : t("allPatients")} · {rows.length} {t("records")}
++          </p>
++          {loading ? <p className="text-sm text-stone-400 py-6 text-center">…</p> : rows.length === 0 ? <Empty text={t("noData")} /> : (
++            <div className="overflow-x-auto">
++              <table className="w-full text-sm">
++                <thead>
++                  <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
++                    <th className="py-2 pr-3">{t("patient")}</th>
++                    <th className="py-2 pr-3">{t("dateOfService")}</th>
++                    {tab !== "packets" && <th className="py-2 pr-3">{t("diagnosis")}</th>}
++                    {tab === "invoices" && <><th className="py-2 pr-3">{t("cptCode")}</th><th className="py-2 pr-3 text-right">{t("amount")}</th></>}
++                    {tab === "notes" && <th className="py-2 pr-3">{t("provider")}</th>}
++                    {tab === "packets" && <th className="py-2 pr-3">{t("filename")}</th>}
++                    <th className="py-2 pr-3">{t("status")}</th>
++                  </tr>
++                </thead>
++                <tbody>
++                  {rows.map((r, i) => (
++                    <tr key={r.invoice_id || r.note_id || r.item_id} data-testid={`report-row-${i}`} className="border-b border-border/60">
++                      <td className="py-2 pr-3 font-semibold text-moneygreen-800"><Private value={r.patient_name} /></td>
++                      <td className="py-2 pr-3 text-stone-600">{fmtDate(r.service_date || r.visit_date)}</td>
++                      {tab !== "packets" && <td className="py-2 pr-3 text-stone-600">{r.diagnosis || "—"}</td>}
++                      {tab === "invoices" && <><td className="py-2 pr-3 text-stone-600 font-mono text-xs">{r.cpt_code || "—"}</td><td className="py-2 pr-3 text-right font-semibold text-moneygreen-800">${(r.amount || 0).toFixed(2)}</td></>}
++                      {tab === "notes" && <td className="py-2 pr-3 text-stone-600">{r.provider || "—"}</td>}
++                      {tab === "packets" && <td className="py-2 pr-3 text-stone-500 text-xs">{r.filename}</td>}
++                      <td className="py-2 pr-3">
++                        {tab === "invoices" && <Badge tone={r.status === "paid" ? "green" : r.status === "void" ? "gray" : "amber"}>{r.status}</Badge>}
++                        {tab === "notes" && <Badge tone={r.billing_review_status === "approved" ? "green" : r.billing_review_status === "needs_correction" ? "red" : "amber"}>{billingStatusLabel[r.billing_review_status] || r.billing_review_status}</Badge>}
++                        {tab === "packets" && <Badge tone={r.servicing_status === "complete" ? "green" : r.servicing_status === "needs_servicing" ? "red" : "gray"}>{servicingLabel[r.servicing_status] || r.servicing_status}</Badge>}
++                      </td>
++                    </tr>
++                  ))}
++                </tbody>
++              </table>
++            </div>
++          )}
++        </div>
++      </Card>
++    </div>
++  );
++}
+diff --git a/frontend/src/pages/Forms.js b/frontend/src/pages/Forms.js
+index a944ebd..816c2d3 100644
+--- a/frontend/src/pages/Forms.js
++++ b/frontend/src/pages/Forms.js
+@@ -11,7 +11,8 @@ import { Letterhead } from "../components/Letterhead";
+ import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown, FileText, FileSpreadsheet, MessageCircle, Send, Trash2, Mail, FolderInput, Pencil } from "lucide-react";
+ import { toast } from "sonner";
+ 
+-const types = ["Intake", "Consent", "Medical History", "Insurance", "Referral"];
++const types = ["Provider Exequatur", "Provider Diploma", "Disability Breakdown Letter"];
++const PROVIDER_FORM_TYPES = ["Provider Exequatur", "Provider Diploma"];
+ const toneMap = { sent: "amber", pending: "amber", received: "green" };
+ 
+ const isSigned = (f) => !!f.responses && Object.values(f.responses).some(
+@@ -24,13 +25,14 @@ export default function Forms() {
+   const statusFilter = params.get("status");
+   const [forms, setForms] = useState([]);
+   const [patients, setPatients] = useState([]);
++  const [providers, setProviders] = useState([]);
+   const [open, setOpen] = useState(false);
+   const [uploadOpen, setUploadOpen] = useState(false);
+   const [uploading, setUploading] = useState(false);
+   const [viewing, setViewing] = useState(null);
+   const [settings, setSettings] = useState(null);
+-  const [form, setForm] = useState({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "", recipient_email: "" });
+-  const [upl, setUpl] = useState({ title: "", form_type: "Uploaded", patient_id: "", file: null });
++  const [form, setForm] = useState({ patient_id: "", provider_id: "", title: "", form_type: types[0], status: "sent", external_url: "", recipient_email: "" });
++  const [upl, setUpl] = useState({ title: "", form_type: "Uploaded", patient_id: "", provider_id: "", file: null });
+   const [emailModal, setEmailModal] = useState(null);
+   const [folderModal, setFolderModal] = useState(null);
+   const [folderSubs, setFolderSubs] = useState([]);
+@@ -42,6 +44,8 @@ export default function Forms() {
+     load();
+     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
+     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
++    api.get("/users").then((r) => setProviders(r.data.filter((u) =>
++      ["doctor", "nurse", "psychologist", "admin"].includes(u.role) && u.provider_active !== false))).catch(() => {});
+   }, []);
+ 
+   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+@@ -104,7 +108,7 @@ export default function Forms() {
+       if (res.data.email_sent) toast.success(t("emailSent"));
+       else if (form.recipient_email) toast.info(t("emailNotSent"));
+       else toast.success(t("save") + " ✓");
+-      setOpen(false); setForm({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "", recipient_email: "" }); load();
++      setOpen(false); setForm({ patient_id: "", provider_id: "", title: "", form_type: types[0], status: "sent", external_url: "", recipient_email: "" }); load();
+     } catch (err) { toast.error(apiErr(err)); }
+   };
+ 
+@@ -124,9 +128,10 @@ export default function Forms() {
+       fd.append("title", upl.title);
+       fd.append("form_type", upl.form_type);
+       fd.append("patient_id", upl.patient_id);
++      fd.append("provider_id", upl.provider_id);
+       await api.post("/forms/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+       toast.success(t("uploadForm") + " ✓");
+-      setUploadOpen(false); setUpl({ title: "", form_type: "Uploaded", patient_id: "", file: null }); load();
++      setUploadOpen(false); setUpl({ title: "", form_type: "Uploaded", patient_id: "", provider_id: "", file: null }); load();
+     } catch (err) { toast.error(apiErr(err)); }
+     finally { setUploading(false); }
+   };
+@@ -146,8 +151,8 @@ export default function Forms() {
+ 
+   const openForm = (f) => {
+     setFormModal({
+-      id: f.id, title: f.title || "", form_type: f.form_type || "Intake", status: f.status || "sent",
+-      patient_id: f.patient_id || "", external_url: f.external_url || "", recipient_email: f.recipient_email || "",
++      id: f.id, title: f.title || "", form_type: f.form_type || types[0], status: f.status || "sent",
++      patient_id: f.patient_id || "", provider_id: f.provider_id || "", external_url: f.external_url || "", recipient_email: f.recipient_email || "",
+       responses: f.responses ? { ...f.responses } : null, template: f.template || [],
+       patient_name: f.patient_name, attachment: f.attachment, public_token: f.public_token,
+     });
+@@ -158,7 +163,7 @@ export default function Forms() {
+     try {
+       await api.put(`/forms/${m.id}`, {
+         title: m.title, form_type: m.form_type, status: m.status,
+-        patient_id: m.patient_id || null, external_url: m.external_url || "",
++        patient_id: m.patient_id || null, provider_id: m.provider_id || null, external_url: m.external_url || "",
+         recipient_email: m.recipient_email || null, responses: m.responses || undefined,
+       });
+       toast.success(t("saveForm") + " ✓"); setFormModal(null); load();
+@@ -354,12 +359,21 @@ export default function Forms() {
+               {types.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
+             </select>
+           </Field>
+-          <Field label={t("patient")}>
+-            <ManagedSelect listKey="patients" value={form.patient_id} onChange={onPatientSelect} className={inputCls}>
+-              <option value="">—</option>
+-              {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+-            </ManagedSelect>
+-          </Field>
++          {PROVIDER_FORM_TYPES.includes(form.form_type) ? (
++            <Field label={t("provider")}>
++              <ManagedSelect listKey="providers" value={form.provider_id} onChange={(e) => setForm({ ...form, provider_id: e.target.value })} className={inputCls} data-testid="ff-provider">
++                <option value="">—</option>
++                {providers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
++              </ManagedSelect>
++            </Field>
++          ) : (
++            <Field label={t("patient")}>
++              <ManagedSelect listKey="patients" value={form.patient_id} onChange={onPatientSelect} className={inputCls}>
++                <option value="">—</option>
++                {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
++              </ManagedSelect>
++            </Field>
++          )}
+           <Field label={t("emailFormLink")}>
+             <input type="email" value={form.recipient_email || ""} onChange={set("recipient_email")} className={inputCls} data-testid="ff-recipient" placeholder="patient@email.com" />
+             <p className="text-xs text-stone-400 mt-1">{t("emailLinkHint")}</p>
+@@ -387,12 +401,21 @@ export default function Forms() {
+               {["Uploaded", ...types].map((ty) => <option key={ty} value={ty}>{ty}</option>)}
+             </select>
+           </Field>
++          {PROVIDER_FORM_TYPES.includes(upl.form_type) ? (
++            <Field label={t("provider")}>
++              <ManagedSelect listKey="providers" value={upl.provider_id} onChange={(e) => setUpl({ ...upl, provider_id: e.target.value })} className={inputCls}>
++                <option value="">—</option>
++                {providers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
++              </ManagedSelect>
++            </Field>
++          ) : (
+           <Field label={t("patient")}>
+             <ManagedSelect listKey="patients" value={upl.patient_id} onChange={(e) => setUpl({ ...upl, patient_id: e.target.value })} className={inputCls}>
+               <option value="">—</option>
+               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+             </ManagedSelect>
+           </Field>
++          )}
+           <Field label={t("uploadFromComputer")}>
+             <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.txt" required
+               onChange={(e) => setUpl({ ...upl, file: e.target.files[0] })} data-testid="uplf-file"
+@@ -452,12 +475,21 @@ export default function Forms() {
+                   {["Uploaded", ...types].map((ty) => <option key={ty} value={ty}>{ty}</option>)}
+                 </select>
+               </Field>
++              {PROVIDER_FORM_TYPES.includes(formModal.form_type) ? (
++                <Field label={t("provider")}>
++                  <ManagedSelect listKey="providers" value={formModal.provider_id || ""} onChange={(e) => setFormModal({ ...formModal, provider_id: e.target.value })} className={inputCls} data-testid="fm-provider">
++                    <option value="">—</option>
++                    {providers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
++                  </ManagedSelect>
++                </Field>
++              ) : (
+               <Field label={t("patient")}>
+                 <ManagedSelect listKey="patients" value={formModal.patient_id} onChange={(e) => setFormModal({ ...formModal, patient_id: e.target.value })} className={inputCls} data-testid="fm-patient">
+                   <option value="">—</option>
+                   {patients.map((p) => <option key={p.id} value={p.id}>{`${p.first_name} ${p.last_name}`}</option>)}
+                 </ManagedSelect>
+               </Field>
++              )}
+               <Field label={t("status")}>
+                 <select value={formModal.status} onChange={(e) => setFormModal({ ...formModal, status: e.target.value })} className={inputCls} data-testid="fm-status">
+                   <option value="sent">{t("sent")}</option><option value="pending">{t("pending")}</option><option value="received">{t("received")}</option>
+diff --git a/frontend/src/pages/Messages.js b/frontend/src/pages/Messages.js
+index 98b424b..6f086be 100644
+--- a/frontend/src/pages/Messages.js
++++ b/frontend/src/pages/Messages.js
+@@ -1,15 +1,19 @@
+-import React, { useEffect, useState } from "react";
++import React, { useEffect, useMemo, useRef, useState } from "react";
+ import { motion } from "framer-motion";
+ import api, { apiErr } from "../lib/api";
+ import { useSelection, bulkDelete } from "../lib/bulk";
+ import { useAuth } from "../context/AuthContext";
+ import { useLang } from "../context/LanguageContext";
+-import { PageHeader, Modal, Field, inputCls, Btn, Empty, Card } from "../components/ui-kit";
++import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+ import { ManagedSelect } from "../components/ManagedSelect";
+ import { fmtDateTime } from "../lib/date";
+-import { Plus, Mail, MailOpen, Trash2 } from "lucide-react";
++import { Plus, Mail, MailOpen, Trash2, Paperclip, Download, Check, CheckCheck } from "lucide-react";
+ import { toast } from "sonner";
+ 
++const otherParty = (m, userId) => (m.to_user_id === userId
++  ? { id: m.from_user_id, name: m.from_name }
++  : { id: m.to_user_id, name: m.to_name });
++
+ export default function Messages() {
+   const { t } = useLang();
+   const { user } = useAuth();
+@@ -17,59 +21,132 @@ export default function Messages() {
+   const [messages, setMessages] = useState([]);
+   const [users, setUsers] = useState([]);
+   const [open, setOpen] = useState(false);
+-  const [form, setForm] = useState({ to_user_id: "", subject: "", body: "" });
+-  const [viewMsg, setViewMsg] = useState(null);
+-  const [replying, setReplying] = useState(false);
++  const [form, setForm] = useState({ to_user_id: "", subject: "", body: "", file: null });
++  const [sending, setSending] = useState(false);
++  const [activeThread, setActiveThread] = useState(null);
+   const [replyBody, setReplyBody] = useState("");
++  const [replyFile, setReplyFile] = useState(null);
++  const [replying, setReplying] = useState(false);
++  const fileRef = useRef(null);
++  const replyFileRef = useRef(null);
+ 
+   const load = () => api.get("/messages").then((r) => setMessages(r.data)).catch(() => {});
+   useEffect(() => { load(); api.get("/users").then((r) => setUsers(r.data)).catch(() => {}); }, []);
+ 
++  // Conversations: group every message into its thread (older messages
++  // created before threading existed fall back to their own id, so they
++  // still show up as a single-message conversation).
++  const threads = useMemo(() => {
++    const byId = new Map();
++    for (const m of messages) {
++      const key = m.thread_id || m.id;
++      if (!byId.has(key)) byId.set(key, []);
++      byId.get(key).push(m);
++    }
++    const list = [...byId.entries()].map(([id, msgs]) => {
++      const sorted = [...msgs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
++      const last = sorted[sorted.length - 1];
++      const unread = sorted.filter((m) => m.to_user_id === user.id && !m.read).length;
++      const other = otherParty(last, user.id);
++      return { id, msgs: sorted, last, unread, other, subject: sorted[0].subject };
++    });
++    list.sort((a, b) => new Date(b.last.created_at) - new Date(a.last.created_at));
++    return list;
++  }, [messages, user.id]);
++
++  const totalUnread = useMemo(() => threads.reduce((s, th) => s + th.unread, 0), [threads]);
++
+   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+ 
+   const send = async (e) => {
+     e.preventDefault();
+-    try { await api.post("/messages", form); toast.success(t("send") + " ✓"); setOpen(false); setForm({ to_user_id: "", subject: "", body: "" }); load(); }
+-    catch (err) { toast.error(apiErr(err)); }
++    if (!form.to_user_id) { toast.error(t("to")); return; }
++    setSending(true);
++    try {
++      const fd = new FormData();
++      fd.append("to_user_id", form.to_user_id);
++      fd.append("subject", form.subject || "");
++      fd.append("body", form.body);
++      if (form.file) fd.append("file", form.file);
++      await api.post("/messages", fd, { headers: { "Content-Type": "multipart/form-data" } });
++      toast.success(t("send") + " ✓");
++      setOpen(false); setForm({ to_user_id: "", subject: "", body: "", file: null });
++      if (fileRef.current) fileRef.current.value = "";
++      load();
++    } catch (err) { toast.error(apiErr(err)); }
++    finally { setSending(false); }
+   };
+ 
+-  const openMsg = async (m) => {
+-    setViewMsg(m); setReplying(false); setReplyBody("");
+-    if (m.to_user_id === user.id && !m.read) { await api.put(`/messages/${m.id}/read`); load(); }
++  const openThread = async (th) => {
++    setActiveThread(th); setReplying(false); setReplyBody(""); setReplyFile(null);
++    if (th.unread > 0) {
++      await api.put(`/messages/thread/${th.id}/read`).catch(() => {});
++      load();
++    }
+   };
+ 
+   const sendReply = async (e) => {
+     e.preventDefault();
+-    if (!viewMsg) return;
+-    const otherId = viewMsg.to_user_id === user.id ? viewMsg.from_user_id : viewMsg.to_user_id;
+-    const subj = (viewMsg.subject || "").toLowerCase().startsWith("re:") ? viewMsg.subject : `Re: ${viewMsg.subject || ""}`;
++    if (!activeThread) return;
++    const other = activeThread.other;
++    const subj = (activeThread.subject || "").toLowerCase().startsWith("re:")
++      ? activeThread.subject : `Re: ${activeThread.subject || ""}`;
+     try {
+-      await api.post("/messages", { to_user_id: otherId, subject: subj, body: replyBody });
++      const fd = new FormData();
++      fd.append("to_user_id", other.id);
++      fd.append("subject", subj);
++      fd.append("body", replyBody);
++      fd.append("thread_id", activeThread.id);
++      if (replyFile) fd.append("file", replyFile);
++      await api.post("/messages", fd, { headers: { "Content-Type": "multipart/form-data" } });
+       toast.success(t("send") + " ✓");
+-      setViewMsg(null); setReplying(false); setReplyBody("");
+-      load();
++      setReplying(false); setReplyBody(""); setReplyFile(null);
++      if (replyFileRef.current) replyFileRef.current.value = "";
++      const r = await api.get("/messages");
++      setMessages(r.data);
++      const key = activeThread.id;
++      const msgs = r.data.filter((m) => (m.thread_id || m.id) === key)
++        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
++      setActiveThread((th) => (th ? { ...th, msgs } : th));
++    } catch (err) { toast.error(apiErr(err)); }
++  };
++
++  const downloadAttachment = async (m) => {
++    try {
++      const res = await api.get(`/messages/${m.id}/attachment`, { responseType: "blob" });
++      const url = window.URL.createObjectURL(res.data);
++      const a = document.createElement("a");
++      a.href = url; a.download = m.attachment?.filename || "attachment";
++      document.body.appendChild(a); a.click(); a.remove();
++      window.URL.revokeObjectURL(url);
+     } catch (err) { toast.error(apiErr(err)); }
+   };
+ 
+-  const removeMsg = async (id) => {
+-    try { await api.delete(`/messages/${id}`); load(); } catch (err) { toast.error(apiErr(err)); }
++  const removeThread = async (th) => {
++    try {
++      await bulkDelete("/messages/bulk-delete", th.msgs.map((m) => m.id), t);
++      if (activeThread?.id === th.id) setActiveThread(null);
++      load();
++    } catch (err) { toast.error(apiErr(err)); }
+   };
+   const removeSelected = async () => {
+-    try { await bulkDelete("/messages/bulk-delete", [...sel.selected], t); sel.clear(); load(); }
++    const ids = threads.filter((th) => sel.has(th.id)).flatMap((th) => th.msgs.map((m) => m.id));
++    try { await bulkDelete("/messages/bulk-delete", ids, t); sel.clear(); load(); }
+     catch (err) { toast.error(apiErr(err)); }
+   };
+ 
+   return (
+     <div>
+-      <PageHeader title={t("messages")} subtitle={t("inbox")}
++      <PageHeader title={t("messages")}
++        subtitle={totalUnread > 0 ? `${t("inbox")} · ${totalUnread} ${t("unread")}` : t("inbox")}
+         action={<Btn onClick={() => setOpen(true)} data-testid="add-message-btn"><Plus className="w-4 h-4" />{t("newMessage")}</Btn>} />
+ 
+-      {messages.length > 0 && (
++      {threads.length > 0 && (
+         <div className="flex items-center gap-3 mb-4">
+           <label className="flex items-center gap-1.5 text-sm text-stone-600 cursor-pointer">
+             <input type="checkbox" data-testid="select-all-messages"
+-              checked={sel.count >= messages.length && messages.length > 0}
+-              onChange={() => sel.toggleAll(messages.map((m) => m.id))}
++              checked={sel.count >= threads.length && threads.length > 0}
++              onChange={() => sel.toggleAll(threads.map((th) => th.id))}
+               className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+             {t("selectAll")}
+           </label>
+@@ -81,43 +158,45 @@ export default function Messages() {
+         </div>
+       )}
+ 
+-      {messages.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
++      {threads.length === 0 ? <Card><Empty text={t("noData")} /></Card> : (
+         <div className="space-y-3">
+-          {messages.map((m, i) => {
+-            const incoming = m.to_user_id === user.id;
+-            const unread = incoming && !m.read;
+-            return (
+-              <motion.div key={m.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}
+-                data-testid={`message-${m.id}`}>
+-                <Card className={`p-4 transition-colors duration-200 ${sel.has(m.id) ? "ring-2 ring-moneygreen-500" : ""} ${unread ? "border-moneygreen-400 bg-moneygreen-50" : ""}`}>
+-                  <div className="flex items-start gap-3">
+-                    <input type="checkbox" checked={sel.has(m.id)} onChange={() => sel.toggle(m.id)}
+-                      data-testid={`select-message-${m.id}`} className="mt-2.5 w-4 h-4 accent-moneygreen-600 cursor-pointer shrink-0" />
+-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${unread ? "bg-moneygreen-600" : "bg-tan-200"}`}>
+-                      {unread ? <Mail className="w-4 h-4 text-white" /> : <MailOpen className="w-4 h-4 text-tan-900" />}
+-                    </div>
+-                    <div className="min-w-0 flex-1 cursor-pointer" onClick={() => openMsg(m)}>
+-                      <div className="flex items-center justify-between gap-2">
+-                        <p className="font-semibold text-moneygreen-800 text-sm">
+-                          {incoming ? `${t("from")}: ${m.from_name}` : `${t("to")}: ${m.to_name}`}
+-                        </p>
+-                        <span className="text-xs text-stone-400 shrink-0">{fmtDateTime(m.created_at)}</span>
+-                      </div>
+-                      {m.subject && <p className="text-sm font-medium text-stone-700">{m.subject}</p>}
+-                      <p className="text-sm text-stone-500 line-clamp-2">{m.body}</p>
++          {threads.map((th, i) => (
++            <motion.div key={th.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}
++              data-testid={`message-thread-${th.id}`}>
++              <Card className={`p-4 transition-colors duration-200 ${sel.has(th.id) ? "ring-2 ring-moneygreen-500" : ""} ${th.unread > 0 ? "border-moneygreen-400 bg-moneygreen-50" : ""}`}>
++                <div className="flex items-start gap-3">
++                  <input type="checkbox" checked={sel.has(th.id)} onChange={() => sel.toggle(th.id)}
++                    data-testid={`select-message-${th.id}`} className="mt-2.5 w-4 h-4 accent-moneygreen-600 cursor-pointer shrink-0" />
++                  <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${th.unread > 0 ? "bg-moneygreen-600" : "bg-tan-200"}`}>
++                    {th.unread > 0 ? <Mail className="w-4 h-4 text-white" /> : <MailOpen className="w-4 h-4 text-tan-900" />}
++                  </div>
++                  <div className="min-w-0 flex-1 cursor-pointer" onClick={() => openThread(th)}>
++                    <div className="flex items-center justify-between gap-2">
++                      <p className="font-semibold text-moneygreen-800 text-sm flex items-center gap-2">
++                        {th.other.name}
++                        {th.msgs.length > 1 && <Badge tone="tan">{th.msgs.length}</Badge>}
++                        {th.unread > 0 && <Badge tone="green">{th.unread} {t("unread")}</Badge>}
++                      </p>
++                      <span className="text-xs text-stone-400 shrink-0">{fmtDateTime(th.last.created_at)}</span>
+                     </div>
+-                    <button onClick={() => removeMsg(m.id)} data-testid={`delete-message-${m.id}`}
+-                      className="text-stone-400 hover:text-destructive transition-colors shrink-0" title={t("delete")}>
+-                      <Trash2 className="w-4 h-4" />
+-                    </button>
++                    {th.subject && <p className="text-sm font-medium text-stone-700">{th.subject}</p>}
++                    <p className="text-sm text-stone-500 line-clamp-2">
++                      {th.last.from_user_id === user.id ? `${t("you")}: ` : ""}{th.last.body}
++                      {th.last.attachment && <Paperclip className="inline w-3.5 h-3.5 ml-1 text-stone-400" />}
++                    </p>
+                   </div>
+-                </Card>
+-              </motion.div>
+-            );
+-          })}
++                  <button onClick={() => removeThread(th)} data-testid={`delete-message-${th.id}`}
++                    className="text-stone-400 hover:text-destructive transition-colors shrink-0" title={t("delete")}>
++                    <Trash2 className="w-4 h-4" />
++                  </button>
++                </div>
++              </Card>
++            </motion.div>
++          ))}
+         </div>
+       )}
+ 
++      {/* New message */}
+       <Modal open={open} onClose={() => setOpen(false)} title={t("newMessage")}>
+         <form onSubmit={send} className="space-y-4">
+           <Field label={t("to")}>
+@@ -130,32 +209,63 @@ export default function Messages() {
+           </Field>
+           <Field label={t("subject")}><input value={form.subject} onChange={set("subject")} className={inputCls} data-testid="mf-subject" /></Field>
+           <Field label={t("body")}><textarea required value={form.body} onChange={set("body")} rows={4} className={inputCls} data-testid="mf-body" /></Field>
++          <Field label={t("attachment")}>
++            <input ref={fileRef} type="file" data-testid="mf-attachment"
++              onChange={(e) => setForm({ ...form, file: e.target.files[0] || null })}
++              className="block w-full text-sm text-stone-600 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:bg-moneygreen-600 file:text-white file:font-semibold file:cursor-pointer" />
++          </Field>
+           <div className="flex justify-end gap-2 pt-2">
+             <Btn variant="outline" type="button" onClick={() => setOpen(false)}>{t("cancel")}</Btn>
+-            <Btn type="submit" data-testid="send-message-btn">{t("send")}</Btn>
++            <Btn type="submit" disabled={sending} data-testid="send-message-btn">{t("send")}</Btn>
+           </div>
+         </form>
+       </Modal>
+ 
+-      <Modal open={!!viewMsg} onClose={() => { setViewMsg(null); setReplying(false); setReplyBody(""); }} title={viewMsg?.subject || t("messages")}>
+-        {viewMsg && (
++      {/* Conversation thread */}
++      <Modal open={!!activeThread} onClose={() => setActiveThread(null)} title={activeThread ? `${activeThread.other.name}${activeThread.subject ? " · " + activeThread.subject : ""}` : t("messages")} wide>
++        {activeThread && (
+           <div className="space-y-4" data-testid="view-message-modal">
+-            <div className="text-sm text-stone-500 space-y-0.5">
+-              <p><span className="font-semibold text-stone-700">{t("from")}:</span> {viewMsg.from_name}</p>
+-              <p><span className="font-semibold text-stone-700">{t("to")}:</span> {viewMsg.to_name}</p>
+-              <p className="text-xs text-stone-400">{fmtDateTime(viewMsg.created_at)}</p>
++            <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scroll pr-1">
++              {activeThread.msgs.map((m) => {
++                const mine = m.from_user_id === user.id;
++                return (
++                  <div key={m.id} data-testid={`thread-message-${m.id}`}
++                    className={`p-3 rounded-lg border max-w-[85%] ${mine ? "ml-auto bg-moneygreen-50 border-moneygreen-200" : "bg-white border-border"}`}>
++                    <div className="flex items-center justify-between gap-2 mb-1">
++                      <span className="text-xs font-semibold text-moneygreen-800">{mine ? t("you") : m.from_name}</span>
++                      <span className="text-xs text-stone-400">{fmtDateTime(m.created_at)}</span>
++                    </div>
++                    <p className="text-sm text-stone-700 whitespace-pre-wrap">{m.body}</p>
++                    {m.attachment && (
++                      <button type="button" onClick={() => downloadAttachment(m)} data-testid={`thread-attachment-${m.id}`}
++                        className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-moneygreen-700 hover:text-moneygreen-900">
++                        <Paperclip className="w-3.5 h-3.5" />{m.attachment.filename}<Download className="w-3.5 h-3.5" />
++                      </button>
++                    )}
++                    {mine && (
++                      <p className="mt-1 text-[11px] text-stone-400 flex items-center gap-1" data-testid={`thread-read-status-${m.id}`}>
++                        {m.read ? <><CheckCheck className="w-3.5 h-3.5 text-moneygreen-600" />{t("readStatus")}</> : <><Check className="w-3.5 h-3.5" />{t("sentStatus")}</>}
++                      </p>
++                    )}
++                  </div>
++                );
++              })}
+             </div>
+-            <p className="text-sm text-stone-700 whitespace-pre-wrap" data-testid="view-message-body">{viewMsg.body}</p>
+ 
+             {!replying ? (
+-              <div className="flex justify-end gap-2 pt-2">
+-                <Btn variant="outline" onClick={() => setViewMsg(null)}>{t("cancel")}</Btn>
++              <div className="flex justify-end gap-2 pt-2 border-t border-border">
++                <Btn variant="outline" onClick={() => setActiveThread(null)}>{t("cancel")}</Btn>
+                 <Btn onClick={() => setReplying(true)} data-testid="reply-message-btn">{t("reply")}</Btn>
+               </div>
+             ) : (
+               <form onSubmit={sendReply} className="space-y-3 border-t border-border pt-4">
+                 <Field label={t("body")}>
+-                  <textarea required autoFocus value={replyBody} onChange={(e) => setReplyBody(e.target.value)} rows={4} className={inputCls} data-testid="reply-body" />
++                  <textarea required autoFocus value={replyBody} onChange={(e) => setReplyBody(e.target.value)} rows={3} className={inputCls} data-testid="reply-body" />
++                </Field>
++                <Field label={t("attachment")}>
++                  <input ref={replyFileRef} type="file" data-testid="reply-attachment"
++                    onChange={(e) => setReplyFile(e.target.files[0] || null)}
++                    className="block w-full text-sm text-stone-600 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:bg-moneygreen-600 file:text-white file:font-semibold file:cursor-pointer" />
+                 </Field>
+                 <div className="flex justify-end gap-2">
+                   <Btn variant="outline" type="button" onClick={() => setReplying(false)}>{t("cancel")}</Btn>
+diff --git a/frontend/src/pages/Notes.js b/frontend/src/pages/Notes.js
+index c58796c..288a38a 100644
+--- a/frontend/src/pages/Notes.js
++++ b/frontend/src/pages/Notes.js
+@@ -6,13 +6,16 @@ import { useSelection, bulkDelete } from "../lib/bulk";
+ import { useAuth } from "../context/AuthContext";
+ import { usePrivacy, Private } from "../context/PrivacyContext";
+ import { useLang } from "../context/LanguageContext";
+-import { PageHeader, Modal, Btn, Empty, Card, inputCls } from "../components/ui-kit";
++import { PageHeader, Modal, Btn, Badge, Empty, Card, inputCls } from "../components/ui-kit";
+ import { ManagedSelect } from "../components/ManagedSelect";
+ import { SignaturePad } from "../components/SignaturePad";
+ import { Letterhead, EditableLetterhead } from "../components/Letterhead";
+ import { printSection } from "../lib/print";
+-import { fmtDate } from "../lib/date";
+-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X } from "lucide-react";
++import { fmtDate, fmtDateTime } from "../lib/date";
++import {
++  Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2,
++  LayoutGrid, List, Copy, Filter, X, CheckCircle2, XCircle, ShieldCheck,
++} from "lucide-react";
+ import { toast } from "sonner";
+ 
+ const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
+@@ -49,6 +52,10 @@ export default function Notes() {
+   const [providerFilter, setProviderFilter] = useState("");
+   const [patientFilter, setPatientFilter] = useState("");
+   const [dateFilter, setDateFilter] = useState("");
++  const [billingStatusFilter, setBillingStatusFilter] = useState("");
++  const [reviewNote, setReviewNote] = useState("");
++  const [editWasApproved, setEditWasApproved] = useState(false);
++  const [reviewing, setReviewing] = useState(false);
+ 
+   const load = () => api.get("/notes").then((r) => setNotes(r.data)).catch(() => {});
+   useEffect(() => {
+@@ -56,8 +63,10 @@ export default function Notes() {
+     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
+     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
+     api.get("/cpt-codes").then((r) => setCpt(r.data)).catch(() => {});
+-    api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "nurse", "psychologist", "admin"].includes(u.role)))).catch(() => {});
++    api.get("/users").then((r) => setProviders(r.data.filter((u) =>
++      ["doctor", "nurse", "psychologist", "admin"].includes(u.role) && u.provider_active !== false))).catch(() => {});
+   }, []);
++  useEffect(() => { setReviewNote(""); }, [viewing?.id]);
+ 
+   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+   const patientName = (id) => {
+@@ -72,11 +81,37 @@ export default function Notes() {
+   const noteDate = (n) => n.visit_date || (n.created_at || "").slice(0, 10);
+   const providerOptions = useMemo(
+     () => [...new Set([...providers.map((u) => u.name), ...notes.map(noteProvider)].filter(Boolean))], [providers, notes]);
++  const billingStatus = (n) => n.billing_review_status || (n.signature ? "pending_review" : "unsigned");
+   const filtered = useMemo(() => notes.filter((n) =>
+     (!providerFilter || noteProvider(n) === providerFilter) &&
+     (!patientFilter || n.patient_id === patientFilter) &&
+-    (!dateFilter || noteDate(n) === dateFilter)
+-  ), [notes, providerFilter, patientFilter, dateFilter]);
++    (!dateFilter || noteDate(n) === dateFilter) &&
++    (!billingStatusFilter || billingStatus(n) === billingStatusFilter)
++  ), [notes, providerFilter, patientFilter, dateFilter, billingStatusFilter]);
++
++  const billingStatusMeta = {
++    unsigned: { tone: "gray", key: "billingStatusUnsigned" },
++    pending_review: { tone: "amber", key: "billingStatusPendingReview" },
++    approved: { tone: "green", key: "billingStatusApproved" },
++    needs_correction: { tone: "red", key: "billingStatusNeedsCorrection" },
++  };
++  const BillingBadge = ({ n, testid }) => {
++    const meta = billingStatusMeta[billingStatus(n)] || billingStatusMeta.unsigned;
++    return <Badge tone={meta.tone} data-testid={testid}>{t(meta.key)}</Badge>;
++  };
++
++  const billingReview = async (status) => {
++    if (!viewing) return;
++    setReviewing(true);
++    try {
++      const r = await api.put(`/notes/${viewing.id}/billing-review`, { status, note: reviewNote || null });
++      setViewing(r.data);
++      setNotes((ns) => ns.map((n) => (n.id === r.data.id ? r.data : n)));
++      setReviewNote("");
++      toast.success(t("billingReviewSaved"));
++    } catch (err) { toast.error(apiErr(err)); }
++    finally { setReviewing(false); }
++  };
+ 
+   const onPatient = async (e) => {
+     const pid = e.target.value;
+@@ -115,8 +150,11 @@ export default function Notes() {
+     } catch (err) { toast.error(apiErr(err)); }
+   };
+ 
+-  const openNew = () => { setForm({ ...blank, signature: user?.default_signature || "" }); setEditId(null); setSigKey((k) => k + 1); setOpen(true); };
+-  const openEdit = (n) => { setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setSigKey((k) => k + 1); setOpen(true); };
++  const openNew = () => { setForm({ ...blank, signature: user?.default_signature || "" }); setEditId(null); setSigKey((k) => k + 1); setOpen(true); setEditWasApproved(false); };
++  const openEdit = (n) => {
++    setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setSigKey((k) => k + 1); setOpen(true);
++    setEditWasApproved(billingStatus(n) === "approved");
++  };
+ 
+   const duplicateNote = (n) => {
+     setEditId(null); setViewing(null);
+@@ -301,6 +339,14 @@ export default function Notes() {
+               className="p-1 rounded hover:bg-stone-100 text-stone-500"><X className="w-4 h-4" /></button>
+           )}
+         </div>
++        <select value={billingStatusFilter} onChange={(e) => setBillingStatusFilter(e.target.value)}
++          data-testid="notes-filter-billing-status" className={inputCls + " !w-auto"} title={t("filterBillingStatus")}>
++          <option value="">{t("allBillingStatuses")}</option>
++          <option value="unsigned">{t("billingStatusUnsigned")}</option>
++          <option value="pending_review">{t("billingStatusPendingReview")}</option>
++          <option value="approved">{t("billingStatusApproved")}</option>
++          <option value="needs_correction">{t("billingStatusNeedsCorrection")}</option>
++        </select>
+       </div>
+ 
+       {allowed && filtered.length > 0 && (
+@@ -332,6 +378,7 @@ export default function Notes() {
+                   <th className="px-5 py-3 hidden md:table-cell">{t("provider")}</th>
+                   <th className="px-5 py-3 hidden lg:table-cell">ICD-10 / CPT</th>
+                   <th className="px-5 py-3">{t("riskAssessment")}</th>
++                  <th className="px-5 py-3">{t("filterBillingStatus")}</th>
+                   <th className="px-5 py-3 text-right">{t("actions")}</th>
+                 </tr>
+               </thead>
+@@ -349,6 +396,7 @@ export default function Notes() {
+                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{providerName(n)}</td>
+                     <td className="px-5 py-3 hidden lg:table-cell text-stone-500 font-mono text-xs">{[n.icd10, n.cpt_code].filter(Boolean).join(" / ") || "—"}</td>
+                     <td className="px-5 py-3 text-stone-600">{n.risk_level ? riskLabel(n.risk_level) : "—"}</td>
++                    <td className="px-5 py-3"><BillingBadge n={n} testid={`note-billing-status-${n.id}`} /></td>
+                     <td className="px-5 py-3 text-right">
+                       <div className="flex justify-end gap-1">
+                         <Btn variant="ghost" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
+@@ -376,10 +424,11 @@ export default function Notes() {
+                   <div className="w-9 h-9 rounded-md bg-moneygreen-100 flex items-center justify-center shrink-0">
+                     <FileText className="w-4 h-4 text-moneygreen-600" />
+                   </div>
+-                  <div className="min-w-0">
++                  <div className="min-w-0 flex-1">
+                     <p className="font-heading font-bold text-moneygreen-800 truncate"><Private value={patientName(n.patient_id)} /></p>
+                     <p className="text-xs text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))} · {providerName(n)}</p>
+                   </div>
++                  <BillingBadge n={n} testid={`note-billing-status-${n.id}`} />
+                 </div>
+                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-stone-500 mb-2">
+                   {n.icd10 && <span><b className="text-stone-600">ICD-10:</b> {n.icd10}</span>}
+@@ -410,6 +459,11 @@ export default function Notes() {
+       {/* New / Edit note */}
+       <Modal open={open} onClose={() => { setOpen(false); setEditId(null); }} title={editId ? t("editNote") : t("newNote")} wide>
+         <form onSubmit={save} className="space-y-4">
++          {editWasApproved && (
++            <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-800 no-print" data-testid="edit-approved-warning">
++              {t("editApprovedWarning")}
++            </div>
++          )}
+           <div id="note-print" className="space-y-4">
+             <div className="rounded-lg border border-border p-4 no-print">
+               <EditableLetterhead settings={settings} onSaved={setSettings} t={t}
+@@ -487,6 +541,58 @@ export default function Notes() {
+                 </div>
+               )}
+             </div>
++
++            <div className="p-4 rounded-md bg-tan-50 border border-tan-200 no-print" data-testid="billing-review-panel">
++              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
++                <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5">
++                  <ShieldCheck className="w-3.5 h-3.5" /> {t("billingReview")}
++                </p>
++                <BillingBadge n={viewing} testid="view-billing-status" />
++              </div>
++              <p className="text-xs text-stone-500 mb-3">{t("billingReviewHint")}</p>
++              {viewing.billing_reviewed_by && (
++                <p className="text-xs text-stone-600 mb-3" data-testid="billing-reviewed-meta">
++                  {t("billingReviewedBy")} <span className="font-semibold">{viewing.billing_reviewed_by}</span>
++                  {" · "}{fmtDateTime(viewing.billing_reviewed_at)}
++                  {viewing.billing_review_note && <> — "{viewing.billing_review_note}"</>}
++                </p>
++              )}
++              {viewing.history && viewing.history.length > 0 && (
++                <details className="mb-3 text-xs text-stone-500" data-testid="billing-review-history">
++                  <summary className="cursor-pointer font-semibold text-stone-600">{t("reviewHistory")} ({viewing.history.length})</summary>
++                  <div className="mt-2 space-y-2 pl-3 border-l-2 border-tan-300">
++                    {[...viewing.history].reverse().map((h, i) => (
++                      <div key={i}>
++                        <p>{fmtDateTime(h.archived_at)} — {h.archived_reason === "re-signed" ? t("historyResigned") : t("historyEditedAfterApproval")}</p>
++                        {h.billing_reviewed_by && (
++                          <p>{t("billingReviewedBy")} {h.billing_reviewed_by} · {fmtDateTime(h.billing_reviewed_at)}
++                            {h.billing_review_note && <> — "{h.billing_review_note}"</>}</p>
++                        )}
++                      </div>
++                    ))}
++                  </div>
++                </details>
++              )}
++              {user?.role === "admin" && (
++                viewing.signature ? (
++                  <div className="space-y-2">
++                    <input value={reviewNote} onChange={(e) => setReviewNote(e.target.value)}
++                      placeholder={t("billingReviewNotePlaceholder")} className={inputCls} data-testid="billing-review-note-input" />
++                    <div className="flex flex-wrap gap-2">
++                      <Btn type="button" onClick={() => billingReview("approved")} disabled={reviewing} data-testid="billing-approve-btn">
++                        {reviewing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}{t("approveForBilling")}
++                      </Btn>
++                      <Btn type="button" variant="outline" onClick={() => billingReview("needs_correction")} disabled={reviewing} data-testid="billing-needs-correction-btn">
++                        <XCircle className="w-4 h-4" />{t("markNeedsCorrection")}
++                      </Btn>
++                    </div>
++                  </div>
++                ) : (
++                  <p className="text-xs text-stone-400 italic">{t("signFirstToReview")}</p>
++                )
++              )}
++            </div>
++
+             <div className="flex justify-end gap-2 pt-2 no-print">
+               <Btn variant="outline" onClick={() => { if (viewing?.id) api.post(`/notes/${viewing.id}/to-folder`).then(() => toast.success(t("savedToFolder"))).catch(() => {}); printSection("note-print"); }} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
+               <Btn variant="outline" onClick={() => printSection("note-print")} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>
+diff --git a/frontend/src/pages/PatientFolders.js b/frontend/src/pages/PatientFolders.js
+index 79459d8..56d5be8 100644
+--- a/frontend/src/pages/PatientFolders.js
++++ b/frontend/src/pages/PatientFolders.js
+@@ -9,12 +9,12 @@ import { fmtDate } from "../lib/date";
+ import { useSelection, bulkDelete } from "../lib/bulk";
+ import {
+   Folder, FolderOpen, FolderPlus, ChevronLeft, Download, FileText, Upload,
+-  Pencil, Trash2, Search, Plus, MoveRight, ClipboardList, Users, Eye, UploadCloud, CheckCircle2,
++  Pencil, Trash2, Search, Plus, MoveRight, ClipboardList, Users, Eye, UploadCloud, CheckCircle2, FolderArchive,
+ } from "lucide-react";
+ import { toast } from "sonner";
+ 
+-const sourceIcon = { form: ClipboardList, upload: FileText };
+-const sourceTone = { form: "green", upload: "tan" };
++const sourceIcon = { form: ClipboardList, upload: FileText, claim_packet: FolderArchive };
++const sourceTone = { form: "green", upload: "tan", claim_packet: "green" };
+ 
+ export default function PatientFolders() {
+   const { t } = useLang();
+@@ -29,6 +29,7 @@ export default function PatientFolders() {
+   // modals
+   const [subModal, setSubModal] = useState(null); // {id?, name}
+   const [editModal, setEditModal] = useState(null); // item
++  const [servicingModal, setServicingModal] = useState(null); // {id, status, note}
+   const [moveModal, setMoveModal] = useState(null); // item
+   const [dragging, setDragging] = useState(false);
+   const [preview, setPreview] = useState(null); // {label, kind, url}
+@@ -145,6 +146,16 @@ export default function PatientFolders() {
+     } catch (err) { toast.error(apiErr(err)); }
+   };
+ 
++  const saveServicingStatus = async (e) => {
++    e.preventDefault();
++    try {
++      await api.put(`/folders/items/${servicingModal.id}/servicing-status`, {
++        status: servicingModal.status, note: servicingModal.note || null,
++      });
++      toast.success(t("statusSaved")); setServicingModal(null); refresh();
++    } catch (err) { toast.error(apiErr(err)); }
++  };
++
+   const doMove = async (e) => {
+     e.preventDefault();
+     try {
+@@ -279,6 +290,7 @@ export default function PatientFolders() {
+                     <th className="px-4 py-3 w-10"></th>
+                     <th className="px-4 py-3">{t("itemLabel")}</th>
+                     <th className="px-4 py-3 hidden md:table-cell">{t("itemSource")}</th>
++                    <th className="px-4 py-3 hidden md:table-cell">{t("servicingStatus")}</th>
+                     <th className="px-4 py-3 hidden lg:table-cell">{t("newSubfolder")}</th>
+                     <th className="px-4 py-3 hidden md:table-cell">{t("filename")}</th>
+                     <th className="px-4 py-3 text-right">{t("actions")}</th>
+@@ -300,6 +312,16 @@ export default function PatientFolders() {
+                           {it.description && <p className="text-xs text-stone-500 mt-0.5 line-clamp-1">{it.description}</p>}
+                         </td>
+                         <td className="px-4 py-3 hidden md:table-cell"><Badge tone={sourceTone[it.source] || "gray"}>{t(`src_${it.source}`)}</Badge></td>
++                        <td className="px-4 py-3 hidden md:table-cell">
++                          {it.source === "claim_packet" ? (
++                            <button type="button" onClick={() => setServicingModal({ id: it.id, status: it.servicing_status || "complete", note: it.servicing_note || "" })}
++                              data-testid={`folder-servicing-status-${it.id}`} title={t("editServicingStatus")}>
++                              <Badge tone={it.servicing_status === "needs_servicing" ? "red" : it.servicing_status === "complete" ? "green" : "gray"}>
++                                {it.servicing_status === "needs_servicing" ? t("needsServicing") : it.servicing_status === "complete" ? t("packetComplete") : t("notSetYet")}
++                              </Badge>
++                            </button>
++                          ) : "—"}
++                        </td>
+                         <td className="px-4 py-3 hidden lg:table-cell text-stone-500 text-xs">{it.subfolder_id ? subName(it.subfolder_id) : t("unfiled")}</td>
+                         <td className="px-4 py-3 hidden md:table-cell text-stone-500 text-xs">{it.filename}</td>
+                         <td className="px-4 py-3">
+@@ -324,6 +346,7 @@ export default function PatientFolders() {
+ 
+         <SubfolderModal state={subModal} onClose={() => setSubModal(null)} onSave={saveSubfolder} setState={setSubModal} t={t} />
+         <EditItemModal state={editModal} onClose={() => setEditModal(null)} onSave={saveEdit} setState={setEditModal} t={t} />
++        <ServicingStatusModal state={servicingModal} onClose={() => setServicingModal(null)} onSave={saveServicingStatus} setState={setServicingModal} t={t} />
+         <MoveModal state={moveModal} onClose={() => setMoveModal(null)} onSave={doMove} setState={setMoveModal} t={t} patients={patients} />
+ 
+         <Modal open={!!preview} onClose={closePreview} title={preview?.label || t("preview")} wide>
+@@ -368,7 +391,10 @@ export default function PatientFolders() {
+                     <p className="font-heading font-bold text-moneygreen-800 truncate"><Private value={p.name} /></p>
+                     <p className="text-xs text-stone-500 mt-0.5"><Private value={fmtDate(p.dob) || "—"} /></p>
+                   </div>
+-                  {p.ready && <div className="ml-auto shrink-0"><Badge tone="green" data-testid={`folder-ready-${p.id}`}><span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{t("folderReady")}</span></Badge></div>}
++                  <div className="ml-auto shrink-0 flex flex-col items-end gap-1">
++                    {p.ready && <Badge tone="green" data-testid={`folder-ready-${p.id}`}><span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{t("folderReady")}</span></Badge>}
++                    {p.needs_servicing_count > 0 && <Badge tone="red" data-testid={`folder-needs-servicing-${p.id}`}>{p.needs_servicing_count} {t("needsServicing")}</Badge>}
++                  </div>
+                 </div>
+                 <div className="flex items-center gap-4 mt-4 text-xs text-stone-500">
+                   <span className="inline-flex items-center gap-1"><FileText className="w-3.5 h-3.5" />{p.item_count} {t("documents")}</span>
+@@ -422,6 +448,39 @@ function EditItemModal({ state, onClose, onSave, setState, t }) {
+   );
+ }
+ 
++function ServicingStatusModal({ state, onClose, onSave, setState, t }) {
++  return (
++    <Modal open={!!state} onClose={onClose} title={t("servicingStatus")}>
++      {state && (
++        <form onSubmit={onSave} className="space-y-4" data-testid="servicing-status-form">
++          <p className="text-xs text-stone-500">{t("servicingStatusHint")}</p>
++          <div className="flex gap-2">
++            <button type="button" onClick={() => setState({ ...state, status: "complete" })} data-testid="servicing-status-complete"
++              className={`flex-1 px-3 py-2 rounded-md border text-sm font-semibold transition-colors ${state.status === "complete" ? "bg-moneygreen-600 text-white border-moneygreen-600" : "border-border text-stone-600 hover:bg-tan-50"}`}>
++              {t("packetComplete")}
++            </button>
++            <button type="button" onClick={() => setState({ ...state, status: "needs_servicing" })} data-testid="servicing-status-needs-servicing"
++              className={`flex-1 px-3 py-2 rounded-md border text-sm font-semibold transition-colors ${state.status === "needs_servicing" ? "bg-red-600 text-white border-red-600" : "border-border text-stone-600 hover:bg-tan-50"}`}>
++              {t("needsServicing")}
++            </button>
++          </div>
++          {state.status === "complete" && <p className="text-xs text-stone-500">{t("packetCompleteHint")}</p>}
++          {state.status === "needs_servicing" && (
++            <Field label={t("servicingNoteLabel")}>
++              <textarea required rows={3} value={state.note} onChange={(e) => setState({ ...state, note: e.target.value })}
++                placeholder={t("servicingNotePlaceholder")} className={inputCls} data-testid="servicing-note-input" />
++            </Field>
++          )}
++          <div className="flex justify-end gap-2 pt-2">
++            <Btn variant="outline" type="button" onClick={onClose}>{t("cancel")}</Btn>
++            <Btn type="submit" data-testid="save-servicing-status-btn">{t("save")}</Btn>
++          </div>
++        </form>
++      )}
++    </Modal>
++  );
++}
++
+ function MoveModal({ state, onClose, onSave, setState, t, patients }) {
+   const [targetSubs, setTargetSubs] = useState([]);
+   useEffect(() => {
+diff --git a/frontend/src/pages/Team.js b/frontend/src/pages/Team.js
+index 06e76b7..b966784 100644
+--- a/frontend/src/pages/Team.js
++++ b/frontend/src/pages/Team.js
+@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
+ import { useLang } from "../context/LanguageContext";
+ import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+ import { roleLabel } from "../lib/perms";
+-import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, MailCheck, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut } from "lucide-react";
++import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, MailCheck, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut, Stethoscope, EyeOff } from "lucide-react";
+ import { toast } from "sonner";
+ 
+ const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
+@@ -66,6 +66,15 @@ export default function Team() {
+     } catch (err) { toast.error(apiErr(err)); }
+   };
+ 
++  const toggleProviderActive = async (u) => {
++    const next = u.provider_active === false;
++    try {
++      await api.put(`/users/${u.id}/provider-active`, { provider_active: next });
++      toast.success(next ? t("providerActivated") : t("providerDeactivated"));
++      load();
++    } catch (err) { toast.error(apiErr(err)); }
++  };
++
+   const openRoleTpl = (role) => setRoleTpl({ role, allowed_tabs: [...(defaults[role] || [])], apply_to_existing: false });
+   const toggleRoleTplTab = (tab) => setRoleTpl((s) => ({
+     ...s, allowed_tabs: s.allowed_tabs.includes(tab) ? s.allowed_tabs.filter((x) => x !== tab) : [...s.allowed_tabs, tab],
+@@ -231,6 +240,7 @@ export default function Team() {
+                   <th className="px-5 py-3">{t("name")}</th>
+                   <th className="px-5 py-3">{t("role")}</th>
+                   <th className="px-5 py-3">{t("status")}</th>
++                  <th className="px-5 py-3">{t("providerSelectable")}</th>
+                   <th className="px-5 py-3 hidden md:table-cell">{t("tabAccess")}</th>
+                   <th className="px-5 py-3 text-right">{t("actions")}</th>
+                 </tr>
+@@ -250,6 +260,13 @@ export default function Team() {
+                         {u.active === false ? t("suspended") : t("active")}
+                       </Badge>
+                     </td>
++                    <td className="px-5 py-3">
++                      {["doctor", "nurse", "psychologist"].includes(u.role) ? (
++                        <Badge tone={u.provider_active === false ? "gray" : "green"} data-testid={`provider-status-${u.id}`}>
++                          {u.provider_active === false ? t("notSelectable") : t("selectable")}
++                        </Badge>
++                      ) : "—"}
++                    </td>
+                     <td className="px-5 py-3 hidden md:table-cell">
+                       <span className="text-xs text-stone-500">{(u.allowed_tabs || []).length} tabs</span>
+                     </td>
+@@ -278,6 +295,13 @@ export default function Team() {
+                             {u.active === false ? <RotateCcw className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                           </Btn>
+                         )}
++                        {["doctor", "nurse", "psychologist"].includes(u.role) && (
++                          <Btn variant="ghost" onClick={() => toggleProviderActive(u)} data-testid={`toggle-provider-active-${u.id}`}
++                            className={`!px-2 ${u.provider_active === false ? "!text-moneygreen-600" : "!text-stone-500"}`}
++                            title={u.provider_active === false ? t("makeSelectable") : t("makeNotSelectable")}>
++                            {u.provider_active === false ? <Stethoscope className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
++                          </Btn>
++                        )}
+                         {u.id !== me.id && u.role !== "admin" && (
+                           <Btn variant="ghost" onClick={() => removeUser(u.id)} data-testid={`delete-user-${u.id}`} className="!px-2 !text-destructive"><Trash2 className="w-4 h-4" /></Btn>
+                         )}

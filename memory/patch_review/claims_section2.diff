@@ -1,0 +1,163 @@
+@@ -110,7 +221,7 @@ async def _auto_attach_credentials(items: list, patient_id: str, provider_name:
+     if patient_id and "va_disability_letter" not in have:
+         docs = await db.folder_items.find({"patient_id": patient_id}, {"_id": 0}) \
+             .sort("created_at", -1).to_list(200)
+-        match = next((d for d in docs if _guess_category(d.get("filename") or d.get("label") or "") == "va_disability_letter"), None)
++        match = next((d for d in docs if (d.get("category") or _guess_category(d.get("filename") or d.get("label") or "")) == "va_disability_letter"), None)
+         if match:
+             items.append({"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
+                          "storage_path": match["storage_path"],
+@@ -120,6 +231,109 @@ async def _auto_attach_credentials(items: list, patient_id: str, provider_name:
+     return items
+ 
+ 
++def _packet_categories(items: list) -> set:
++    """Checklist categories satisfied by the current item list. 'invoice' and
++    'progress_note' are inferred from an item's source (attach-invoice /
++    attach-note items don't carry an explicit category); everything else
++    (uploads, auto-attached credentials/disability letter) uses its own
++    'category' field."""
++    return {_item_category(it) for it in items if _item_category(it)}
++
++
++async def _derive_provider_name(items: list) -> Optional[str]:
++    """Same priority as the from-date bulk flow: attending provider on an
++    attached note first, then the provider on an attached invoice."""
++    for it in items:
++        if it.get("source") == "note" and it.get("note_id"):
++            n = await db.notes.find_one({"id": it["note_id"]}, {"_id": 0, "attending_provider": 1})
++            if n and n.get("attending_provider"):
++                return n["attending_provider"]
++    for it in items:
++        if it.get("source") == "invoice" and it.get("invoice_id"):
++            inv = await db.invoices.find_one({"id": it["invoice_id"]}, {"_id": 0, "attending_provider": 1, "provider": 1})
++            if inv and (inv.get("attending_provider") or inv.get("provider")):
++                return inv.get("attending_provider") or inv.get("provider")
++    return None
++
++
++async def _credential_warnings(patient_id: Optional[str], provider_name: Optional[str], cats: set) -> list:
++    """Plain-language warnings for FMP-required documents still missing or
++    unmatched after auto-attach: the veteran's VA disability letter, and the
++    assigned provider's diploma/exequatur. `cats` is the packet's current
++    checklist-category set (after auto-attach has already run)."""
++    warnings = []
++    if not patient_id:
++        warnings.append("No patient linked to this claim — the VA disability letter can't be looked up.")
++    elif "va_disability_letter" not in cats:
++        warnings.append("VA Disability Verification Letter not found in the patient's documents.")
++    if not provider_name:
++        warnings.append("No provider could be determined for this claim — "
++                        "provider diploma/exequatur can't be auto-attached yet.")
++    else:
++        prov = await db.users.find_one({"name": provider_name}, {"_id": 0, "diploma_doc": 1, "exequatur_doc": 1})
++        if prov is None:
++            warnings.append(f"No staff account matches provider name \"{provider_name}\" exactly — "
++                            "credentials could not be matched (check for a typo or name mismatch).")
++        else:
++            if "provider_diploma" not in cats:
++                warnings.append(f"No diploma on file for {provider_name}.")
++            if "provider_exequatur" not in cats:
++                warnings.append(f"No exequatur on file for {provider_name}.")
++    return warnings
++
++
++# Fixed order the merged packet's documents are assembled in, after the
++# auto-generated summary + checklist pages. Anything not in this list (e.g.
++# an extra manually-attached file) keeps its original relative position at
++# the end, so nothing is ever silently dropped from the merge.
++_MERGE_ORDER = ["cover_sheet", "va_disability_letter", "invoice", "progress_note",
++                "provider_exequatur", "provider_diploma"]
++
++
++def _item_category(item: dict) -> str:
++    cat = item.get("category")
++    if cat:
++        return cat
++    if item.get("source") == "invoice":
++        return "invoice"
++    if item.get("source") == "note":
++        return "progress_note"
++    return ""
++
++
++def _sorted_for_merge(items: list) -> list:
++    def key(item):
++        cat = _item_category(item)
++        try:
++            return _MERGE_ORDER.index(cat)
++        except ValueError:
++            return len(_MERGE_ORDER)
++    return sorted(items, key=key)  # stable: ties keep their original relative order
++
++
++async def _sync_credentials_and_checklist(c: dict) -> tuple:
++    """Auto-attach provider credentials + the veteran's VA disability letter
++    (persisting any change), then report checklist status and plain-language
++    warnings for anything still missing or that couldn't be matched."""
++    items = c.get("items", [])
++    provider_name = await _derive_provider_name(items)
++    before_ids = {it["id"] for it in items}
++    items = await _auto_attach_credentials(items, c.get("patient_id"), provider_name)
++    if {it["id"] for it in items} != before_ids:
++        await db.claim_packets.update_one({"id": c["id"]}, {"$set": {"items": items, "updated_at": now_iso()}})
++
++    cats = _packet_categories(items)
++    checklist = [{"category": cat, "label": label, "present": cat in cats} for cat, label in FMP_CHECKLIST]
++
++    warnings = []
++    if "invoice" not in cats:
++        warnings.append("No itemized invoice attached yet.")
++    if "progress_note" not in cats:
++        warnings.append("No signed clinical progress note attached yet.")
++    warnings += await _credential_warnings(c.get("patient_id"), provider_name, cats)
++    return items, checklist, warnings
++
++
+ class ClaimInput(BaseModel):
+     name: str
+     patient_id: Optional[str] = None
+@@ -320,14 +534,7 @@ def prow(label, val, idx):
+     pdf.add_page()
+     band("FMP Fully Developed Claim - Document Checklist",
+          "Enclosed documents are marked complete below")
+-    cats = set()
+-    for it in items:
+-        if it.get("source") == "invoice":
+-            cats.add("invoice")
+-        elif it.get("source") == "note":
+-            cats.add("progress_note")
+-        if it.get("category"):
+-            cats.add(it["category"])
++    cats = _packet_categories(items)
+ 
+     section_title("Required Documents")
+     box, rh = 5, 9
+@@ -370,7 +577,7 @@ def prow(label, val, idx):
+     writer = PdfWriter()
+     for page in PdfReader(io.BytesIO(cover_bytes)).pages:
+         writer.add_page(page)
+-    for item in items:
++    for item in _sorted_for_merge(items):
+         try:
+             data, _ = get_object(item["storage_path"])
+             fn = item["filename"].lower()
+@@ -438,7 +645,8 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
+     if not invs and not notes:
+         raise HTTPException(status_code=404, detail="No invoice or progress note found for that patient on that date")
+ 
+-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
++    settings_doc = await get_settings_doc()
++    clinic = settings_doc.get("clinic_name", "Veterans of Puerto Plata")
+     m = d.split("-")
+     disp = f"{m[1]}/{m[2]}/{m[0]}" if len(m) == 3 else d
+     packet_name = f"{pname} {disp} FMP Claim"
+@@ -446,7 +654,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
+     items = []
+     for inv in invs:
+         try:
+-            pdf = _invoice_pdf(inv, clinic)
++            pdf = _invoice_pdf(inv, settings_doc)
+         except Exception as e:
+             logger.error(f"from-date invoice pdf failed: {e}")
+             continue
