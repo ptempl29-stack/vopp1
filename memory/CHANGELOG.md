@@ -20,3 +20,12 @@
 ## Notes for next agent
 - User often uploads OLD ZIP snapshots — always diff & cherry-pick, never overwrite (would revert mailbox/completion/dropdown work).
 - Mailbox creds + drafts live in DB (preview vs prod separate) — re-enter in prod via Mailbox → Connection after deploy.
+
+
+## 2026-10-13 — Claude 24-file patch hand-merged (PREVIEW ONLY, not deployed)
+- Preview sandbox: core/sandbox.py + storage guards (prefix vpp-clinic-preview, ledger, no deletes, reads limited to sandbox-written docs), email/SMS/mailbox send blocked. Encrypted Preview backup in /root/vopp_backups (sha256 e907acd8…9aec), user verified on Mac.
+- Invoice PDF: RNC, six columns, stored minutes, masked SSN (also folder invoice PDF); 4 callers updated.
+- FMP: Complete only via admin POST /claims/{cid}/approve; merge/email/save never change status; separate submission/payment tracking; legacy Complete label; duplicate packet 409; strict Build-from-Date; approved/complete packets frozen from auto-sync; CPT_TIMING_RULES review flags (no data changes); checklist endpoint; to-folder tags source=claim_packet.
+- Notes: append-only HMAC-sealed note_versions, substantive edit clears signature/completed/approval, provider-only re-sign, complete requires signature, billing review, versions + integrity endpoints, deletion tombstones.
+- Forms provider credentials (staff only), messages threads/attachments/unread, folder servicing status, provider-active toggle, Completed Work Reports (audit-logged), i18n EN/ES.
+- Not ported (by decision): patient/appointment sort changes, forced merge order, approval-time auto-filing.

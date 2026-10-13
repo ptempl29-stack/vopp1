@@ -34,3 +34,8 @@ usvopp@yahoo.com / Football2023? (display name "CEO"). SEED_DEMO_USERS=false.
 - ZIP uploads from user are often OLD snapshots — always diff before applying; cherry-pick only genuinely new additions.
 - ClaimBuilder.js frontend page was removed per user request; FMP backend endpoints remain.
 - Production secrets (EMERGENT_LLM_KEY) must be set in deployment env; redeploys don't overwrite existing secrets.
+
+## Status (Preview) — Claude 24-file update
+- Implemented and tested in PREVIEW ONLY (see CHANGELOG). NOT deployed.
+- Production blockers before publish: set production Secrets VOPP_ENV=production and a production-only NOTE_INTEGRITY_KEY (else preview values propagate via .env), production MongoDB export + document inventory, final user authorization.
+- Open decisions: CPT 90837 units (4 × $150 vs 1 per session), CPT timing rules confirmation, audit-log retention policy.

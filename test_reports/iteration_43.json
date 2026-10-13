@@ -1,0 +1,40 @@
+{
+  "summary": "Backend + frontend smoke of the Veterans of Puerto Plata preview app. Wrote /app/backend/tests/test_iteration_43_preview.py (18 passed, 1 skipped) covering: sandbox guard (/api/sandbox/status reports sandbox=true, outbound_blocked=true, prefix=vpp-clinic-preview), invoice packet-item PDF (letterhead with 'RNC:', six columns CPT|Description|Units|Minutes|Unit Price|Fee, masked SSN '***-**-1234' for a fresh ZZTEST invoice with ssn='000-00-1234', no 'Completed' row, Minutes shows stored value not units*15), FMP packet rules (duplicate 409, PUT /claims {status:'complete'}=400 with 'Use Approve' message, approve returns 200 when validation.status=review and is refused with 400 when a date-mismatch forces validation.status='blocked', tracking submission/payment set independently, invalid submission=400, checklist endpoint), CPT review warnings (90837 qty=4 → units warning, 99213 minutes=0 → timed-service warning), Build-from-Date qualifier (empty for far-future date, from-date returns 400 for non-qualifying patient), notes-integrity verify (no failures), messages (unread-count works, POST /api/messages with foreign thread_id rejected with 400/403/404), reports (completed-invoices, completed-notes, completed-packets all 200; packets rows carry a 'match' field). Frontend login (login-email/login-password/login-submit) succeeded; dashboard renders; /patients /appointments /invoices /claims /notes /forms /messages /completed-reports /folders /team all load without unhandled errors; ES language toggle switches UI to Spanish (Panel, Pacientes, Facturas, etc.). Sidebar shows Mailbox and Messages badges separately. provider-active toggle test was SKIPPED (no non-admin provider users exist on this preview — only CEO/admin).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/claims/{cid}/items/{item_id}/download (existing fixture packet b414cff3)", "issue": "Pre-existing ZZTEST Smoke invoice packet item PDF renders DOB '-' and SSN '-' instead of the invoice's real values. Root cause: the invoice-item PDF is rendered once at attach time and stored; the fixture invoice almost certainly had empty dob/ssn when attached. A newly-created ZZTEST invoice attached in this test correctly rendered masked SSN '***-**-1234' and real DOB — so mask_ssn/_invoice_pdf itself is correct. Suggest E1 either (a) re-render item PDFs when the underlying invoice is edited, or (b) document that stale item PDFs are expected when the source invoice is modified post-attach."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Team / several pages", "issue": "Two console errors on page load: 'load hidden options failed AxiosError: Request failed with status code 401'. Occurs even as admin — some options loader is calling an endpoint without the Authorization header or against a role that returns 401. Non-blocking (page still renders) but noisy in logs.", "affected_selectors": []}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration_43_preview.py",
+    "/app/test_reports/pytest/iter43.xml"
+  ],
+  "action_items": [
+    "Investigate 'load hidden options' 401 on page load (likely a missing auth header or over-restricted endpoint).",
+    "Consider refreshing stored invoice packet-item PDFs when the underlying invoice is updated so DOB/SSN masking reflect the current data (today the stored PDF is frozen at attach time)."
+  ],
+  "critical_code_review_comments": [
+    "routers/claims.py `_invoice_pdf` writes `str(val or '-')` for every info row — a legitimately empty field is indistinguishable from a stored blank; consider using '' or '—' only for truly missing fields and explicitly rendering masked SSN even when dob is blank.",
+    "routers/claims.py `_link_invoice_to_related_claims` only sets source_invoice_id; actual auto-attach to items[] happens inside `_claim_response`. Not a bug, but the dual code path is subtle — a comment near both call sites would help future readers.",
+    "routers/claims.py `update_claim` requires full ClaimInput body — a PUT with only {status:'complete'} returns Pydantic 422 instead of the intended 400. If clients only want to change status, consider a dedicated patch endpoint or accept a partial body.",
+    "routers/users.py `provider-active` toggle couldn't be exercised because this preview has only admin users; recommend seeding one disabled non-admin provider for future regression coverage."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration_43_preview.py (new)"
+  ],
+  "success_rate": {"backend": "95% (18/19 run, 1 skipped for env reasons, 0 failures)", "frontend": "100% smoke (login + 10 pages + ES toggle)"},
+  "test_credentials": "admin usvopp@yahoo.com / Football2023?",
+  "seed_data_creation": "Created one ZZTEST patient per worker (first_name=ZZTEST, last_name='Iter43 <uuid>') plus several ZZTEST invoices and ZZTEST claim packets. All are deleted in a session-scoped autouse cleanup fixture. Pre-existing 'ZZTEST Smoke' fixture (patient e38a7b87, invoice 00031170, packet b414cff3) was READ ONLY and not modified. No non-ZZTEST data touched. No emails/SMS/mailbox send attempted. /api/sandbox/backup-download not invoked.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live in /app/backend/tests/test_iteration_43_preview.py. Run with `pytest backend/tests/test_iteration_43_preview.py -v -o addopts=''` (the backend pytest.ini forces -n auto which collides with same-date fixtures across workers in this file; use -o addopts='' to serialize). Invoice-item PDFs are rendered at attach time and stored, so verifying any field change requires re-attaching. Validation statuses are {ready, review, blocked} — approve_claim refuses only on 'blocked' (date mismatch, unsigned revised note, invoice with no items, patient-name mismatch, duplicate_already_approved); empty packets return 'review' and WILL approve. patients-by-date qualifier only counts status='completed' appointments or notes that are both completed=True and signature is non-empty. Only the admin user (CEO) exists on this preview — provider-active and clinical-note signing tests cannot run without seeding a doctor/nurse/psychologist user first.",
+  "rca_of_the_issue": "The stored-fixture packet item for ZZTEST Smoke renders 'SSN -' because the invoice bytes were PDF-rendered when the invoice was first attached to the packet, before the invoice gained its ssn/dob fields. mask_ssn and _invoice_pdf both work correctly on fresh data (verified by TestInvoicePdf which attaches a brand-new ssn=000-00-1234 invoice and finds '***-**-1234' in the output). No code fix is strictly needed for this review; just awareness that re-attach is required to refresh stale fields."
+}
