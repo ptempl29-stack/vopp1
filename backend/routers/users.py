@@ -92,6 +92,22 @@ async def set_user_active(uid: str, payload: dict, current: dict = Depends(requi
     return u
 
 
+@router.put("/users/{uid}/provider-active")
+async def set_provider_active(uid: str, payload: dict, current: dict = Depends(require_roles("admin"))):
+    """Whether this provider shows up in provider-selection dropdowns
+    (notes, forms, appointments, claim credentials). Completely separate
+    from account suspension ('active' above) — this never affects login,
+    and the provider's own historical records are always kept."""
+    target = await db.users.find_one({"id": uid})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    provider_active = bool(payload.get("provider_active", True))
+    await db.users.update_one({"id": uid}, {"$set": {"provider_active": provider_active}})
+    await log_audit("update", "user", actor=current, resource_id=uid,
+                    detail=f"provider selection {'enabled' if provider_active else 'disabled'}")
+    return await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+
+
 @router.put("/users/{uid}/password")
 async def admin_reset_password(uid: str, payload: dict, current: dict = Depends(require_roles("admin"))):
     if uid == current["id"]:

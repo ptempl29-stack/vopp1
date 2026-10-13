@@ -6,13 +6,16 @@ import { useSelection, bulkDelete } from "../lib/bulk";
 import { useAuth } from "../context/AuthContext";
 import { usePrivacy, Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
-import { PageHeader, Modal, Btn, Empty, Card, inputCls } from "../components/ui-kit";
+import { PageHeader, Modal, Btn, Badge, Empty, Card, inputCls } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
-import { fmtDate } from "../lib/date";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X } from "lucide-react";
+import { fmtDate, fmtDateTime } from "../lib/date";
+import {
+  Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2,
+  LayoutGrid, List, Copy, Filter, X, CheckCircle2, XCircle, ShieldCheck,
+} from "lucide-react";
 import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
@@ -49,6 +52,10 @@ export default function Notes() {
   const [providerFilter, setProviderFilter] = useState("");
   const [patientFilter, setPatientFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
+  const [billingStatusFilter, setBillingStatusFilter] = useState("");
+  const [reviewNote, setReviewNote] = useState("");
+  const [editWasApproved, setEditWasApproved] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
 
   const load = () => api.get("/notes").then((r) => setNotes(r.data)).catch(() => {});
   useEffect(() => {
@@ -56,8 +63,10 @@ export default function Notes() {
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
     api.get("/cpt-codes").then((r) => setCpt(r.data)).catch(() => {});
-    api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "nurse", "psychologist", "admin"].includes(u.role)))).catch(() => {});
+    api.get("/users").then((r) => setProviders(r.data.filter((u) =>
+      ["doctor", "nurse", "psychologist", "admin"].includes(u.role) && u.provider_active !== false))).catch(() => {});
   }, []);
+  useEffect(() => { setReviewNote(""); }, [viewing?.id]);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const patientName = (id) => {
@@ -72,11 +81,37 @@ export default function Notes() {
   const noteDate = (n) => n.visit_date || (n.created_at || "").slice(0, 10);
   const providerOptions = useMemo(
     () => [...new Set([...providers.map((u) => u.name), ...notes.map(noteProvider)].filter(Boolean))], [providers, notes]);
+  const billingStatus = (n) => n.billing_review_status || (n.signature ? "pending_review" : "unsigned");
   const filtered = useMemo(() => notes.filter((n) =>
     (!providerFilter || noteProvider(n) === providerFilter) &&
     (!patientFilter || n.patient_id === patientFilter) &&
-    (!dateFilter || noteDate(n) === dateFilter)
-  ), [notes, providerFilter, patientFilter, dateFilter]);
+    (!dateFilter || noteDate(n) === dateFilter) &&
+    (!billingStatusFilter || billingStatus(n) === billingStatusFilter)
+  ), [notes, providerFilter, patientFilter, dateFilter, billingStatusFilter]);
+
+  const billingStatusMeta = {
+    unsigned: { tone: "gray", key: "billingStatusUnsigned" },
+    pending_review: { tone: "amber", key: "billingStatusPendingReview" },
+    approved: { tone: "green", key: "billingStatusApproved" },
+    needs_correction: { tone: "red", key: "billingStatusNeedsCorrection" },
+  };
+  const BillingBadge = ({ n, testid }) => {
+    const meta = billingStatusMeta[billingStatus(n)] || billingStatusMeta.unsigned;
+    return <Badge tone={meta.tone} data-testid={testid}>{t(meta.key)}</Badge>;
+  };
+
+  const billingReview = async (status) => {
+    if (!viewing) return;
+    setReviewing(true);
+    try {
+      const r = await api.put(`/notes/${viewing.id}/billing-review`, { status, note: reviewNote || null });
+      setViewing(r.data);
+      setNotes((ns) => ns.map((n) => (n.id === r.data.id ? r.data : n)));
+      setReviewNote("");
+      toast.success(t("billingReviewSaved"));
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setReviewing(false); }
+  };
 
   const onPatient = async (e) => {
     const pid = e.target.value;
@@ -115,8 +150,11 @@ export default function Notes() {
     } catch (err) { toast.error(apiErr(err)); }
   };
 
-  const openNew = () => { setForm({ ...blank, signature: user?.default_signature || "" }); setEditId(null); setSigKey((k) => k + 1); setOpen(true); };
-  const openEdit = (n) => { setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setSigKey((k) => k + 1); setOpen(true); };
+  const openNew = () => { setForm({ ...blank, signature: user?.default_signature || "" }); setEditId(null); setSigKey((k) => k + 1); setOpen(true); setEditWasApproved(false); };
+  const openEdit = (n) => {
+    setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setSigKey((k) => k + 1); setOpen(true);
+    setEditWasApproved(billingStatus(n) === "approved");
+  };
 
   const duplicateNote = (n) => {
     setEditId(null); setViewing(null);
@@ -301,6 +339,14 @@ export default function Notes() {
               className="p-1 rounded hover:bg-stone-100 text-stone-500"><X className="w-4 h-4" /></button>
           )}
         </div>
+        <select value={billingStatusFilter} onChange={(e) => setBillingStatusFilter(e.target.value)}
+          data-testid="notes-filter-billing-status" className={inputCls + " !w-auto"} title={t("filterBillingStatus")}>
+          <option value="">{t("allBillingStatuses")}</option>
+          <option value="unsigned">{t("billingStatusUnsigned")}</option>
+          <option value="pending_review">{t("billingStatusPendingReview")}</option>
+          <option value="approved">{t("billingStatusApproved")}</option>
+          <option value="needs_correction">{t("billingStatusNeedsCorrection")}</option>
+        </select>
       </div>
 
       {allowed && filtered.length > 0 && (
@@ -332,6 +378,7 @@ export default function Notes() {
                   <th className="px-5 py-3 hidden md:table-cell">{t("provider")}</th>
                   <th className="px-5 py-3 hidden lg:table-cell">ICD-10 / CPT</th>
                   <th className="px-5 py-3">{t("riskAssessment")}</th>
+                  <th className="px-5 py-3">{t("filterBillingStatus")}</th>
                   <th className="px-5 py-3 text-right">{t("actions")}</th>
                 </tr>
               </thead>
@@ -349,6 +396,7 @@ export default function Notes() {
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{providerName(n)}</td>
                     <td className="px-5 py-3 hidden lg:table-cell text-stone-500 font-mono text-xs">{[n.icd10, n.cpt_code].filter(Boolean).join(" / ") || "—"}</td>
                     <td className="px-5 py-3 text-stone-600">{n.risk_level ? riskLabel(n.risk_level) : "—"}</td>
+                    <td className="px-5 py-3"><BillingBadge n={n} testid={`note-billing-status-${n.id}`} /></td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         <Btn variant="ghost" onClick={() => setViewing(n)} data-testid={`view-note-${n.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
@@ -376,10 +424,11 @@ export default function Notes() {
                   <div className="w-9 h-9 rounded-md bg-moneygreen-100 flex items-center justify-center shrink-0">
                     <FileText className="w-4 h-4 text-moneygreen-600" />
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="font-heading font-bold text-moneygreen-800 truncate"><Private value={patientName(n.patient_id)} /></p>
                     <p className="text-xs text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))} · {providerName(n)}</p>
                   </div>
+                  <BillingBadge n={n} testid={`note-billing-status-${n.id}`} />
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-stone-500 mb-2">
                   {n.icd10 && <span><b className="text-stone-600">ICD-10:</b> {n.icd10}</span>}
@@ -410,6 +459,11 @@ export default function Notes() {
       {/* New / Edit note */}
       <Modal open={open} onClose={() => { setOpen(false); setEditId(null); }} title={editId ? t("editNote") : t("newNote")} wide>
         <form onSubmit={save} className="space-y-4">
+          {editWasApproved && (
+            <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-800 no-print" data-testid="edit-approved-warning">
+              {t("editApprovedWarning")}
+            </div>
+          )}
           <div id="note-print" className="space-y-4">
             <div className="rounded-lg border border-border p-4 no-print">
               <EditableLetterhead settings={settings} onSaved={setSettings} t={t}
@@ -487,6 +541,58 @@ export default function Notes() {
                 </div>
               )}
             </div>
+
+            <div className="p-4 rounded-md bg-tan-50 border border-tan-200 no-print" data-testid="billing-review-panel">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" /> {t("billingReview")}
+                </p>
+                <BillingBadge n={viewing} testid="view-billing-status" />
+              </div>
+              <p className="text-xs text-stone-500 mb-3">{t("billingReviewHint")}</p>
+              {viewing.billing_reviewed_by && (
+                <p className="text-xs text-stone-600 mb-3" data-testid="billing-reviewed-meta">
+                  {t("billingReviewedBy")} <span className="font-semibold">{viewing.billing_reviewed_by}</span>
+                  {" · "}{fmtDateTime(viewing.billing_reviewed_at)}
+                  {viewing.billing_review_note && <> — "{viewing.billing_review_note}"</>}
+                </p>
+              )}
+              {viewing.history && viewing.history.length > 0 && (
+                <details className="mb-3 text-xs text-stone-500" data-testid="billing-review-history">
+                  <summary className="cursor-pointer font-semibold text-stone-600">{t("reviewHistory")} ({viewing.history.length})</summary>
+                  <div className="mt-2 space-y-2 pl-3 border-l-2 border-tan-300">
+                    {[...viewing.history].reverse().map((h, i) => (
+                      <div key={i}>
+                        <p>{fmtDateTime(h.archived_at)} — {h.archived_reason === "re-signed" ? t("historyResigned") : t("historyEditedAfterApproval")}</p>
+                        {h.billing_reviewed_by && (
+                          <p>{t("billingReviewedBy")} {h.billing_reviewed_by} · {fmtDateTime(h.billing_reviewed_at)}
+                            {h.billing_review_note && <> — "{h.billing_review_note}"</>}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+              {user?.role === "admin" && (
+                viewing.signature ? (
+                  <div className="space-y-2">
+                    <input value={reviewNote} onChange={(e) => setReviewNote(e.target.value)}
+                      placeholder={t("billingReviewNotePlaceholder")} className={inputCls} data-testid="billing-review-note-input" />
+                    <div className="flex flex-wrap gap-2">
+                      <Btn type="button" onClick={() => billingReview("approved")} disabled={reviewing} data-testid="billing-approve-btn">
+                        {reviewing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}{t("approveForBilling")}
+                      </Btn>
+                      <Btn type="button" variant="outline" onClick={() => billingReview("needs_correction")} disabled={reviewing} data-testid="billing-needs-correction-btn">
+                        <XCircle className="w-4 h-4" />{t("markNeedsCorrection")}
+                      </Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-stone-400 italic">{t("signFirstToReview")}</p>
+                )
+              )}
+            </div>
+
             <div className="flex justify-end gap-2 pt-2 no-print">
               <Btn variant="outline" onClick={() => { if (viewing?.id) api.post(`/notes/${viewing.id}/to-folder`).then(() => toast.success(t("savedToFolder"))).catch(() => {}); printSection("note-print"); }} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
               <Btn variant="outline" onClick={() => printSection("note-print")} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>

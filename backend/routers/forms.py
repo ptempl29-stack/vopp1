@@ -100,7 +100,8 @@ async def list_forms(user: dict = Depends(require_roles("doctor", "nurse", "rece
 @router.post("/forms")
 async def create_form(data: FormInput, user: dict = Depends(require_roles(*FORMS_ROLES))):
     doc = {"id": str(uuid.uuid4()), "public_token": uuid.uuid4().hex,
-           "patient_id": data.patient_id, "title": data.title, "form_type": data.form_type,
+           "patient_id": data.patient_id, "provider_id": data.provider_id,
+           "title": data.title, "form_type": data.form_type,
            "fields": data.fields, "external_url": data.external_url, "status": data.status,
            "template": FORM_TEMPLATES.get(data.form_type, []), "responses": None,
            "attachment": None, "email_sent": False,
@@ -124,9 +125,36 @@ async def create_form(data: FormInput, user: dict = Depends(require_roles(*FORMS
     return doc
 
 
+# Form types that feed straight into the same storage the FMP packet
+# auto-attach logic (claims.py:_auto_attach_credentials) already reads —
+# so a document filed under one of these stays available for automatic
+# attachment, same as uploading it directly via Team credentials / a
+# patient folder upload.
+_CREDENTIAL_FORM_KIND = {"Provider Exequatur": "exequatur", "Provider Diploma": "diploma"}
+DISABILITY_LETTER_FORM_TYPE = "Disability Breakdown Letter"
+
+
+async def _sync_form_attachment(form_doc: dict):
+    """After a form of a credential type gets its attachment, mirror it into
+    the provider's credential doc so it's immediately usable for auto-attach.
+    No-op for any other form type."""
+    kind = _CREDENTIAL_FORM_KIND.get(form_doc.get("form_type"))
+    att = form_doc.get("attachment")
+    if not kind or not att or not form_doc.get("provider_id"):
+        return
+    prov = await db.users.find_one({"id": form_doc["provider_id"]}, {"_id": 0, "name": 1})
+    if not prov:
+        return
+    await db.users.update_one({"id": form_doc["provider_id"]}, {"$set": {f"{kind}_doc": {
+        "storage_path": att["storage_path"], "filename": att.get("filename") or f"{kind}.pdf",
+        "content_type": att.get("content_type", "application/octet-stream"),
+        "size": att.get("size"), "uploaded_at": now_iso(), "uploaded_by": form_doc.get("created_by")}}})
+
+
 @router.post("/forms/upload")
 async def upload_form(file: UploadFile = File(...), title: str = Form(...),
                       form_type: str = Form("Uploaded"), patient_id: str = Form(""),
+                      provider_id: str = Form(""),
                       user: dict = Depends(require_roles(*FORMS_ROLES))):
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "bin"
     if ext not in EXT_CONTENT_TYPES:
@@ -143,11 +171,13 @@ async def upload_form(file: UploadFile = File(...), title: str = Form(...),
         raise HTTPException(status_code=502, detail="File storage failed")
     doc = {"id": str(uuid.uuid4()), "public_token": uuid.uuid4().hex,
            "title": title, "form_type": form_type, "patient_id": patient_id or None,
+           "provider_id": provider_id or None,
            "template": [], "responses": None, "status": "received",
            "attachment": {"storage_path": result["path"], "filename": file.filename,
                           "content_type": safe_ct, "size": result.get("size")},
            "created_at": now_iso(), "created_by": user["name"]}
     await db.forms.insert_one(doc)
+    await _sync_form_attachment(doc)
     doc.pop("_id", None)
     await log_audit("create", "form", actor=user, resource_id=doc["id"],
                     detail=f"upload: {file.filename}")
@@ -206,6 +236,7 @@ class FormUpdate(BaseModel):
     form_type: Optional[str] = None
     status: Optional[str] = None
     patient_id: Optional[str] = None
+    provider_id: Optional[str] = None
     external_url: Optional[str] = None
     recipient_email: Optional[str] = None
     responses: Optional[dict] = None
@@ -275,7 +306,7 @@ async def update_form(fid: str, data: FormUpdate, user: dict = Depends(require_r
     if user["role"] != "admin" and existing.get("created_by") not in (user["name"], None):
         raise HTTPException(status_code=403, detail="You can only edit forms you created")
     updates = {}
-    for k in ("title", "form_type", "patient_id", "external_url", "recipient_email", "responses"):
+    for k in ("title", "form_type", "patient_id", "provider_id", "external_url", "recipient_email", "responses"):
         v = getattr(data, k)
         if v is not None:
             updates[k] = v
@@ -287,8 +318,11 @@ async def update_form(fid: str, data: FormUpdate, user: dict = Depends(require_r
         updates["updated_at"] = now_iso()
         updates["updated_by"] = user["name"]
         await db.forms.update_one({"id": fid}, {"$set": updates})
+    updated = await db.forms.find_one({"id": fid}, {"_id": 0})
+    if "provider_id" in updates or "form_type" in updates:
+        await _sync_form_attachment(updated)
     await log_audit("update", "form", actor=user, resource_id=fid, detail="edit form")
-    return await db.forms.find_one({"id": fid}, {"_id": 0})
+    return updated
 
 
 @router.post("/forms/{fid}/send-email")
@@ -357,6 +391,10 @@ async def move_form_to_folder(fid: str, data: ToFolder, user: dict = Depends(req
     base = {"id": str(uuid.uuid4()), "patient_id": data.patient_id, "subfolder_id": data.subfolder_id or None,
             "form_id": f["id"], "description": f.get("form_type") or "",
             "created_at": now_iso(), "created_by": user["name"], "created_by_id": user["id"]}
+    if f.get("form_type") == DISABILITY_LETTER_FORM_TYPE:
+        # Explicit category — the veteran's disability letter stays matchable
+        # for FMP auto-attach regardless of what the file happens to be named.
+        base["category"] = "va_disability_letter"
     if f.get("attachment"):
         att = f["attachment"]
         item = {**base, "source": "form", "storage_path": att["storage_path"], "filename": att["filename"],
@@ -468,8 +506,9 @@ async def public_upload_back(token: str, file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"patient upload failed: {e}")
         raise HTTPException(status_code=502, detail="File storage failed")
+    attachment = {"storage_path": result["path"], "filename": file.filename,
+                  "content_type": safe_ct, "size": result.get("size")}
     await db.forms.update_one({"public_token": token}, {"$set": {
-        "attachment": {"storage_path": result["path"], "filename": file.filename,
-                       "content_type": safe_ct, "size": result.get("size")},
-        "status": "received", "submitted_at": now_iso()}})
+        "attachment": attachment, "status": "received", "submitted_at": now_iso()}})
+    await _sync_form_attachment({**f, "attachment": attachment})
     return {"ok": True}

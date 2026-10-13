@@ -17,48 +17,159 @@ from core.pdf_utils import new_pdf, pdf_bytes, FONT
 router = APIRouter()
 
 
-def _invoice_pdf(inv: dict, clinic: str) -> bytes:
+def _invoice_pdf(inv: dict, settings: dict) -> bytes:
+    """Render an invoice exactly as it appears in the saved-invoice view:
+    same letterhead/logo, same patient & invoice info, same 6-column items
+    table (CPT, Description, Units, Minutes, Unit Price, Fee), same total."""
+    import base64
+    from io import BytesIO
     from core.folder_filing import disp_date
+
+    settings = settings or {}
+    clinic = settings.get("clinic_name") or "Veterans of Puerto Plata"
+    GREEN = (25, 90, 60)
+    GREY = (105, 105, 105)
+
     pdf = new_pdf()
-    pdf.set_font(FONT, "B", 18)
-    pdf.cell(0, 12, (clinic or "")[:60], ln=True)
+    content_w = pdf.w - pdf.l_margin - pdf.r_margin
+
+    # ---------------- Letterhead (logo + clinic info) ----------------
+    logo = settings.get("logo") or ""
+    text_x = pdf.l_margin
+    y0 = pdf.get_y()
+    if logo.startswith("data:image"):
+        try:
+            img = BytesIO(base64.b64decode(logo.split(",", 1)[1]))
+            pdf.image(img, x=pdf.l_margin, y=y0, w=16, h=16)
+            text_x = pdf.l_margin + 20
+        except Exception as e:
+            logger.error(f"invoice pdf logo render failed: {e}")
+            text_x = pdf.l_margin
+    pdf.set_xy(text_x, y0)
+    pdf.set_font(FONT, "B", 16)
+    pdf.cell(content_w - (text_x - pdf.l_margin), 7, clinic[:70], ln=True)
+    if settings.get("tagline"):
+        pdf.set_x(text_x)
+        pdf.set_font(FONT, "", 9)
+        pdf.set_text_color(*GREY)
+        pdf.cell(0, 5, settings["tagline"][:100], ln=True)
+    contact = [v for v in [
+        settings.get("address"), settings.get("phone"),
+        f"WhatsApp: {settings['whatsapp']}" if settings.get("whatsapp") else "",
+        settings.get("email")] if v]
+    if contact:
+        pdf.set_x(text_x)
+        pdf.set_font(FONT, "", 8)
+        pdf.set_text_color(*GREY)
+        pdf.cell(0, 5, "   |   ".join(contact)[:160], ln=True)
+    extra = [v for v in [
+        f"Mailing Address: {settings['mailing_address']}" if settings.get("mailing_address") else "",
+        f"Primary Insurance: {settings['primary_insurance']}" if settings.get("primary_insurance") else ""] if v]
+    if extra:
+        pdf.set_x(text_x)
+        pdf.cell(0, 5, "   |   ".join(extra)[:160], ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_y(max(pdf.get_y(), y0 + 18) + 2)
+    pdf.set_draw_color(*GREEN)
+    pdf.set_line_width(0.5)
+    pdf.line(pdf.l_margin, pdf.get_y(), pdf.l_margin + content_w, pdf.get_y())
+    pdf.ln(5)
+
+    # ---------------- Invoice # / service date ----------------
     pdf.set_font(FONT, "B", 13)
-    pdf.cell(0, 9, f"Invoice {inv.get('invoice_number', '')}", ln=True)
-    pdf.ln(2)
-    pdf.set_font(FONT, "", 11)
-
-    def row(label, val):
-        if val:
-            pdf.cell(45, 7, label, border=0)
-            pdf.cell(0, 7, str(val), ln=True)
-
-    row("Patient:", inv.get("patient_name"))
-    row("DOB:", disp_date(inv.get("dob")) if inv.get("dob") else "")
-    row("Service Date:", disp_date(inv.get("service_date")) if inv.get("service_date") else "")
-    row("Provider:", inv.get("provider"))
-    row("Visit Reason:", inv.get("visit_reason"))
-    row("ICD-10:", inv.get("icd10"))
-    row("Status:", inv.get("status"))
+    pdf.cell(0, 8, f"Invoice {inv.get('invoice_number', '')}", ln=True)
+    pdf.set_font(FONT, "", 9)
+    pdf.set_text_color(*GREY)
+    pdf.cell(0, 5, disp_date(inv.get("service_date")) if inv.get("service_date") else "", ln=True)
+    pdf.set_text_color(0, 0, 0)
     pdf.ln(3)
-    pdf.set_font(FONT, "B", 10)
-    pdf.cell(28, 8, "CPT", border=1)
-    pdf.cell(90, 8, "Description", border=1)
-    pdf.cell(20, 8, "Qty", border=1, align="R")
-    pdf.cell(0, 8, "Amount", border=1, ln=True, align="R")
-    pdf.set_font(FONT, "", 10)
+
+    # ---------------- Patient Information / Invoice Information ----------------
+    col_gap = 8
+    col_w = (content_w - col_gap) / 2
+    left_x = pdf.l_margin
+    right_x = pdf.l_margin + col_w + col_gap
+    top_y = pdf.get_y()
+
+    def info_block(x, title, rows):
+        pdf.set_xy(x, top_y)
+        pdf.set_font(FONT, "B", 8.5)
+        pdf.set_text_color(*GREEN)
+        pdf.cell(col_w, 5, title.upper(), ln=True)
+        pdf.set_draw_color(*GREEN)
+        pdf.line(x, pdf.get_y(), x + col_w, pdf.get_y())
+        pdf.ln(1.5)
+        for label, val in rows:
+            pdf.set_x(x)
+            pdf.set_font(FONT, "B", 8)
+            pdf.set_text_color(*GREY)
+            pdf.cell(28, 5.5, label)
+            pdf.set_font(FONT, "", 8.5)
+            pdf.set_text_color(0, 0, 0)
+            pdf.cell(col_w - 28, 5.5, str(val or "-")[:60], ln=True)
+        return pdf.get_y()
+
+    left_rows = [
+        ("Full Name", inv.get("patient_name")),
+        ("DOB", disp_date(inv.get("dob")) if inv.get("dob") else ""),
+        ("SSN", inv.get("ssn")),
+        ("Gender", inv.get("gender")),
+        ("Policy No.", inv.get("policy_number")),
+    ]
+    right_rows = [
+        ("Invoice No.", inv.get("invoice_number")),
+        ("Service Date", disp_date(inv.get("service_date")) if inv.get("service_date") else ""),
+        ("Completed", disp_date(inv.get("completed_at")) if inv.get("completed_at") else ""),
+        ("Status", (inv.get("status") or "").replace("_", " ").title()),
+        ("Visit Reason", inv.get("visit_reason")),
+        ("ICD-10-CM", inv.get("icd10")),
+        ("Provider", inv.get("provider")),
+    ]
+    y_left = info_block(left_x, "Patient Information", left_rows)
+    y_right = info_block(right_x, "Invoice Information", right_rows)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_y(max(y_left, y_right) + 3)
+
+    # ---------------- Items table: CPT | Description | Units | Minutes | Unit Price | Fee ----------------
+    cpt_w, desc_w, units_w, min_w, price_w = 22, 58, 18, 20, 28
+    fee_w = content_w - (cpt_w + desc_w + units_w + min_w + price_w)
+
+    pdf.set_font(FONT, "B", 8.5)
+    pdf.set_fill_color(*GREEN)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(cpt_w, 7, "CPT", border=1, fill=True)
+    pdf.cell(desc_w, 7, "Description", border=1, fill=True)
+    pdf.cell(units_w, 7, "Units", border=1, align="R", fill=True)
+    pdf.cell(min_w, 7, "Minutes", border=1, align="R", fill=True)
+    pdf.cell(price_w, 7, "Unit Price", border=1, align="R", fill=True)
+    pdf.cell(fee_w, 7, "Fee", border=1, align="R", ln=True, fill=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font(FONT, "", 8.5)
     for it in inv.get("items", []):
-        qty = it.get("quantity", 1)
-        pdf.cell(28, 8, str(it.get("cpt_code", ""))[:12], border=1)
-        pdf.cell(90, 8, str(it.get("description", ""))[:55], border=1)
-        pdf.cell(20, 8, str(qty), border=1, align="R")
-        pdf.cell(0, 8, f"${it.get('amount', 0) * qty:.2f}", border=1, ln=True, align="R")
-    pdf.set_font(FONT, "B", 11)
-    pdf.cell(138, 9, "Total", border=1)
-    pdf.cell(0, 9, f"${inv.get('total', 0):.2f}", border=1, ln=True, align="R")
+        qty = it.get("quantity", 1) or 0
+        unit_price = it.get("amount", 0) or 0
+        fee = unit_price * qty
+        pdf.cell(cpt_w, 7, str(it.get("cpt_code", ""))[:12], border=1)
+        pdf.cell(desc_w, 7, str(it.get("description", ""))[:46], border=1)
+        pdf.cell(units_w, 7, str(qty), border=1, align="R")
+        pdf.cell(min_w, 7, str(qty * 15), border=1, align="R")
+        pdf.cell(price_w, 7, f"${unit_price:.2f}", border=1, align="R")
+        pdf.cell(fee_w, 7, f"${fee:.2f}", border=1, align="R", ln=True)
+
+    # ---------------- Total (unchanged: stored invoice total, not recomputed) ----------------
+    pdf.ln(4)
+    pdf.set_font(FONT, "B", 9)
+    pdf.cell(content_w - 45, 8, "TOTAL", align="R")
+    pdf.set_font(FONT, "B", 15)
+    pdf.set_text_color(*GREEN)
+    pdf.cell(45, 8, f"${inv.get('total', 0):.2f}", align="R", ln=True)
+    pdf.set_text_color(0, 0, 0)
+
     if inv.get("notes"):
         pdf.ln(3)
-        pdf.set_font(FONT, "", 10)
-        pdf.multi_cell(0, 6, f"Notes: {inv['notes']}")
+        pdf.set_font(FONT, "", 9)
+        pdf.multi_cell(0, 5.5, f"Notes: {inv['notes']}")
+
     return pdf_bytes(pdf)
 
 CLAIM_STATUSES = {"draft", "submitted", "complete"}
@@ -110,7 +221,7 @@ async def _auto_attach_credentials(items: list, patient_id: str, provider_name: 
     if patient_id and "va_disability_letter" not in have:
         docs = await db.folder_items.find({"patient_id": patient_id}, {"_id": 0}) \
             .sort("created_at", -1).to_list(200)
-        match = next((d for d in docs if _guess_category(d.get("filename") or d.get("label") or "") == "va_disability_letter"), None)
+        match = next((d for d in docs if (d.get("category") or _guess_category(d.get("filename") or d.get("label") or "")) == "va_disability_letter"), None)
         if match:
             items.append({"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
                          "storage_path": match["storage_path"],
@@ -118,6 +229,109 @@ async def _auto_attach_credentials(items: list, patient_id: str, provider_name: 
                          "content_type": match.get("content_type", "application/pdf"),
                          "size": match.get("size"), "category": "va_disability_letter"})
     return items
+
+
+def _packet_categories(items: list) -> set:
+    """Checklist categories satisfied by the current item list. 'invoice' and
+    'progress_note' are inferred from an item's source (attach-invoice /
+    attach-note items don't carry an explicit category); everything else
+    (uploads, auto-attached credentials/disability letter) uses its own
+    'category' field."""
+    return {_item_category(it) for it in items if _item_category(it)}
+
+
+async def _derive_provider_name(items: list) -> Optional[str]:
+    """Same priority as the from-date bulk flow: attending provider on an
+    attached note first, then the provider on an attached invoice."""
+    for it in items:
+        if it.get("source") == "note" and it.get("note_id"):
+            n = await db.notes.find_one({"id": it["note_id"]}, {"_id": 0, "attending_provider": 1})
+            if n and n.get("attending_provider"):
+                return n["attending_provider"]
+    for it in items:
+        if it.get("source") == "invoice" and it.get("invoice_id"):
+            inv = await db.invoices.find_one({"id": it["invoice_id"]}, {"_id": 0, "attending_provider": 1, "provider": 1})
+            if inv and (inv.get("attending_provider") or inv.get("provider")):
+                return inv.get("attending_provider") or inv.get("provider")
+    return None
+
+
+async def _credential_warnings(patient_id: Optional[str], provider_name: Optional[str], cats: set) -> list:
+    """Plain-language warnings for FMP-required documents still missing or
+    unmatched after auto-attach: the veteran's VA disability letter, and the
+    assigned provider's diploma/exequatur. `cats` is the packet's current
+    checklist-category set (after auto-attach has already run)."""
+    warnings = []
+    if not patient_id:
+        warnings.append("No patient linked to this claim — the VA disability letter can't be looked up.")
+    elif "va_disability_letter" not in cats:
+        warnings.append("VA Disability Verification Letter not found in the patient's documents.")
+    if not provider_name:
+        warnings.append("No provider could be determined for this claim — "
+                        "provider diploma/exequatur can't be auto-attached yet.")
+    else:
+        prov = await db.users.find_one({"name": provider_name}, {"_id": 0, "diploma_doc": 1, "exequatur_doc": 1})
+        if prov is None:
+            warnings.append(f"No staff account matches provider name \"{provider_name}\" exactly — "
+                            "credentials could not be matched (check for a typo or name mismatch).")
+        else:
+            if "provider_diploma" not in cats:
+                warnings.append(f"No diploma on file for {provider_name}.")
+            if "provider_exequatur" not in cats:
+                warnings.append(f"No exequatur on file for {provider_name}.")
+    return warnings
+
+
+# Fixed order the merged packet's documents are assembled in, after the
+# auto-generated summary + checklist pages. Anything not in this list (e.g.
+# an extra manually-attached file) keeps its original relative position at
+# the end, so nothing is ever silently dropped from the merge.
+_MERGE_ORDER = ["cover_sheet", "va_disability_letter", "invoice", "progress_note",
+                "provider_exequatur", "provider_diploma"]
+
+
+def _item_category(item: dict) -> str:
+    cat = item.get("category")
+    if cat:
+        return cat
+    if item.get("source") == "invoice":
+        return "invoice"
+    if item.get("source") == "note":
+        return "progress_note"
+    return ""
+
+
+def _sorted_for_merge(items: list) -> list:
+    def key(item):
+        cat = _item_category(item)
+        try:
+            return _MERGE_ORDER.index(cat)
+        except ValueError:
+            return len(_MERGE_ORDER)
+    return sorted(items, key=key)  # stable: ties keep their original relative order
+
+
+async def _sync_credentials_and_checklist(c: dict) -> tuple:
+    """Auto-attach provider credentials + the veteran's VA disability letter
+    (persisting any change), then report checklist status and plain-language
+    warnings for anything still missing or that couldn't be matched."""
+    items = c.get("items", [])
+    provider_name = await _derive_provider_name(items)
+    before_ids = {it["id"] for it in items}
+    items = await _auto_attach_credentials(items, c.get("patient_id"), provider_name)
+    if {it["id"] for it in items} != before_ids:
+        await db.claim_packets.update_one({"id": c["id"]}, {"$set": {"items": items, "updated_at": now_iso()}})
+
+    cats = _packet_categories(items)
+    checklist = [{"category": cat, "label": label, "present": cat in cats} for cat, label in FMP_CHECKLIST]
+
+    warnings = []
+    if "invoice" not in cats:
+        warnings.append("No itemized invoice attached yet.")
+    if "progress_note" not in cats:
+        warnings.append("No signed clinical progress note attached yet.")
+    warnings += await _credential_warnings(c.get("patient_id"), provider_name, cats)
+    return items, checklist, warnings
 
 
 class ClaimInput(BaseModel):
@@ -320,14 +534,7 @@ async def _build_packet_pdf(c) -> bytes:
     pdf.add_page()
     band("FMP Fully Developed Claim - Document Checklist",
          "Enclosed documents are marked complete below")
-    cats = set()
-    for it in items:
-        if it.get("source") == "invoice":
-            cats.add("invoice")
-        elif it.get("source") == "note":
-            cats.add("progress_note")
-        if it.get("category"):
-            cats.add(it["category"])
+    cats = _packet_categories(items)
 
     section_title("Required Documents")
     box, rh = 5, 9
@@ -370,7 +577,7 @@ async def _build_packet_pdf(c) -> bytes:
     writer = PdfWriter()
     for page in PdfReader(io.BytesIO(cover_bytes)).pages:
         writer.add_page(page)
-    for item in items:
+    for item in _sorted_for_merge(items):
         try:
             data, _ = get_object(item["storage_path"])
             fn = item["filename"].lower()
@@ -438,7 +645,8 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     if not invs and not notes:
         raise HTTPException(status_code=404, detail="No invoice or progress note found for that patient on that date")
 
-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    settings_doc = await get_settings_doc()
+    clinic = settings_doc.get("clinic_name", "Veterans of Puerto Plata")
     m = d.split("-")
     disp = f"{m[1]}/{m[2]}/{m[0]}" if len(m) == 3 else d
     packet_name = f"{pname} {disp} FMP Claim"
@@ -446,7 +654,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     items = []
     for inv in invs:
         try:
-            pdf = _invoice_pdf(inv, clinic)
+            pdf = _invoice_pdf(inv, settings_doc)
         except Exception as e:
             logger.error(f"from-date invoice pdf failed: {e}")
             continue
@@ -609,6 +817,24 @@ async def attachable_patients(user: dict = Depends(require_roles("admin"))):
     return [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}"} for p in pts]
 
 
+@router.get("/claims/options/patients-by-date")
+async def patients_with_completed_visit_on_date(date: str, user: dict = Depends(require_roles("admin"))):
+    """For the Bill From Date flow: list patients with a COMPLETED visit on the
+    given date, so staff pick the date first and then the patient. Cancelled
+    (and any non-completed) appointments are excluded; this app has no
+    separate no-show status today."""
+    d = date[:10]
+    appts = await db.appointments.find(
+        {"status": "completed"}, {"_id": 0, "patient_id": 1, "date": 1}).to_list(5000)
+    patient_ids = {a["patient_id"] for a in appts if _same_day(a.get("date"), d)}
+    if not patient_ids:
+        return []
+    pts = await db.patients.find(
+        {"id": {"$in": list(patient_ids)}}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).to_list(1000)
+    pts.sort(key=lambda p: (p["first_name"].lower(), p["last_name"].lower()))
+    return [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}"} for p in pts]
+
+
 @router.post("/claims/{cid}/attach-invoice")
 async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
     c = await db.claim_packets.find_one({"id": cid})
@@ -617,9 +843,9 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
     inv = await db.invoices.find_one({"id": payload.get("invoice_id")}, {"_id": 0})
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    settings_doc = await get_settings_doc()
     try:
-        pdf_bytes = _invoice_pdf(inv, clinic)
+        pdf_bytes = _invoice_pdf(inv, settings_doc)
     except Exception as e:
         logger.error(f"invoice pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
@@ -635,6 +861,8 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
             "size": result.get("size")}
     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach invoice {inv.get('invoice_number')}")
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    await _sync_credentials_and_checklist(c)
     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
 
 
@@ -669,6 +897,8 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
             "size": result.get("size")}
     await db.claim_packets.update_one({"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"attach note {fname}")
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    await _sync_credentials_and_checklist(c)
     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
 
 
@@ -697,14 +927,68 @@ async def download_item(cid: str, item_id: str, user: dict = Depends(require_rol
         headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Content-Type-Options": "nosniff"})
 
 
+@router.get("/claims/{cid}/checklist")
+async def claim_checklist(cid: str, user: dict = Depends(require_roles("admin"))):
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    _items, checklist, warnings = await _sync_credentials_and_checklist(c)
+    return {"checklist": checklist, "warnings": warnings}
+
+
+async def _auto_file_packet_to_folder(c: dict, pdf: bytes, user: dict):
+    """Whenever a completed FMP claim packet is generated, file a copy into
+    the correct patient's folder, under a 'Full Name – Date of Service'
+    subfolder (reusing it if it already exists — never duplicating), without
+    ever overwriting an earlier version. Never raises: a filing failure must
+    never break the actual download the user is waiting on."""
+    try:
+        pid = c.get("patient_id")
+        dos = (c.get("claim_number") or "").strip()
+        if not pid or not dos:
+            logger.error(f"packet auto-file skipped for {c.get('id')}: missing patient_id or date of service")
+            return
+        p = await db.patients.find_one({"id": pid}, {"_id": 0, "first_name": 1, "last_name": 1})
+        if not p:
+            logger.error(f"packet auto-file skipped for {c.get('id')}: patient {pid} not found")
+            return
+        folder_name = f"{p['first_name']} {p['last_name']} – {dos}"[:80]
+        sf = await db.folder_subfolders.find_one({"patient_id": pid, "name": folder_name}, {"_id": 0})
+        if not sf:
+            sf = {"id": str(uuid.uuid4()), "patient_id": pid, "name": folder_name,
+                  "created_at": now_iso(), "created_by": user["name"], "created_by_id": user["id"]}
+            await db.folder_subfolders.insert_one(dict(sf))
+        version = await db.folder_items.count_documents(
+            {"patient_id": pid, "subfolder_id": sf["id"], "claim_packet_id": c["id"]}) + 1
+        path = f"{APP_NAME}/folders/{pid}/{uuid.uuid4()}.pdf"
+        result = put_object(path, pdf, "application/pdf")
+        item = {"id": str(uuid.uuid4()), "patient_id": pid, "subfolder_id": sf["id"],
+                "source": "claim_packet", "claim_packet_id": c["id"], "form_id": None,
+                "storage_path": result["path"], "filename": f"FMP_Claim_Packet_{dos}_v{version}.pdf",
+                "label": f"FMP Claim Packet ({dos}) v{version}"[:120], "content_type": "application/pdf",
+                "size": result.get("size"), "created_at": now_iso(),
+                "created_by": user["name"], "created_by_id": user["id"]}
+        await db.folder_items.insert_one(item)
+        await log_audit("create", "folder", actor=user, resource_id=pid,
+                        detail=f"auto-filed FMP packet v{version} into '{folder_name}'")
+    except Exception as e:
+        logger.error(f"packet auto-file failed for {c.get('id')}: {e}")
+
+
 @router.get("/claims/{cid}/merged")
 async def merged_pdf(cid: str, user: dict = Depends(require_roles("admin"))):
+    """Preview/download the combined packet. This is a READ-ONLY preview: it
+    never changes the claim's status and never files a version into the
+    patient's folder — that only happens on an explicit save (claim_to_folder
+    below, or the FMP builder's 'Approve Packet' action). A packet can be
+    previewed any number of times without creating duplicate saved versions."""
     c = await db.claim_packets.find_one({"id": cid})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
+    items, _checklist, _warnings = await _sync_credentials_and_checklist(c)
+    c = {**c, "items": items}
     pdf = await _build_packet_pdf(c)
-    await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
-    await log_audit("update", "claim", actor=user, resource_id=cid, detail="merged PDF · marked complete")
+    await log_audit("view", "claim", actor=user, resource_id=cid, detail="previewed merged PDF")
     fname = (c.get("name") or "claim_packet").replace('"', "").replace(" ", "_")[:60]
     return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'})
@@ -822,8 +1106,11 @@ async def send_packet_email(cid: str, data: SendPacket, user: dict = Depends(req
 
 @router.post("/claims/{cid}/to-folder")
 async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))):
-    from datetime import datetime, timezone
-    from core.folder_filing import file_pdf_into_folder
+    """Explicitly SAVE the packet: builds the current combined PDF, marks the
+    claim complete, and files a new version into the patient's
+    'Full Name – Date of Service' folder (never overwriting a prior save).
+    This is the one place a packet actually gets filed — previewing/
+    downloading via GET /claims/{cid}/merged never does."""
     c = await db.claim_packets.find_one({"id": cid})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
@@ -833,12 +1120,10 @@ async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))
     p = await db.patients.find_one({"id": pid}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
+    items, _checklist, _warnings = await _sync_credentials_and_checklist(c)
+    c = {**c, "items": items}
     pdf = await _build_packet_pdf(c)
-    ds = datetime.now(timezone.utc).strftime("%m-%d-%Y")
-    name = (c.get("name") or "Claim Packet")[:40]
-    item = await file_pdf_into_folder(pid, p["first_name"], pdf,
-                                      f"{name} {ds}", f"Claim_Packet_{ds}.pdf", user)
-    if not item:
-        raise HTTPException(status_code=502, detail="Could not file PDF")
-    await log_audit("create", "folder", actor=user, resource_id=pid, detail=f"auto-filed claim {cid}")
+    await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
+    await log_audit("update", "claim", actor=user, resource_id=cid, detail="packet saved · marked complete")
+    await _auto_file_packet_to_folder(c, pdf, user)
     return {"ok": True, "patient_name": f"{p['first_name']} {p['last_name']}"}

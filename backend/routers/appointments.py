@@ -22,7 +22,7 @@ async def list_appointments(patient_id: Optional[str] = None, appointment_type: 
         q["appointment_type"] = appointment_type
     if provider:
         q["provider"] = provider
-    appts = await db.appointments.find(q, {"_id": 0}).sort("date", 1).to_list(500)
+    appts = await db.appointments.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}"
                 async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).limit(5000)}
     for a in appts:

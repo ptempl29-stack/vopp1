@@ -119,6 +119,7 @@ class MessageInput(BaseModel):
 
 class FormInput(BaseModel):
     patient_id: Optional[str] = None
+    provider_id: Optional[str] = None
     title: str
     form_type: str
     fields: Optional[dict] = None

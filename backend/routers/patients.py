@@ -19,7 +19,7 @@ async def list_patients(search: Optional[str] = None, user: dict = Depends(get_c
         safe = re.escape(search.strip()[:80])
         q = {"$or": [{"first_name": {"$regex": safe, "$options": "i"}},
                      {"last_name": {"$regex": safe, "$options": "i"}}]}
-    patients = await db.patients.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    patients = await db.patients.find(q, {"_id": 0}).sort([("first_name", 1), ("last_name", 1)]).to_list(500)
     await log_audit("view", "patient", actor=user,
                     detail=f"list ({len(patients)})" + (f" search='{search[:40]}'" if search else ""))
     return patients

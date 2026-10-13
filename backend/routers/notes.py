@@ -3,6 +3,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
@@ -12,6 +13,16 @@ from core.audit import log_audit
 from models.schemas import NoteInput, SummarizeInput, IdList
 
 router = APIRouter()
+
+# Admin billing-readiness review of a signed progress note. This is an
+# administrative/billing check only — it is NOT a clinical co-signature or
+# review of care, and it never alters the provider's own clinical signature.
+BILLING_REVIEW_STATUSES = {"approved", "needs_correction"}
+
+
+class BillingReviewInput(BaseModel):
+    status: str
+    note: Optional[str] = None
 
 
 @router.get("/notes")
@@ -38,6 +49,9 @@ async def create_note(data: NoteInput, user: dict = Depends(require_roles("docto
     if doc.get("signature"):
         doc["signed_by"] = user["name"]
         doc["signed_at"] = now_iso()
+        doc["billing_review_status"] = "pending_review"
+    else:
+        doc["billing_review_status"] = "unsigned"
     await db.notes.insert_one(doc)
     doc.pop("_id", None)
     await log_audit("create", "note", actor=user, resource_id=doc["id"],
@@ -61,12 +75,81 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
         raise HTTPException(status_code=400, detail="Note content is required")
     doc["updated_at"] = now_iso()
     doc["updated_by"] = user["name"]
-    if doc.get("signature") and doc.get("signature") != existing.get("signature"):
+
+    was_signed = bool(existing.get("signature"))
+    was_approved = existing.get("billing_review_status") == "approved"
+    resigned = bool(doc.get("signature")) and doc.get("signature") != existing.get("signature")
+
+    if was_signed and (resigned or was_approved):
+        # Archive the prior signed version + its full approval history before
+        # changing anything — nothing about a past approval is ever lost.
+        history_entry = {
+            "content": existing.get("content"), "signature": existing.get("signature"),
+            "signed_by": existing.get("signed_by"), "signed_at": existing.get("signed_at"),
+            "billing_review_status": existing.get("billing_review_status"),
+            "billing_reviewed_by": existing.get("billing_reviewed_by"),
+            "billing_reviewed_at": existing.get("billing_reviewed_at"),
+            "billing_review_note": existing.get("billing_review_note"),
+            "archived_at": now_iso(), "archived_by": user["name"],
+            "archived_reason": "re-signed" if resigned else "edited after billing approval",
+        }
+        doc["history"] = (existing.get("history") or []) + [history_entry]
+
+    if resigned:
+        # (Re-)signed: a new signature always needs a fresh billing review.
         doc["signed_by"] = user["name"]
         doc["signed_at"] = now_iso()
+        doc["billing_review_status"] = "pending_review"
+        doc["billing_reviewed_by"] = None
+        doc["billing_reviewed_at"] = None
+        doc["billing_review_note"] = None
+    elif was_approved:
+        # Approved note edited without drawing a fresh signature: the carried-over
+        # signature image is now stale for the edited content. Require the
+        # provider to actually re-sign, and billing to re-approve, before this
+        # note counts as ready again.
+        doc["signature"] = None
+        doc["signed_by"] = None
+        doc["signed_at"] = None
+        doc["billing_review_status"] = "unsigned"
+        doc["billing_reviewed_by"] = None
+        doc["billing_reviewed_at"] = None
+        doc["billing_review_note"] = None
+    elif not doc.get("signature") and existing.get("signature"):
+        # Signature removed: nothing left to bill-review.
+        doc["billing_review_status"] = "unsigned"
+        doc["billing_reviewed_by"] = None
+        doc["billing_reviewed_at"] = None
+        doc["billing_review_note"] = None
     await db.notes.update_one({"id": nid}, {"$set": doc})
     await log_audit("update", "note", actor=user, resource_id=nid,
                     detail=f"{doc.get('note_type','free')}: {doc.get('title','')}")
+    return await db.notes.find_one({"id": nid}, {"_id": 0})
+
+
+@router.put("/notes/{nid}/billing-review")
+async def billing_review_note(nid: str, data: BillingReviewInput, user: dict = Depends(require_roles("admin"))):
+    """Admin billing-readiness check on a signed progress note: confirms the
+    note is ready to bill, or flags it for correction. This is an
+    administrative/billing approval only — it is NOT a clinical co-signature,
+    does not review the clinical content of care, and never touches the
+    provider's own signature."""
+    if data.status not in BILLING_REVIEW_STATUSES:
+        raise HTTPException(status_code=400, detail="status must be 'approved' or 'needs_correction'")
+    existing = await db.notes.find_one({"id": nid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if not existing.get("signature"):
+        raise HTTPException(status_code=400, detail="This note has not been signed by its provider yet")
+    note_text = (data.note or "").strip() or None
+    await db.notes.update_one({"id": nid}, {"$set": {
+        "billing_review_status": data.status,
+        "billing_reviewed_by": user["name"],
+        "billing_reviewed_at": now_iso(),
+        "billing_review_note": note_text,
+    }})
+    await log_audit("update", "note", actor=user, resource_id=nid,
+                    detail=f"billing review: {data.status}" + (f" — {note_text}" if note_text else ""))
     return await db.notes.find_one({"id": nid}, {"_id": 0})
 
 

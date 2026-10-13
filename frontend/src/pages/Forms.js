@@ -11,7 +11,8 @@ import { Letterhead } from "../components/Letterhead";
 import { Plus, ClipboardList, CheckCircle2, Link2, Eye, Upload, Download, ExternalLink, Loader2, PenLine, Printer, FileDown, FileText, FileSpreadsheet, MessageCircle, Send, Trash2, Mail, FolderInput, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
-const types = ["Intake", "Consent", "Medical History", "Insurance", "Referral"];
+const types = ["Provider Exequatur", "Provider Diploma", "Disability Breakdown Letter"];
+const PROVIDER_FORM_TYPES = ["Provider Exequatur", "Provider Diploma"];
 const toneMap = { sent: "amber", pending: "amber", received: "green" };
 
 const isSigned = (f) => !!f.responses && Object.values(f.responses).some(
@@ -24,13 +25,14 @@ export default function Forms() {
   const statusFilter = params.get("status");
   const [forms, setForms] = useState([]);
   const [patients, setPatients] = useState([]);
+  const [providers, setProviders] = useState([]);
   const [open, setOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [settings, setSettings] = useState(null);
-  const [form, setForm] = useState({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "", recipient_email: "" });
-  const [upl, setUpl] = useState({ title: "", form_type: "Uploaded", patient_id: "", file: null });
+  const [form, setForm] = useState({ patient_id: "", provider_id: "", title: "", form_type: types[0], status: "sent", external_url: "", recipient_email: "" });
+  const [upl, setUpl] = useState({ title: "", form_type: "Uploaded", patient_id: "", provider_id: "", file: null });
   const [emailModal, setEmailModal] = useState(null);
   const [folderModal, setFolderModal] = useState(null);
   const [folderSubs, setFolderSubs] = useState([]);
@@ -42,6 +44,8 @@ export default function Forms() {
     load();
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
+    api.get("/users").then((r) => setProviders(r.data.filter((u) =>
+      ["doctor", "nurse", "psychologist", "admin"].includes(u.role) && u.provider_active !== false))).catch(() => {});
   }, []);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -104,7 +108,7 @@ export default function Forms() {
       if (res.data.email_sent) toast.success(t("emailSent"));
       else if (form.recipient_email) toast.info(t("emailNotSent"));
       else toast.success(t("save") + " ✓");
-      setOpen(false); setForm({ patient_id: "", title: "", form_type: "Intake", status: "sent", external_url: "", recipient_email: "" }); load();
+      setOpen(false); setForm({ patient_id: "", provider_id: "", title: "", form_type: types[0], status: "sent", external_url: "", recipient_email: "" }); load();
     } catch (err) { toast.error(apiErr(err)); }
   };
 
@@ -124,9 +128,10 @@ export default function Forms() {
       fd.append("title", upl.title);
       fd.append("form_type", upl.form_type);
       fd.append("patient_id", upl.patient_id);
+      fd.append("provider_id", upl.provider_id);
       await api.post("/forms/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
       toast.success(t("uploadForm") + " ✓");
-      setUploadOpen(false); setUpl({ title: "", form_type: "Uploaded", patient_id: "", file: null }); load();
+      setUploadOpen(false); setUpl({ title: "", form_type: "Uploaded", patient_id: "", provider_id: "", file: null }); load();
     } catch (err) { toast.error(apiErr(err)); }
     finally { setUploading(false); }
   };
@@ -146,8 +151,8 @@ export default function Forms() {
 
   const openForm = (f) => {
     setFormModal({
-      id: f.id, title: f.title || "", form_type: f.form_type || "Intake", status: f.status || "sent",
-      patient_id: f.patient_id || "", external_url: f.external_url || "", recipient_email: f.recipient_email || "",
+      id: f.id, title: f.title || "", form_type: f.form_type || types[0], status: f.status || "sent",
+      patient_id: f.patient_id || "", provider_id: f.provider_id || "", external_url: f.external_url || "", recipient_email: f.recipient_email || "",
       responses: f.responses ? { ...f.responses } : null, template: f.template || [],
       patient_name: f.patient_name, attachment: f.attachment, public_token: f.public_token,
     });
@@ -158,7 +163,7 @@ export default function Forms() {
     try {
       await api.put(`/forms/${m.id}`, {
         title: m.title, form_type: m.form_type, status: m.status,
-        patient_id: m.patient_id || null, external_url: m.external_url || "",
+        patient_id: m.patient_id || null, provider_id: m.provider_id || null, external_url: m.external_url || "",
         recipient_email: m.recipient_email || null, responses: m.responses || undefined,
       });
       toast.success(t("saveForm") + " ✓"); setFormModal(null); load();
@@ -354,12 +359,21 @@ export default function Forms() {
               {types.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
             </select>
           </Field>
-          <Field label={t("patient")}>
-            <ManagedSelect listKey="patients" value={form.patient_id} onChange={onPatientSelect} className={inputCls}>
-              <option value="">—</option>
-              {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-            </ManagedSelect>
-          </Field>
+          {PROVIDER_FORM_TYPES.includes(form.form_type) ? (
+            <Field label={t("provider")}>
+              <ManagedSelect listKey="providers" value={form.provider_id} onChange={(e) => setForm({ ...form, provider_id: e.target.value })} className={inputCls} data-testid="ff-provider">
+                <option value="">—</option>
+                {providers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </ManagedSelect>
+            </Field>
+          ) : (
+            <Field label={t("patient")}>
+              <ManagedSelect listKey="patients" value={form.patient_id} onChange={onPatientSelect} className={inputCls}>
+                <option value="">—</option>
+                {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+              </ManagedSelect>
+            </Field>
+          )}
           <Field label={t("emailFormLink")}>
             <input type="email" value={form.recipient_email || ""} onChange={set("recipient_email")} className={inputCls} data-testid="ff-recipient" placeholder="patient@email.com" />
             <p className="text-xs text-stone-400 mt-1">{t("emailLinkHint")}</p>
@@ -387,12 +401,21 @@ export default function Forms() {
               {["Uploaded", ...types].map((ty) => <option key={ty} value={ty}>{ty}</option>)}
             </select>
           </Field>
+          {PROVIDER_FORM_TYPES.includes(upl.form_type) ? (
+            <Field label={t("provider")}>
+              <ManagedSelect listKey="providers" value={upl.provider_id} onChange={(e) => setUpl({ ...upl, provider_id: e.target.value })} className={inputCls}>
+                <option value="">—</option>
+                {providers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </ManagedSelect>
+            </Field>
+          ) : (
           <Field label={t("patient")}>
             <ManagedSelect listKey="patients" value={upl.patient_id} onChange={(e) => setUpl({ ...upl, patient_id: e.target.value })} className={inputCls}>
               <option value="">—</option>
               {patients.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
             </ManagedSelect>
           </Field>
+          )}
           <Field label={t("uploadFromComputer")}>
             <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.txt" required
               onChange={(e) => setUpl({ ...upl, file: e.target.files[0] })} data-testid="uplf-file"
@@ -452,12 +475,21 @@ export default function Forms() {
                   {["Uploaded", ...types].map((ty) => <option key={ty} value={ty}>{ty}</option>)}
                 </select>
               </Field>
+              {PROVIDER_FORM_TYPES.includes(formModal.form_type) ? (
+                <Field label={t("provider")}>
+                  <ManagedSelect listKey="providers" value={formModal.provider_id || ""} onChange={(e) => setFormModal({ ...formModal, provider_id: e.target.value })} className={inputCls} data-testid="fm-provider">
+                    <option value="">—</option>
+                    {providers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </ManagedSelect>
+                </Field>
+              ) : (
               <Field label={t("patient")}>
                 <ManagedSelect listKey="patients" value={formModal.patient_id} onChange={(e) => setFormModal({ ...formModal, patient_id: e.target.value })} className={inputCls} data-testid="fm-patient">
                   <option value="">—</option>
                   {patients.map((p) => <option key={p.id} value={p.id}>{`${p.first_name} ${p.last_name}`}</option>)}
                 </ManagedSelect>
               </Field>
+              )}
               <Field label={t("status")}>
                 <select value={formModal.status} onChange={(e) => setFormModal({ ...formModal, status: e.target.value })} className={inputCls} data-testid="fm-status">
                   <option value="sent">{t("sent")}</option><option value="pending">{t("pending")}</option><option value="received">{t("received")}</option>

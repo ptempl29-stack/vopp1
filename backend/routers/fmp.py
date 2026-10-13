@@ -16,7 +16,9 @@ from core.audit import log_audit
 from core.storage import put_object, get_object, delete_object
 from core.folder_filing import disp_date, fmt_date
 from routers.settings import get_settings_doc
-from routers.claims import _invoice_pdf, _guess_category, _auto_attach_credentials, FMP_CHECKLIST
+from routers.claims import (_invoice_pdf, _guess_category, _auto_attach_credentials, FMP_CHECKLIST,
+                            _packet_categories, _credential_warnings, _build_packet_pdf,
+                            _auto_file_packet_to_folder, _sync_credentials_and_checklist)
 
 _DOC_CATEGORY_LABELS = dict(FMP_CHECKLIST)
 from routers.billing import _compute_next_number
@@ -289,7 +291,8 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
         if status == "ready":
             status = "review"
 
-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    settings_doc = await get_settings_doc()
+    clinic = settings_doc.get("clinic_name", "Veterans of Puerto Plata")
     items = []
     cover_review = None
 
@@ -316,7 +319,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
     if invoice:
         try:
             inv = {**invoice, "patient_name": pname, "dob": p.get("dob")}
-            pdf = _invoice_pdf(inv, clinic)
+            pdf = _invoice_pdf(inv, settings_doc)
             path = f"{APP_NAME}/fmp/{data.patient_id}/generated/{uuid.uuid4()}.pdf"
             result = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
@@ -352,7 +355,16 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
                           "content_type": fi.get("content_type", "application/pdf"),
                           "size": fi.get("size"), "category": _guess_category(fi.get("filename") or fi.get("label") or "")})
 
-    items = await _auto_attach_credentials(items, data.patient_id, note.get("attending_provider"))
+    provider_name = note.get("attending_provider")
+    items = await _auto_attach_credentials(items, data.patient_id, provider_name)
+
+    # Warn (don't block) on required documents still missing or unmatched
+    # after auto-attach: veteran's VA disability letter, provider diploma/exequatur.
+    doc_warnings = await _credential_warnings(data.patient_id, provider_name, _packet_categories(items))
+    for w in doc_warnings:
+        issues.append({"level": "warning", "message": w})
+    if doc_warnings and status == "ready":
+        status = "review"
 
     packet = {"id": str(uuid.uuid4()), "name": f"{pname} {disp_date(dos) or ''} FMP Claim".strip(),
               "patient_id": data.patient_id, "patient_name": pname, "claim_number": dos,
@@ -387,6 +399,13 @@ async def approve_packet(cid: str, data: ApproveInput, user: dict = Depends(requ
         "approved": True, "approved_by": user["name"], "approved_at": now_iso(),
         "status": "complete", "updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid, detail="approved FMP packet")
+    # Approving is the explicit save moment for the builder flow: file the
+    # final combined PDF now. Earlier previews/downloads never filed anything.
+    approved_c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    items, _checklist, _warnings = await _sync_credentials_and_checklist(approved_c)
+    approved_c = {**approved_c, "items": items}
+    pdf = await _build_packet_pdf(approved_c)
+    await _auto_file_packet_to_folder(approved_c, pdf, user)
     return await db.claim_packets.find_one({"id": cid}, {"_id": 0})
 
 

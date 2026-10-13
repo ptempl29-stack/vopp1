@@ -1,13 +1,39 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import api from "../lib/api";
+import { playDing } from "../lib/sound";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { usePrivacy } from "../context/PrivacyContext";
 import {
   LayoutDashboard, Users, CalendarDays, FileText, ReceiptText,
   ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages, Hash,
-  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff, FolderTree, Mail, DollarSign,
+  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff, FolderTree, Mail, DollarSign, ClipboardCheck,
 } from "lucide-react";
+
+const UNREAD_POLL_MS = 20000;
+
+function useUnreadMessages(enabled) {
+  const [unread, setUnread] = useState(0);
+  const seen = useRef(null); // null = not yet initialized, so first load never dings
+
+  useEffect(() => {
+    if (!enabled) return;
+    let stopped = false;
+    const poll = () => api.get("/messages/unread-count").then((r) => {
+      if (stopped) return;
+      const n = r.data.unread || 0;
+      if (seen.current !== null && n > seen.current) playDing();
+      seen.current = n;
+      setUnread(n);
+    }).catch(() => {});
+    poll();
+    const id = setInterval(poll, UNREAD_POLL_MS);
+    return () => { stopped = true; clearInterval(id); };
+  }, [enabled]);
+
+  return unread;
+}
 
 const nav = [
   { to: "/", tab: "dashboard", key: "dashboard", icon: LayoutDashboard, end: true },
@@ -18,6 +44,7 @@ const nav = [
   { to: "/invoices", tab: "invoices", key: "invoices", icon: ReceiptText },
   { to: "/cpt-codes", tab: "cpt", key: "cptCodes", icon: Hash },
   { to: "/reports", tab: "reports", key: "reports", icon: BarChart3 },
+  { to: "/completed-reports", tab: "reports", key: "completedWorkReports", icon: ClipboardCheck },
   { to: "/forms", tab: "forms", key: "forms", icon: ClipboardList },
   { to: "/folders", tab: "folders", key: "patientFolders", icon: FolderTree },
   { to: "/claims", tab: "claims", key: "claims", icon: FolderArchive },
@@ -39,6 +66,7 @@ export default function Layout({ children }) {
   const { privacy, toggle: togglePrivacy } = usePrivacy();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const unreadMessages = useUnreadMessages(!!user && (user.allowed_tabs || []).includes("messages"));
 
   const handleLogout = () => { logout(); navigate("/login"); };
 
@@ -66,7 +94,13 @@ export default function Layout({ children }) {
                   isActive ? "bg-moneygreen-600 text-white" : "text-tan-200 hover:bg-moneygreen-700 hover:text-white"
                 }`}>
               <item.icon className="w-[18px] h-[18px]" />
-              {t(item.key)}
+              <span className="flex-1">{t(item.key)}</span>
+              {item.tab === "messages" && unreadMessages > 0 && (
+                <span data-testid="nav-messages-unread-badge"
+                  className="min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
+                  {unreadMessages > 99 ? "99+" : unreadMessages}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

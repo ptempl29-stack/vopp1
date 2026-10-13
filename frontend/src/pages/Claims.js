@@ -39,6 +39,8 @@ export default function Claims() {
   const fileRef = useRef(null);
   const [fromDateOpen, setFromDateOpen] = useState(false);
   const [fromDate, setFromDate] = useState({ patient_id: "", date: "" });
+  const [datePatients, setDatePatients] = useState([]);
+  const [datePatientsLoading, setDatePatientsLoading] = useState(false);
   const [building, setBuilding] = useState(false);
   const [preview, setPreview] = useState(null);
   const [renameItem, setRenameItem] = useState(null);
@@ -108,6 +110,25 @@ export default function Claims() {
     catch (e) { toast.error(apiErr(e)); }
   };
 
+  const pickFromDateDate = async (e) => {
+    const date = e.target.value;
+    setFromDate({ patient_id: "", date });
+    setDatePatients([]);
+    if (!date) return;
+    setDatePatientsLoading(true);
+    try {
+      const r = await api.get("/claims/options/patients-by-date", { params: { date } });
+      setDatePatients(r.data);
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setDatePatientsLoading(false); }
+  };
+
+  const closeFromDate = () => {
+    setFromDateOpen(false);
+    setFromDate({ patient_id: "", date: "" });
+    setDatePatients([]);
+  };
+
   const buildFromDate = async (e) => {
     e.preventDefault();
     if (!fromDate.patient_id || !fromDate.date) return;
@@ -115,8 +136,7 @@ export default function Claims() {
     try {
       const r = await api.post("/claims/from-date", fromDate);
       toast.success(t("packetSaved"));
-      setFromDateOpen(false);
-      setFromDate({ patient_id: "", date: "" });
+      closeFromDate();
       load();
       setSelected(r.data);
     } catch (err) { toast.error(apiErr(err)); }
@@ -402,7 +422,7 @@ export default function Claims() {
       <PageHeader title={t("claims")} subtitle={t("claimsSubtitle")}
         action={
           <div className="flex flex-wrap gap-2">
-            <Btn variant="outline" onClick={() => setFromDateOpen(true)} data-testid="build-from-date-btn"><CalendarClock className="w-4 h-4" />{t("buildFromDate")}</Btn>
+            <Btn variant="outline" onClick={() => { setFromDateOpen(true); setFromDate({ patient_id: "", date: "" }); setDatePatients([]); }} data-testid="build-from-date-btn"><CalendarClock className="w-4 h-4" />{t("buildFromDate")}</Btn>
             <Btn onClick={openNew} data-testid="new-claim-btn"><FilePlus className="w-4 h-4" />{t("newClaim")}</Btn>
           </div>} />
 
@@ -452,20 +472,27 @@ export default function Claims() {
         form={form} set={set} save={save} patients={patients} t={t}
         setClaimPatient={setClaimPatient} setClaimDate={setClaimDate} />
 
-      <Modal open={fromDateOpen} onClose={() => setFromDateOpen(false)} title={t("buildFromDateTitle")}>
+      <Modal open={fromDateOpen} onClose={closeFromDate} title={t("buildFromDateTitle")}>
         <form onSubmit={buildFromDate} className="space-y-4">
           <p className="text-sm text-stone-500">{t("buildFromDateHint")}</p>
-          <Field label={t("patient")}>
-            <ManagedSelect listKey="patients" required value={fromDate.patient_id} onChange={(e) => setFromDate((f) => ({ ...f, patient_id: e.target.value }))} className={inputCls} data-testid="fd-patient">
-              <option value="">{t("selectPatient")}</option>
-              {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </ManagedSelect>
-          </Field>
           <Field label={t("serviceDate")}>
-            <input required type="date" value={fromDate.date} onChange={(e) => setFromDate((f) => ({ ...f, date: e.target.value }))} className={inputCls} data-testid="fd-date" />
+            <input required type="date" value={fromDate.date} onChange={pickFromDateDate} className={inputCls} data-testid="fd-date" />
+          </Field>
+          <Field label={t("patient")}>
+            <ManagedSelect listKey="patients" required disabled={!fromDate.date || datePatientsLoading}
+              value={fromDate.patient_id} onChange={(e) => setFromDate((f) => ({ ...f, patient_id: e.target.value }))}
+              className={inputCls} data-testid="fd-patient">
+              <option value="">
+                {!fromDate.date ? t("selectDateFirst") : datePatientsLoading ? t("loading") : datePatients.length === 0 ? t("noCompletedVisitsOnDate") : t("selectPatient")}
+              </option>
+              {datePatients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </ManagedSelect>
+            {fromDate.date && !datePatientsLoading && datePatients.length === 0 && (
+              <p className="text-xs text-stone-500 mt-1.5">{t("noCompletedVisitsOnDateHint")}</p>
+            )}
           </Field>
           <div className="flex justify-end gap-2 pt-2">
-            <Btn variant="outline" type="button" onClick={() => setFromDateOpen(false)}>{t("cancel")}</Btn>
+            <Btn variant="outline" type="button" onClick={closeFromDate}>{t("cancel")}</Btn>
             <Btn type="submit" disabled={building || !fromDate.patient_id || !fromDate.date} data-testid="fd-build-btn">{t("build")}</Btn>
           </div>
         </form>
