@@ -404,8 +404,9 @@ export default function Claims() {
               <Btn variant="outline" onClick={() => openEdit(selected)} data-testid="claim-edit-detail"><Pencil className="w-4 h-4" />{t("edit")}</Btn>
               <Btn variant="outline" onClick={() => { setSendTo(""); setSendOpen(true); }} data-testid="claim-send"><Send className="w-4 h-4" />{t("send")}</Btn>
               {!selected.approved && (
-                <Btn variant="outline" onClick={approvePacket} disabled={selected.validation?.status === "blocked"} data-testid="claim-approve-btn"
-                  title={selected.validation?.status === "blocked" ? t("blockedCannotFinalize") : undefined}>
+                <Btn variant="outline" onClick={approvePacket} data-testid="claim-approve-btn"
+                  disabled={selected.validation?.status === "blocked" || (selected.approval_blockers || []).length > 0}
+                  title={(selected.approval_blockers || []).join(" ") || (selected.validation?.status === "blocked" ? t("blockedCannotFinalize") : undefined)}>
                   <CheckCircle2 className="w-4 h-4" />{t("approvePacket")}
                 </Btn>
               )}
@@ -424,6 +425,21 @@ export default function Claims() {
           <Card className="p-4">
             <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("packetStatus")}</p>
             <div className="mt-1"><Badge tone={statusTone(selected.status)} data-testid="claim-status-badge">{statusLabel(selected)}</Badge></div>
+          </Card>
+          <Card className="p-4 lg:col-span-3" data-testid="claim-required-docs-card">
+            <p className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">{t("requiredDocuments")}</p>
+            <div className="flex flex-wrap gap-2">
+              {[["va_disability_letter", "reqDisabilityLetter"], ["invoice", "reqInvoice"], ["progress_note", "reqProgressNote"],
+                ["provider_exequatur", "reqExequatur"], ["provider_diploma", "reqDiploma"]].map(([cat, key]) => {
+                const ok = (selected.items || []).some((x) => x.category === cat);
+                return <Badge key={cat} tone={ok ? "green" : "red"} data-testid={`required-doc-${cat}`}>{ok ? "✓" : "✗"} {t(key)}</Badge>;
+              })}
+            </div>
+            {!selected.approved && (selected.approval_blockers || []).length > 0 && (
+              <ul className="mt-3 text-sm text-red-700 list-disc pl-5" data-testid="claim-approval-blockers">
+                {selected.approval_blockers.map((b) => <li key={b}>{b}</li>)}
+              </ul>
+            )}
           </Card>
           <Card className="p-4 lg:col-span-3" data-testid="claim-tracking-card">
             <div className="flex flex-wrap gap-6 items-end text-sm">
@@ -541,6 +557,11 @@ export default function Claims() {
                   </tr>
                 </thead>
                 <tbody>
+                  <tr className="border-b border-border/60 bg-moneygreen-50/40" data-testid="claim-item-cover-sheet">
+                    <td className="px-5 py-3"><Badge tone="green">{t("coverSheetLabel")}</Badge></td>
+                    <td className="px-5 py-3 text-stone-700">{t("coverSheetFixed")}</td>
+                    <td className="px-5 py-3 text-right text-xs text-stone-400">{t("fixedFirst")}</td>
+                  </tr>
                   {items.map((it, i) => {
                     const Icon = sourceIcon[it.source] || FileText;
                     return (

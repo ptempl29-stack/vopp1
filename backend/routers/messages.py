@@ -1,3 +1,4 @@
+from urllib.parse import quote
 import uuid
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
@@ -87,7 +88,8 @@ async def download_attachment(mid: str, user: dict = Depends(get_current_user)):
     fname = m["attachment"]["filename"].replace('"', "").replace("\n", "").replace("\r", "")
     await log_audit("view", "message", actor=user, resource_id=mid, detail=f"download: {fname}")
     return Response(content=data, media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"',
+        headers={"Content-Disposition": "attachment; filename=\"{}\"; filename*=UTF-8''{}".format(
+            fname.encode("ascii", "replace").decode().replace("?", "_"), quote(fname)),
                  "X-Content-Type-Options": "nosniff"})
 
 

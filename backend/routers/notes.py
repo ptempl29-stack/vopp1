@@ -28,21 +28,7 @@ class BillingReviewInput(BaseModel):
     note: Optional[str] = None
 
 
-_TITLE_PREFIX = re.compile(r"^(dr|dra|doctor|doctora|lic|licda|licdo)\.?\s+", re.I)
-
-
-def _norm_name(name) -> str:
-    return " ".join(_TITLE_PREFIX.sub("", (name or "").strip().lower()).split())
-
-
-async def _resolve_provider_id(name):
-    """Map a legacy free-text provider name to ONE clinical account id (None if ambiguous)."""
-    key = _norm_name(name)
-    if not key:
-        return None
-    ids = [u["id"] async for u in db.users.find({"role": {"$in": list(CLINICAL_ROLES)}}, {"_id": 0, "id": 1, "name": 1})
-           if _norm_name(u.get("name")) == key]
-    return ids[0] if len(ids) == 1 else None
+from core.providers import resolve_provider_id as _resolve_provider_id  # noqa: E402
 
 
 async def _is_note_provider(user: dict, note: dict) -> bool:
@@ -85,6 +71,7 @@ async def create_note(data: NoteInput, user: dict = Depends(require_roles("docto
                 "attending_provider_id": await _resolve_provider_id(doc.get("attending_provider"))})
     if doc.get("signature"):
         doc["signed_by"] = user["name"]
+        doc["signed_by_id"] = user["id"]
         doc["signed_at"] = now_iso()
     doc["billing_review_status"] = "pending_review" if doc.get("signature") else "unsigned"
     await db.notes.insert_one(doc)
@@ -137,9 +124,10 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
         doc.update({"completed": False, "completed_at": None, "completed_by": None,
                     "billing_reviewed_by": None, "billing_reviewed_at": None, "billing_review_note": None})
         if not resigned:
-            doc.update({"signature": None, "signed_by": None, "signed_at": None})
+            doc.update({"signature": None, "signed_by": None, "signed_by_id": None, "signed_at": None})
     if resigned:
         doc["signed_by"] = user["name"]
+        doc["signed_by_id"] = user["id"]
         doc["signed_at"] = now_iso()
         doc["billing_review_status"] = "pending_review"
         doc.update({"billing_reviewed_by": None, "billing_reviewed_at": None, "billing_review_note": None})

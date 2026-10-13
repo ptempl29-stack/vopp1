@@ -185,6 +185,35 @@ def cpt_billing_flags(item: dict) -> list:
     return flags
 
 
+# Default document order for packets built from a date (cover sheet is always generated first).
+FMP_DEFAULT_ORDER = {"va_disability_letter": 0, "invoice": 1, "progress_note": 2,
+                     "provider_exequatur": 3, "provider_diploma": 4}
+APPROVAL_REQUIRED = (("va_disability_letter", "VA Disability Breakdown Letter"), ("invoice", "Invoice"),
+                     ("progress_note", "Progress Note"), ("provider_exequatur", "Provider Exequatur"),
+                     ("provider_diploma", "Provider Diploma"))
+
+
+async def _approval_blockers(claim: dict) -> list:
+    """Reasons a packet cannot be approved yet (does not block preview/merge)."""
+    from core.providers import note_provider_id, note_signer_id
+    items = claim.get("items") or []
+    cats = {it.get("category") for it in items}
+    problems = [f"Missing required document: {label}" for cat, label in APPROVAL_REQUIRED if cat not in cats]
+    note_ids = [it["note_id"] for it in items if it.get("source") == "note" and it.get("note_id")]
+    for n in await db.notes.find({"id": {"$in": note_ids}}, {"_id": 0}).to_list(50) if note_ids else []:
+        if not (n.get("signature") or "").startswith("data:image"):
+            problems.append("The progress note is not signed by its provider.")
+            continue
+        if not n.get("completed"):
+            problems.append("The progress note is not marked Completed.")
+        assigned, signer = await note_provider_id(n), await note_signer_id(n)
+        if not assigned or not signer or assigned != signer:
+            problems.append("The progress note was not signed by its assigned provider.")
+    if note_ids and len(note_ids) != len(set(note_ids)):
+        problems.append("The same progress note is attached more than once.")
+    return problems
+
+
 CLAIM_STATUSES = {"draft", "submitted", "complete"}
 UPLOAD_EXTS = {"pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "txt", "xls", "xlsx"}
 EXTRA_CT = {"xls": "application/vnd.ms-excel",
@@ -211,14 +240,16 @@ def _guess_category(filename: str) -> str:
     return ""
 
 
-async def _auto_attach_credentials(items: list, patient_id: str, provider_name: str) -> list:
+async def _auto_attach_credentials(items: list, patient_id: str, provider_name: str, provider_id: str = None) -> list:
     """Append provider exequatur/diploma (uploaded once per provider, on the
     provider's user record) and the patient's VA disability letter (found by
     filename in their folder), if not already present in the packet."""
     have = {it.get("category") for it in items if it.get("category")}
 
-    if provider_name and ("provider_diploma" not in have or "provider_exequatur" not in have):
-        prov = await db.users.find_one({"name": provider_name}, {"_id": 0, "diploma_doc": 1, "exequatur_doc": 1})
+    if (provider_name or provider_id) and ("provider_diploma" not in have or "provider_exequatur" not in have):
+        from core.providers import resolve_provider_id
+        pid_ = provider_id or await resolve_provider_id(provider_name)
+        prov = await db.users.find_one({"id": pid_}, {"_id": 0, "diploma_doc": 1, "exequatur_doc": 1}) if pid_ else None
         if prov:
             for kind, cat, label in (("diploma_doc", "provider_diploma", "Provider_Diploma"),
                                      ("exequatur_doc", "provider_exequatur", "Provider_Exequatur")):
@@ -361,8 +392,8 @@ async def _resolve_claim_note(claim: dict) -> Optional[dict]:
     claim_day = str(claim.get("claim_number") or "")[:10]
     if not patient_id or not claim_day:
         return None
-    notes = await db.notes.find(
-        {"patient_id": patient_id}, {"_id": 0}
+    notes = await db.notes.find(  # auto-link only signed AND Completed notes
+        {"patient_id": patient_id, "completed": True, "signature": {"$nin": [None, ""]}}, {"_id": 0}
     ).sort("created_at", -1).to_list(500)
     return next((note for note in notes
                  if str(note.get("visit_date") or "")[:10] == claim_day), None)
@@ -760,6 +791,7 @@ async def _claim_response(claim_id: str) -> Optional[dict]:
     claim = await _sync_claim_packet_documents(claim)
     result = await _claim_with_invoice_summary(claim)
     result["validation"] = await _validate_packet(result)
+    result["approval_blockers"] = await _approval_blockers(result)
     return result
 
 
@@ -904,55 +936,6 @@ async def _build_packet_pdf(c) -> bytes:
     for i, (l, v) in enumerate(rows):
         prow(l, v, i)
 
-    # ---- Checklist page ----
-    pdf.add_page()
-    band("FMP Fully Developed Claim - Document Checklist",
-         "Enclosed documents are marked complete below")
-    cats = set()
-    for it in items:
-        if it.get("source") == "invoice":
-            cats.add("invoice")
-        elif it.get("source") == "note":
-            cats.add("progress_note")
-        if it.get("category"):
-            cats.add(it["category"])
-
-    section_title("Required Documents")
-    box, rh = 5, 9
-    for idx, (cat, label) in enumerate(FMP_CHECKLIST):
-        present = cat in cats
-        y0 = pdf.get_y()
-        pdf.set_fill_color(*(GREEN_LT if idx % 2 == 0 else (255, 255, 255)))
-        pdf.rect(pdf.l_margin, y0, content_w, rh, style="F")
-        bx, by = pdf.l_margin + 3, y0 + (rh - box) / 2
-        pdf.set_draw_color(*GREEN)
-        pdf.set_line_width(0.3)
-        if present:
-            pdf.set_fill_color(*GREEN)
-            pdf.rect(bx, by, box, box, style="DF")
-            pdf.set_xy(bx, by - 1.1)
-            pdf.set_text_color(255, 255, 255)
-            pdf.set_font(FONT, "B", 8)
-            pdf.cell(box, box + 2, "X", align="C")
-        else:
-            pdf.rect(bx, by, box, box, style="D")
-        pdf.set_xy(pdf.l_margin + 12, y0)
-        pdf.set_text_color(*INK)
-        pdf.set_font(FONT, "B" if present else "", 9.5)
-        pdf.cell(content_w - 14, rh, label, ln=True)
-        pdf.set_y(y0 + rh)
-
-    pdf.ln(5)
-    section_title("Suggested Submission Order")
-    pdf.set_font(FONT, "", 8.5)
-    pdf.set_text_color(*GREY)
-    pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(content_w, 5,
-                   "1) Claim summary & checklist    2) FMP Claim Cover Sheet (VA Form 10-7959f-2)    "
-                   "3) Itemized invoice    4) Signed clinical progress note    "
-                   "5) VA disability verification letter    6) Provider credentials (exequatur & diploma).")
-    pdf.set_text_color(*INK)
-
     cover_bytes = pdf_bytes(pdf)
 
     writer = PdfWriter()
@@ -1062,6 +1045,9 @@ async def approve_claim(cid: str, user: dict = Depends(require_roles("admin"))):
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
     await _assert_not_blocked(c)
+    blockers = await _approval_blockers(c)
+    if blockers:
+        raise HTTPException(status_code=400, detail="Cannot approve: " + " ".join(blockers))
     await db.claim_packets.update_one({"id": cid}, {"$set": {
         "approved": True, "approved_by": user["name"], "approved_by_id": user["id"],
         "approved_at": now_iso(), "status": "complete", "updated_at": now_iso()}})
@@ -1122,7 +1108,8 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     invs = await db.invoices.find({"patient_id": data.patient_id}, {"_id": 0}).to_list(500)
     invs = [i for i in invs if _same_day(i.get("service_date"), d)]
     notes = await db.notes.find({"patient_id": data.patient_id}, {"_id": 0}).to_list(500)
-    notes = [n for n in notes if _same_day(n.get("visit_date"), d)]
+    notes = [n for n in notes if _same_day(n.get("visit_date"), d)
+             and n.get("completed") and (n.get("signature") or "").startswith("data:image")]
 
     if not invs and not notes:
         raise HTTPException(status_code=404, detail="No invoice or progress note found for that patient on that date")
@@ -1173,7 +1160,10 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
 
     provider_name = next((n.get("attending_provider") for n in notes if n.get("attending_provider")), None) \
         or next((i.get("attending_provider") or i.get("provider") for i in invs if i.get("attending_provider") or i.get("provider")), None)
-    items = await _auto_attach_credentials(items, data.patient_id, provider_name)
+    from core.providers import note_provider_id
+    provider_id = next((pid_ for pid_ in [await note_provider_id(n) for n in notes] if pid_), None)
+    items = await _auto_attach_credentials(items, data.patient_id, provider_name, provider_id)
+    items.sort(key=lambda it: FMP_DEFAULT_ORDER.get(it.get("category"), len(FMP_DEFAULT_ORDER)))
 
     doc = {"id": str(uuid.uuid4()), "name": packet_name, "patient_id": data.patient_id,
            "patient_name": pname, "claim_number": d, "status": "draft", "notes": None,

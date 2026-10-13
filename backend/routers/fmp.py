@@ -441,6 +441,11 @@ async def approve_packet(cid: str, data: ApproveInput, user: dict = Depends(requ
         raise HTTPException(status_code=400, detail="Cannot approve a packet with blocked issues. Resolve them first.")
     if c.get("cover_review") and not data.confirm_cover_date:
         raise HTTPException(status_code=400, detail="Please confirm the cover-sheet date of service before approving.")
+    from routers.claims import _assert_not_blocked, _approval_blockers
+    await _assert_not_blocked(c)
+    blockers = await _approval_blockers(c)
+    if blockers:
+        raise HTTPException(status_code=400, detail="Cannot approve: " + " ".join(blockers))
     await db.claim_packets.update_one({"id": cid}, {"$set": {
         "approved": True, "approved_by": user["name"], "approved_at": now_iso(),
         "status": "complete", "updated_at": now_iso()}})
