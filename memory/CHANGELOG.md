@@ -34,3 +34,10 @@
 - Cause: editing a signed/Completed note + inserting the provider's SAVED signature (same image) was treated as carried-over -> signature silently cleared (HTTP 200) and auto-complete failed.
 - Fix: notes.py — signature submitted with a substantive revision = explicit re-sign (authorized provider only); non-substantive save without signature keeps existing; authorization by account id (author_id/attending_provider_id) with normalized legacy-name fallback (unique match); admins/non-clinical cannot sign; can't reassign attending to self to bypass. Notes.js — editing a protected note clears the pad.
 - Tests: API 8/8, UI iteration_44 8/8. ZZTEST Psych user added.
+
+## Claim packet corrections + provider name fix (PREVIEW, not deployed)
+- Prod cause confirmed: account "Saday Cabrera Rodriguez" vs notes "Saday Cabrera" -> legacy name match failed -> 403 on signing. core/providers.py: exact normalized match, else same first name + all names contained, unique clinical account only.
+- Build from Date: default order letter→invoice→note→exequatur→diploma (cover always first, fixed row in view); only signed+Completed notes attached/auto-linked; credentials by provider account id; Document Checklist page removed from merged PDF (checklist card in app).
+- Approve (claims + FMP) blocked unless 5 docs present and note signed+Completed by assigned provider (id-based, signed_by_id stored on signing).
+- messages attachment download: RFC 5987 filename (fixes 500 on U+202F names).
+- Tests: API scenarios pass; UI iteration_45 7/7.

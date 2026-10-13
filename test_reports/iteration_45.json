@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only verification of the FMP Packet build order + required-docs + approval blocker UX on /claims as admin usvopp@yahoo.com. 7/7 assertions passed on 3 ZZTEST packets (02/01/2026 approved+complete, ZZTEST packet 2 Smoke 01/06/2026 missing docs, ZZTEST Order 02/02/2026 draft+complete) plus reorder-persistence and ES toggle. Fixed cover-sheet row [data-testid=claim-item-cover-sheet] is always the first <tr> in the items table (verified first child of tbody) and shows 'Cover Sheet / FMP Claim Cover Sheet (generated automatically) / Always first'. The [data-testid=claim-required-docs-card] renders five badges with ✓/✗ (required-doc-va_disability_letter, required-doc-invoice, required-doc-progress_note, required-doc-provider_exequatur, required-doc-provider_diploma). On the 1-item Smoke packet 4 badges show ✗ and [data-testid=claim-approval-blockers] lists 4 'Missing required document: …' reasons; the [data-testid=claim-approve-btn] is rendered and disabled. On the fully-complete unapproved ZZTEST Order packet all 5 badges are ✓, no blockers element, approve btn enabled; clicking it flipped status Draft → Complete with [data-testid=claim-approval-info]='Approved · Approved by CEO · 10/13/2026' and the approve btn disappeared. Reorder via claim-item-up-{id} shuffled attached rows (cover stayed pinned first); after navigating back to list and re-opening the packet the new order was persisted. Spanish toggle via [data-testid=lang-toggle] re-rendered cover row as 'Portada / Portada del Reclamo FMP (generada automáticamente) / Siempre primero' and card header as 'Documentos requeridos para aprobar' with all 5 badges localized (Carta de Desglose de Discapacidad VA, Factura, Nota de Progreso Firmada y Completada, Exequátur del Proveedor, Diploma del Proveedor). No non-ZZTEST patients were touched. Send/email was never clicked.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "any page load", "issue": "Repeated console errors 'load hidden options failed AxiosError: Request failed with status code 401' persist from iterations 43/44 — non-blocking, page renders.", "affected_selectors": []}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Claims.js approve btn correctly uses disabled={ (approval_blockers||[]).length>0 || validation.status==='blocked' } and hides itself after approved — matches spec.",
+    "Fixed cover-sheet <tr data-testid='claim-item-cover-sheet'> is unconditionally the first child of <tbody> before the mapped items.map, so merged PDF order is enforced visually as well.",
+    "Required docs card iterates the exact 5-category list in spec order (va_disability_letter, invoice, progress_note, provider_exequatur, provider_diploma); matches backend FMP_DEFAULT_ORDER after cover.",
+    "The lang-toggle button exists in the main Layout (data-testid='lang-toggle'), not the per-page 'ES' text in the top bar which is a role-select icon; tests should always target [data-testid='lang-toggle'] to toggle i18n."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only)", "frontend": "100% (7/7 assertions passed)"},
+  "test_credentials": "usvopp@yahoo.com / Football2023? (Admin)",
+  "seed_data_creation": "No new packets/documents created. Approved existing draft 'ZZTEST Order 02/02/2026 FMP Claim' (id cf89741a-2050-4d54-b313-b904b7bcca89) → now status=Complete, approved=True, approved_by=CEO, approved_at=2026-10-13. Reorder was reverted at test end (down after up) so attached-item order is back to original. ZZTEST packet 2 (97e6f6a2) and ZZTEST packet (b414cff3) left untouched. No non-ZZTEST data touched. No email/SMS send attempted.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Admin: usvopp@yahoo.com / Football2023?. Token in localStorage key 'vpp_token'. Language toggle data-testid is 'lang-toggle' (in Layout) — NOT the 'ES'/'EN' <span> next to Privacy. Claim detail is state-driven (setSelected): page.reload() while viewing a detail bounces back to the list, so to verify DB persistence re-open via [data-testid='claim-open-{id}']. Row data-testids inside detail table: 'claim-item-cover-sheet' (fixed first) then 'claim-item-{itemId}'; row-level reorder buttons are claim-item-up-{itemId} / claim-item-down-{itemId}. ZZTEST packets available: 73a3e7e2 (ZZTEST Packet 02/03 approved,5), cf89741a (ZZTEST Order 02/02 — now approved after this run, 5), 0bf03562 (ZZTEST Packet 02/01 approved,5), 97e6f6a2 (ZZTEST Smoke 01/06 draft, 1 item: progress_note only), b414cff3 (ZZTEST Smoke 01/05 approved,1).",
+  "rca_of_the_issue": "N/A — build-order / required-docs card / approve-blocker UX all behave as spec'd."
+}
