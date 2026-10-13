@@ -1,4 +1,5 @@
 import os
+import re
 import csv
 import io
 import uuid
@@ -27,8 +28,32 @@ class BillingReviewInput(BaseModel):
     note: Optional[str] = None
 
 
-def _is_note_provider(user: dict, note: dict) -> bool:
-    return user["role"] in CLINICAL_ROLES and user["name"] in (note.get("attending_provider"), note.get("author"))
+_TITLE_PREFIX = re.compile(r"^(dr|dra|doctor|doctora|lic|licda|licdo)\.?\s+", re.I)
+
+
+def _norm_name(name) -> str:
+    return " ".join(_TITLE_PREFIX.sub("", (name or "").strip().lower()).split())
+
+
+async def _resolve_provider_id(name):
+    """Map a legacy free-text provider name to ONE clinical account id (None if ambiguous)."""
+    key = _norm_name(name)
+    if not key:
+        return None
+    ids = [u["id"] async for u in db.users.find({"role": {"$in": list(CLINICAL_ROLES)}}, {"_id": 0, "id": 1, "name": 1})
+           if _norm_name(u.get("name")) == key]
+    return ids[0] if len(ids) == 1 else None
+
+
+async def _is_note_provider(user: dict, note: dict) -> bool:
+    """Authorize by verified account id: the note's author or attending provider only."""
+    if user["role"] not in CLINICAL_ROLES:
+        return False
+    if user["id"] in (note.get("author_id"), note.get("attending_provider_id")):
+        return True
+    if not note.get("attending_provider_id") and await _resolve_provider_id(note.get("attending_provider")) == user["id"]:
+        return True
+    return not note.get("author_id") and await _resolve_provider_id(note.get("author")) == user["id"]
 
 router = APIRouter()
 
@@ -54,7 +79,10 @@ async def create_note(data: NoteInput, user: dict = Depends(require_roles("docto
     if not doc.get("content"):
         raise HTTPException(status_code=400, detail="Note content is required")
     doc.pop("title_nonclinical_confirmed", None)
-    doc.update({"id": str(uuid.uuid4()), "created_at": now_iso(), "author": user["name"]})
+    if doc.get("signature") and user["role"] not in CLINICAL_ROLES:
+        raise HTTPException(status_code=403, detail="Only clinical providers may sign progress notes")
+    doc.update({"id": str(uuid.uuid4()), "created_at": now_iso(), "author": user["name"], "author_id": user["id"],
+                "attending_provider_id": await _resolve_provider_id(doc.get("attending_provider"))})
     if doc.get("signature"):
         doc["signed_by"] = user["name"]
         doc["signed_at"] = now_iso()
@@ -88,11 +116,13 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
         raise HTTPException(status_code=400, detail="Note content is required")
     doc["updated_at"] = now_iso()
     doc["updated_by"] = user["name"]
+    if (doc.get("attending_provider") or "") != (existing.get("attending_provider") or ""):
+        doc["attending_provider_id"] = await _resolve_provider_id(doc.get("attending_provider"))
     resigned = bool(doc.get("signature")) and doc.get("signature") != existing.get("signature")
     protected = needs_protection(existing)
     substantive = protected and is_substantive(existing, {**doc, "title_nonclinical_confirmed": title_ok})
     revised = bool(existing.get("version_count")) and not existing.get("signature")
-    if resigned and (substantive or revised or protected) and not _is_note_provider(user, {**existing, **doc}):
+    if resigned and not await _is_note_provider(user, existing if existing.get("attending_provider") else {**existing, **doc}):
         raise HTTPException(status_code=403, detail="Only the note's attending or authoring provider may sign this note")
     if protected and (substantive or resigned):
         await archive_version(existing, "substantive edit" if substantive else "re-signed", user)
@@ -337,12 +367,12 @@ async def billing_review_note(nid: str, data: BillingReviewInput, user: dict = D
 
 @router.get("/notes/{nid}/versions")
 async def note_versions(nid: str, user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "admin"))):
-    note = await db.notes.find_one({"id": nid}, {"_id": 0, "attending_provider": 1, "author": 1, "version_count": 1})
+    note = await db.notes.find_one({"id": nid}, {"_id": 0, "attending_provider": 1, "attending_provider_id": 1, "author": 1, "author_id": 1, "version_count": 1})
     first = await db.note_versions.find_one({"note_id": nid}, {"_id": 0, "snapshot.attending_provider": 1})
     if not note and not first:
         raise HTTPException(status_code=404, detail="Note not found")
     ref = note or {"attending_provider": (first or {}).get("snapshot", {}).get("attending_provider")}
-    if user["role"] != "admin" and not _is_note_provider(user, ref):
+    if user["role"] != "admin" and not await _is_note_provider(user, ref):
         raise HTTPException(status_code=403, detail="Only admins or the note's provider can view version history")
     versions = await db.note_versions.find({"note_id": nid}, {"_id": 0}).sort("version", 1).to_list(1000)
     integrity = await verify_chain(nid, (note or {}).get("version_count") if note else None)
