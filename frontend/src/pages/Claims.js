@@ -111,11 +111,28 @@ export default function Claims() {
   const [packetBuilding, setPacketBuilding] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [checkFilter, setCheckFilter] = useState("all");
+  const [bulkSel, setBulkSel] = useState([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
 
   const SEV = { blocked: 0, review: 1, ready: 2 };
+  const bulkEligible = (p) => p.ready_to_approve && !p.cover_review;
   const visiblePackets = [...packets]
-    .filter((p) => checkFilter === "all" || (p.validation?.status || "review") === checkFilter)
+    .filter((p) => checkFilter === "all" || (checkFilter === "approvable" ? p.ready_to_approve : (p.validation?.status || "review") === checkFilter))
     .sort((a, b) => (SEV[a.validation?.status] ?? 1) - (SEV[b.validation?.status] ?? 1));
+  const eligibleVisible = checkFilter === "approvable" ? visiblePackets.filter(bulkEligible) : [];
+  const toggleBulk = (id) => setBulkSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const runBulkApprove = async () => {
+    setBulkBusy(true);
+    try {
+      const r = await api.post("/claims/bulk-approve", { ids: bulkSel });
+      setBulkResult(r.data); setBulkSel([]);
+      if (r.data.approved.length) toast.success(`${t("approvedLabel")}: ${r.data.approved.length}`);
+      load();
+    } catch (e) { toast.error(apiErr(e)); }
+    finally { setBulkBusy(false); }
+  };
   const checkCounts = packets.reduce((acc, p) => {
     const s = p.validation?.status || "review";
     acc[s] = (acc[s] || 0) + 1;
@@ -692,14 +709,29 @@ export default function Claims() {
             { key: "blocked", label: t("chipBlocked"), count: checkCounts.blocked || 0, cls: "data-[on=true]:bg-red-600 data-[on=true]:text-white data-[on=true]:border-red-600 border-red-200 text-red-700" },
             { key: "review", label: t("chipReview"), count: checkCounts.review || 0, cls: "data-[on=true]:bg-amber-500 data-[on=true]:text-white data-[on=true]:border-amber-500 border-amber-200 text-amber-700" },
             { key: "ready", label: t("chipReady"), count: checkCounts.ready || 0, cls: "data-[on=true]:bg-moneygreen-600 data-[on=true]:text-white data-[on=true]:border-moneygreen-600 border-moneygreen-200 text-moneygreen-700" },
+            { key: "approvable", label: t("readyToApprove"), count: packets.filter((p) => p.ready_to_approve).length, cls: "data-[on=true]:bg-moneygreen-800 data-[on=true]:text-white data-[on=true]:border-moneygreen-800 border-moneygreen-300 text-moneygreen-800" },
           ].map((f) => (
-            <button key={f.key} data-on={checkFilter === f.key} onClick={() => setCheckFilter(f.key)}
+            <button key={f.key} data-on={checkFilter === f.key} onClick={() => { setCheckFilter(f.key); setBulkSel([]); }}
               data-testid={`claim-filter-${f.key}`}
               className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold transition-colors ${f.cls}`}>
               {f.label}<span className="opacity-70">· {f.count}</span>
             </button>
           ))}
         </div>
+        {checkFilter === "approvable" && (
+          <div className="flex flex-wrap items-center gap-3 px-5 py-3 border-b border-border bg-moneygreen-50/50" data-testid="bulk-approve-bar">
+            <label className="inline-flex items-center gap-2 text-sm text-stone-700 cursor-pointer">
+              <input type="checkbox" data-testid="bulk-select-all" disabled={!eligibleVisible.length}
+                checked={eligibleVisible.length > 0 && eligibleVisible.every((p) => bulkSel.includes(p.id))}
+                onChange={(e) => setBulkSel(e.target.checked ? eligibleVisible.map((p) => p.id) : [])} />
+              {t("selectAll")}
+            </label>
+            <Btn onClick={() => setBulkOpen(true)} disabled={!bulkSel.length} data-testid="bulk-approve-btn">
+              <CheckCircle2 className="w-4 h-4" />{t("approveSelected")} ({bulkSel.length})
+            </Btn>
+            <span className="text-xs text-stone-500">{t("bulkApproveHint")}</span>
+          </div>
+        )}
         {visiblePackets.length === 0 ? <Empty text={t("noData")} /> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -721,6 +753,13 @@ export default function Claims() {
                     className={`border-b border-border/60 hover:bg-tan-50 transition-colors duration-200 cursor-pointer ${p.status === "complete" ? "bg-moneygreen-50" : (i % 2 ? "bg-tan-50/40" : "")}`}
                     onClick={() => refreshSelected(p.id)}>
                     <td className="px-5 py-3">
+                      {checkFilter === "approvable" && (
+                        <span className="inline-flex mr-2 align-middle" onClick={(e) => e.stopPropagation()}>
+                          {bulkEligible(p)
+                            ? <input type="checkbox" checked={bulkSel.includes(p.id)} onChange={() => toggleBulk(p.id)} data-testid={`bulk-select-${p.id}`} />
+                            : <span className="text-[11px] text-amber-700" data-testid={`bulk-individual-${p.id}`} title={t("approveIndividuallyHint")}>{t("approveIndividually")}</span>}
+                        </span>
+                      )}
                       <span className="inline-flex items-center gap-2 font-semibold text-moneygreen-800"><FolderArchive className={`w-4 h-4 ${p.status === "complete" ? "text-moneygreen-600" : "text-moneygreen-500"}`} />{p.name}</span>
                     </td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{p.patient_name || "—"}</td>
@@ -776,6 +815,34 @@ export default function Claims() {
           </div>
         </form>
       </Modal>
+      <Modal open={bulkOpen} onClose={() => !bulkBusy && setBulkOpen(false)} title={t("bulkConfirmTitle")}>
+        <p className="text-sm text-stone-600 mb-3">{t("bulkConfirmText")}</p>
+        <ul className="text-sm text-stone-700 list-disc pl-5 max-h-60 overflow-y-auto mb-4" data-testid="bulk-confirm-list">
+          {packets.filter((p) => bulkSel.includes(p.id)).map((p) => <li key={p.id}>{p.name}</li>)}
+        </ul>
+        <div className="flex justify-end gap-2">
+          <Btn variant="outline" onClick={() => setBulkOpen(false)} disabled={bulkBusy} data-testid="bulk-confirm-cancel">{t("cancel")}</Btn>
+          <Btn onClick={async () => { await runBulkApprove(); setBulkOpen(false); }} disabled={bulkBusy} data-testid="bulk-confirm-submit">
+            {bulkBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}{t("approveSelected")} ({bulkSel.length})
+          </Btn>
+        </div>
+      </Modal>
+      <Modal open={!!bulkResult} onClose={() => setBulkResult(null)} title={t("bulkResultTitle")}>
+        {bulkResult && (
+          <div className="space-y-3 text-sm" data-testid="bulk-result">
+            <p className="font-semibold text-moneygreen-800" data-testid="bulk-result-approved">{t("approvedLabel")}: {bulkResult.approved.length}</p>
+            <ul className="list-disc pl-5 text-stone-700">{bulkResult.approved.map((a) => <li key={a.id}>{a.name}</li>)}</ul>
+            {bulkResult.skipped.length > 0 && (
+              <>
+                <p className="font-semibold text-amber-700" data-testid="bulk-result-skipped">{t("bulkSkipped")}: {bulkResult.skipped.length}</p>
+                <ul className="list-disc pl-5 text-stone-700">{bulkResult.skipped.map((s) => <li key={s.id}><b>{s.name}</b> — {s.reason}</li>)}</ul>
+              </>
+            )}
+            <div className="flex justify-end"><Btn onClick={() => setBulkResult(null)} data-testid="bulk-result-close">OK</Btn></div>
+          </div>
+        )}
+      </Modal>
+
     </div>
   );
 }

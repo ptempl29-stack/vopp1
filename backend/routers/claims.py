@@ -3,7 +3,7 @@ import re
 import gc
 import uuid
 import asyncio
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from fastapi.responses import Response, StreamingResponse
@@ -1125,21 +1125,56 @@ SUBMISSION_STATUSES = {"not_submitted", "submitted"}
 PAYMENT_STATUSES = {"unpaid", "paid", "denied"}
 
 
+async def _approve_one(c: dict, user: dict):
+    await _assert_not_blocked(c)
+    blockers = await _approval_blockers(c)
+    if blockers:
+        raise HTTPException(status_code=400, detail="Cannot approve: " + " ".join(blockers))
+    await db.claim_packets.update_one({"id": c["id"]}, {"$set": {
+        "approved": True, "approved_by": user["name"], "approved_by_id": user["id"],
+        "approved_at": now_iso(), "status": "complete", "updated_at": now_iso()}})
+
+
 @router.post("/claims/{cid}/approve")
 async def approve_claim(cid: str, user: dict = Depends(require_roles("admin"))):
     """The ONLY way a packet becomes Complete: explicit administrator approval."""
     c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
-    await _assert_not_blocked(c)
-    blockers = await _approval_blockers(c)
-    if blockers:
-        raise HTTPException(status_code=400, detail="Cannot approve: " + " ".join(blockers))
-    await db.claim_packets.update_one({"id": cid}, {"$set": {
-        "approved": True, "approved_by": user["name"], "approved_by_id": user["id"],
-        "approved_at": now_iso(), "status": "complete", "updated_at": now_iso()}})
+    await _approve_one(c, user)
     await log_audit("update", "claim", actor=user, resource_id=cid, detail="approved packet · Complete")
     return await _claim_response(cid)
+
+
+class BulkApproveInput(BaseModel):
+    ids: List[str]
+
+
+@router.post("/claims/bulk-approve")
+async def bulk_approve_claims(data: BulkApproveInput, user: dict = Depends(require_roles("admin"))):
+    """Approve several ready packets; each is re-validated individually and skipped with a reason if not ready."""
+    approved, skipped = [], []
+    for cid in dict.fromkeys(data.ids[:200]):
+        c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+        name = (c or {}).get("name") or cid
+        if not c:
+            skipped.append({"id": cid, "name": name, "reason": "Claim packet not found"})
+            continue
+        if c.get("approved") or c.get("status") == "complete":
+            skipped.append({"id": cid, "name": name, "reason": "Already approved"})
+            continue
+        if c.get("cover_review"):
+            skipped.append({"id": cid, "name": name,
+                            "reason": "Cover-sheet date must be confirmed — approve this packet individually"})
+            continue
+        try:
+            await _approve_one(c, user)
+        except HTTPException as e:
+            skipped.append({"id": cid, "name": name, "reason": str(e.detail)})
+            continue
+        await log_audit("update", "claim", actor=user, resource_id=cid, detail="approved packet · Complete (bulk)")
+        approved.append({"id": cid, "name": name})
+    return {"approved": approved, "skipped": skipped}
 
 
 @router.put("/claims/{cid}/tracking")
