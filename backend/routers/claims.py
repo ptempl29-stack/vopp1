@@ -199,6 +199,11 @@ async def _approval_blockers(claim: dict) -> list:
     items = claim.get("items") or []
     cats = {it.get("category") for it in items}
     problems = [f"Missing required document: {label}" for cat, label in APPROVAL_REQUIRED if cat not in cats]
+    if "va_disability_letter" not in cats and claim.get("patient_id"):
+        n_letters = len(await _disability_letter_candidates(claim["patient_id"]))
+        if n_letters > 1:
+            problems.append(f"{n_letters} possible VA Disability Letters were found in this patient's folder — "
+                            "staff must review and attach the correct one.")
     note_ids = [it["note_id"] for it in items if it.get("source") == "note" and it.get("note_id")]
     for n in await db.notes.find({"id": {"$in": note_ids}}, {"_id": 0}).to_list(50) if note_ids else []:
         if not (n.get("signature") or "").startswith("data:image"):
@@ -264,17 +269,61 @@ async def _auto_attach_credentials(items: list, patient_id: str, provider_name: 
                     have.add(cat)
 
     if patient_id and "va_disability_letter" not in have:
-        docs = await db.folder_items.find({"patient_id": patient_id}, {"_id": 0}) \
-            .sort("created_at", -1).to_list(200)
-        match = next((d for d in docs if _guess_category(d.get("filename") or d.get("label") or "") == "va_disability_letter"), None)
-        if match:
-            items.append({"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
-                         "storage_path": match["storage_path"],
-                         "filename": match.get("filename") or match.get("label") or "VA_Disability_Letter.pdf",
-                         "content_type": match.get("content_type", "application/pdf"),
-                         "size": match.get("size"), "category": "va_disability_letter",
-                         "auto_linked": True})
+        candidates = await _disability_letter_candidates(patient_id)
+        if len(candidates) != 1:
+            logger.warning(f"VA disability letter not auto-attached for patient {patient_id}: {len(candidates)} candidates")
+        if len(candidates) == 1:  # ambiguous (>1) is left for staff review, never guessed
+            match = candidates[0]
+            existing = next((it for it in items if it.get("storage_path") == match["storage_path"]), None)
+            if existing:
+                existing["category"] = "va_disability_letter"
+            else:
+                items.append({"id": str(uuid.uuid4()), "source": "upload", "form_id": match.get("form_id"),
+                              "folder_item_id": match.get("folder_item_id"),
+                              "storage_path": match["storage_path"], "filename": match["filename"],
+                              "content_type": match.get("content_type", "application/pdf"),
+                              "size": match.get("size"), "category": "va_disability_letter",
+                              "auto_linked": True})
     return items
+
+
+_LETTER_KEYWORDS = ("disability", "discapacidad", "disabilidad", "desglose", "breakdown", "rating",
+                    "va letter", "va-letter", "carta va", "carta de la va")
+
+
+async def _disability_letter_candidates(patient_id: str) -> list:
+    """Distinct VA disability letters belonging to this patient only. Explicitly tagged
+    documents (category / Disability Breakdown Letter form) win over filename/label guesses."""
+    from routers.forms import DISABILITY_LETTER_FORM_TYPE
+    explicit, guessed, seen = [], [], set()
+
+    def add(bucket, path, **meta):
+        if path and path not in seen:
+            seen.add(path)
+            bucket.append({"storage_path": path, **meta})
+
+    forms = await db.forms.find({"patient_id": patient_id, "form_type": DISABILITY_LETTER_FORM_TYPE,
+                                 "attachment.storage_path": {"$exists": True}}, {"_id": 0}).to_list(50)
+    for f in forms:
+        att = f["attachment"]
+        add(explicit, att["storage_path"], form_id=f["id"], filename=att.get("filename") or "VA_Disability_Letter.pdf",
+            content_type=att.get("content_type", "application/pdf"), size=att.get("size"))
+    docs = await db.folder_items.find({"patient_id": patient_id}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    for d in docs:
+        fn = d.get("filename") or d.get("label") or ""
+        if d.get("description") == "Moved from FMP Claim" or fn.startswith("Claim_Packet_"):
+            continue
+        meta = dict(folder_item_id=d.get("id"), form_id=d.get("form_id"), filename=fn or "VA_Disability_Letter.pdf",
+                    content_type=d.get("content_type", "application/pdf"), size=d.get("size"))
+        if d.get("category") == "va_disability_letter" or d.get("description") == DISABILITY_LETTER_FORM_TYPE:
+            add(explicit, d.get("storage_path"), **meta)
+            continue
+        text = " ".join(str(d.get(k) or "") for k in ("filename", "label", "description")).lower()
+        if (_guess_category(d.get("filename") or "") in ("", "va_disability_letter")
+                and _guess_category(d.get("label") or "") in ("", "va_disability_letter")
+                and any(k in text for k in _LETTER_KEYWORDS)):
+            add(guessed, d.get("storage_path"), **meta)
+    return explicit or guessed
 
 
 class ClaimInput(BaseModel):
@@ -523,7 +572,7 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
                 continue
             if folder_item.get("description") == "Moved from FMP Claim" or filename.startswith("Claim_Packet_"):
                 continue
-            category = _guess_category(filename)
+            category = folder_item.get("category") or _guess_category(filename)
             if any(item.get("folder_item_id") == folder_item.get("id")
                    or item.get("storage_path") == folder_item.get("storage_path") for item in items):
                 continue

@@ -39,3 +39,9 @@ usvopp@yahoo.com / Football2023? (display name "CEO"). SEED_DEMO_USERS=false.
 - Implemented and tested in PREVIEW ONLY (see CHANGELOG). NOT deployed.
 - Production blockers before publish: set production Secrets VOPP_ENV=production and a production-only NOTE_INTEGRITY_KEY (else preview values propagate via .env), production MongoDB export + document inventory, final user authorization.
 - Open decisions: CPT 90837 units (4 × $150 vs 1 per session), CPT timing rules confirmation, audit-log retention policy.
+
+## 2026-06 Disability letter auto-attach fix (PREVIEW ONLY, not deployed)
+- Root cause (confirmed read-only in prod): matcher only checked folder_items filename keywords; prod letter (David Turner) exists only as a Forms doc (form_type "Disability Breakdown Letter").
+- Fix in backend/routers/claims.py: _disability_letter_candidates (forms + folder category/description/label + expanded ES/EN keywords, patient-scoped, dedup); attaches only when exactly 1; >1 => approval blocker for staff review; warning log when not attached.
+- Test: backend/tests/test_disability_letter_match.py (8/8 pass) + E2E from-date in Preview with ZZTEST data.
+- Awaiting user authorization to deploy.
