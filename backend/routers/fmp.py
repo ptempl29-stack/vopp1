@@ -372,7 +372,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
     if invoice:
         try:
             inv = {**invoice, "patient_name": pname, "dob": p.get("dob")}
-            pdf = _invoice_pdf(inv, clinic, rnc)
+            pdf = _invoice_pdf(inv, await get_settings_doc())
             path = f"{APP_NAME}/fmp/{data.patient_id}/generated/{uuid.uuid4()}.pdf"
             result = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,

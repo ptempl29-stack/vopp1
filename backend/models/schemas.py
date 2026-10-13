@@ -74,6 +74,7 @@ class NoteInput(BaseModel):
     cpt_code: Optional[str] = None
     risk_level: Optional[str] = None
     ai_summarized: bool = False
+    title_nonclinical_confirmed: bool = False
 
 
 class SummarizeInput(BaseModel):
@@ -119,6 +120,7 @@ class MessageInput(BaseModel):
 
 class FormInput(BaseModel):
     patient_id: Optional[str] = None
+    provider_id: Optional[str] = None
     title: str
     form_type: str
     fields: Optional[dict] = None

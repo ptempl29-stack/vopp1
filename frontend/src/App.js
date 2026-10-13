@@ -19,6 +19,7 @@ import PatientFolders from "./pages/PatientFolders";
 import Messages from "./pages/Messages";
 import PublicForm from "./pages/PublicForm";
 import BillingReports from "./pages/BillingReports";
+import CompletedReports from "./pages/CompletedReports";
 import Team from "./pages/Team";
 import AcceptInvite from "./pages/AcceptInvite";
 import AIAssistant from "./pages/AIAssistant";
@@ -62,6 +63,7 @@ function App() {
               <Route path="/invoices" element={<Protected tab="invoices"><Invoices /></Protected>} />
               <Route path="/cpt-codes" element={<Protected tab="cpt"><CptCodes /></Protected>} />
               <Route path="/reports" element={<Protected tab="reports"><BillingReports /></Protected>} />
+              <Route path="/completed-reports" element={<Protected tab="reports"><CompletedReports /></Protected>} />
               <Route path="/forms" element={<Protected tab="forms"><Forms /></Protected>} />
               <Route path="/folders" element={<Protected tab="folders"><PatientFolders /></Protected>} />
               <Route path="/messages" element={<Protected tab="messages"><Messages /></Protected>} />

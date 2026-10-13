@@ -39,7 +39,9 @@ export default function Appointments() {
   useEffect(() => {
     load();
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
-    api.get("/users").then((r) => setStaff(r.data.filter((u) => ["doctor", "nurse", "psychologist", "receptionist", "admin"].includes(u.role)))).catch(() => {});
+    api.get("/users").then((r) => setStaff(r.data.filter((u) =>
+      ["doctor", "nurse", "psychologist", "receptionist", "admin"].includes(u.role) &&
+      (!["doctor", "nurse", "psychologist"].includes(u.role) || u.provider_active !== false)))).catch(() => {});
   }, []);
 
   const providers = useMemo(

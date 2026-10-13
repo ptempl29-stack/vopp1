@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { roleLabel } from "../lib/perms";
-import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, MailCheck, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut } from "lucide-react";
+import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, MailCheck, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut, Stethoscope, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
@@ -62,6 +62,15 @@ export default function Team() {
     try {
       await api.put(`/users/${u.id}/active`, { active: next });
       toast.success(next ? t("accessRestored") : t("accessSuspended"));
+      load();
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+
+  const toggleProviderActive = async (u) => {
+    const next = u.provider_active === false;
+    try {
+      await api.put(`/users/${u.id}/provider-active`, { provider_active: next });
+      toast.success(next ? t("providerActivated") : t("providerDeactivated"));
       load();
     } catch (err) { toast.error(apiErr(err)); }
   };
@@ -231,6 +240,7 @@ export default function Team() {
                   <th className="px-5 py-3">{t("name")}</th>
                   <th className="px-5 py-3">{t("role")}</th>
                   <th className="px-5 py-3">{t("status")}</th>
+                  <th className="px-5 py-3">{t("providerSelectable")}</th>
                   <th className="px-5 py-3 hidden md:table-cell">{t("tabAccess")}</th>
                   <th className="px-5 py-3 text-right">{t("actions")}</th>
                 </tr>
@@ -249,6 +259,13 @@ export default function Team() {
                       <Badge tone={u.active === false ? "gray" : "green"} data-testid={`user-status-${u.id}`}>
                         {u.active === false ? t("suspended") : t("active")}
                       </Badge>
+                    </td>
+                    <td className="px-5 py-3">
+                      {["doctor", "nurse", "psychologist"].includes(u.role) ? (
+                        <Badge tone={u.provider_active === false ? "gray" : "green"} data-testid={`provider-status-${u.id}`}>
+                          {u.provider_active === false ? t("notSelectable") : t("selectable")}
+                        </Badge>
+                      ) : "—"}
                     </td>
                     <td className="px-5 py-3 hidden md:table-cell">
                       <span className="text-xs text-stone-500">{(u.allowed_tabs || []).length} tabs</span>
@@ -276,6 +293,13 @@ export default function Team() {
                             className={`!px-2 ${u.active === false ? "!text-moneygreen-600" : "!text-amber-600"}`}
                             title={u.active === false ? t("restore") : t("suspend")}>
                             {u.active === false ? <RotateCcw className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                          </Btn>
+                        )}
+                        {["doctor", "nurse", "psychologist"].includes(u.role) && (
+                          <Btn variant="ghost" onClick={() => toggleProviderActive(u)} data-testid={`toggle-provider-active-${u.id}`}
+                            className={`!px-2 ${u.provider_active === false ? "!text-moneygreen-600" : "!text-stone-500"}`}
+                            title={u.provider_active === false ? t("makeSelectable") : t("makeNotSelectable")}>
+                            {u.provider_active === false ? <Stethoscope className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                           </Btn>
                         )}
                         {u.id !== me.id && u.role !== "admin" && (

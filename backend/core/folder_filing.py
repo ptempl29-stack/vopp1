@@ -227,7 +227,7 @@ def invoice_pdf(inv: dict, settings: dict = None) -> bytes:
     y_left = section(col1_x, "Patient Information", [
         ("Full Name:", inv.get("patient_name")),
         ("DOB:", disp_date(inv.get("dob")) if inv.get("dob") else ""),
-        ("SSN:", inv.get("ssn")),
+        ("SSN:", (lambda d: f"***-**-{d[-4:]}" if len(d) >= 4 else "")("".join(ch for ch in str(inv.get("ssn") or "") if ch.isdigit()))),
         ("Gender:", inv.get("gender")),
         ("Policy #:", inv.get("policy_number")),
     ])

@@ -7,14 +7,14 @@ import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Private } from "../context/PrivacyContext";
 import { useLang } from "../context/LanguageContext";
-import { PageHeader, Modal, Btn, Empty, Card, inputCls } from "../components/ui-kit";
+import { PageHeader, Modal, Btn, Badge, Empty, Card, inputCls } from "../components/ui-kit";
 import { AddIcdCodeModal } from "../components/AddIcdCodeModal";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
 import { printSection } from "../lib/print";
-import { fmtDate } from "../lib/date";
-import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X, CheckCircle2, Download, ChevronDown, Receipt } from "lucide-react";
+import { fmtDate, fmtDateTime } from "../lib/date";
+import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X, CheckCircle2, Download, ChevronDown, Receipt, XCircle, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 const RISK_LEVELS = ["Low", "Moderate", "High", "Imminent"];
@@ -49,6 +49,10 @@ export default function Notes() {
   const [viewing, setViewing] = useState(null);
   const [summarizing, setSummarizing] = useState(false);
   const [sigKey, setSigKey] = useState(0);
+  const [billingStatusFilter, setBillingStatusFilter] = useState("");
+  const [reviewNote, setReviewNote] = useState("");
+  const [editWasApproved, setEditWasApproved] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [savingSig, setSavingSig] = useState(false);
   const [codeHistory, setCodeHistory] = useState({ icd10: [], cpt: [] });
   const [manageOpen, setManageOpen] = useState(false);
@@ -95,7 +99,7 @@ export default function Notes() {
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
     api.get("/cpt-codes").then((r) => setCpt(asArray(r.data))).catch(() => setCpt([]));
     api.get("/icd-codes").then((r) => setIcdCatalog(asArray(r.data))).catch(() => setIcdCatalog([]));
-    api.get("/users").then((r) => setProviders(asArray(r.data).filter((u) => ["doctor", "nurse", "psychologist", "admin"].includes(u.role)))).catch(() => setProviders([]));
+    api.get("/users").then((r) => setProviders(asArray(r.data).filter((u) => ["doctor", "nurse", "psychologist", "admin"].includes(u.role) && u.provider_active !== false))).catch(() => setProviders([]));
   }, []);
 
   useEffect(() => {
@@ -124,12 +128,14 @@ export default function Notes() {
   const providerOptions = useMemo(() => (
     [...new Set([...providers.map((u) => u.name), ...notes.map(noteProvider)].filter(Boolean))]
   ), [providers, notes]);
+  const billingStatus = (n) => n.billing_review_status || (n.signature ? "pending_review" : "unsigned");
   const filtered = useMemo(() => notes.filter((n) =>
     (!providerFilter || noteProvider(n) === providerFilter) &&
     (!patientFilter || n.patient_id === patientFilter) &&
     (!dateFilter || noteDate(n) === dateFilter) &&
-    (!statusFilter || (statusFilter === "completed" ? !!n.completed : !n.completed))
-  ), [notes, providerFilter, patientFilter, dateFilter, statusFilter]);
+    (!statusFilter || (statusFilter === "completed" ? !!n.completed : !n.completed)) &&
+    (!billingStatusFilter || billingStatus(n) === billingStatusFilter)
+  ), [notes, providerFilter, patientFilter, dateFilter, statusFilter, billingStatusFilter]);
   const tally = useMemo(() => {
     const done = notes.filter((n) => n.completed).length;
     return { total: notes.length, completed: done, open: notes.length - done };
@@ -206,8 +212,35 @@ export default function Notes() {
     } catch (err) { toast.error(apiErr(err)); }
   };
 
-  const openNew = () => { setForm({ ...blank, signature: user?.default_signature || "" }); setEditId(null); setSigKey((k) => k + 1); setOpen(true); };
-  const openEdit = (n) => { setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setSigKey((k) => k + 1); setOpen(true); };
+  const billingStatusMeta = {
+    unsigned: { tone: "gray", key: "billingStatusUnsigned" },
+    pending_review: { tone: "amber", key: "billingStatusPendingReview" },
+    approved: { tone: "green", key: "billingStatusApproved" },
+    needs_correction: { tone: "red", key: "billingStatusNeedsCorrection" },
+  };
+  const BillingBadge = ({ n, testid }) => {
+    const meta = billingStatusMeta[billingStatus(n)] || billingStatusMeta.unsigned;
+    return <Badge tone={meta.tone} data-testid={testid}>{t(meta.key)}</Badge>;
+  };
+  const billingReview = async (status) => {
+    if (!viewing) return;
+    setReviewing(true);
+    try {
+      const r = await api.put(`/notes/${viewing.id}/billing-review`, { status, note: reviewNote || null });
+      setViewing(r.data);
+      setNotes((ns) => ns.map((n) => (n.id === r.data.id ? r.data : n)));
+      setReviewNote("");
+      toast.success(t("billingReviewSaved"));
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setReviewing(false); }
+  };
+  useEffect(() => { setReviewNote(""); }, [viewing?.id]);
+
+  const openNew = () => { setForm({ ...blank, signature: user?.default_signature || "" }); setEditId(null); setSigKey((k) => k + 1); setOpen(true); setEditWasApproved(false); };
+  const openEdit = (n) => {
+    setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setSigKey((k) => k + 1); setOpen(true);
+    setEditWasApproved(!!(n.signature || n.completed || billingStatus(n) === "approved"));
+  };
 
   const duplicateNote = (n) => {
     setEditId(null); setViewing(null);
@@ -501,6 +534,14 @@ export default function Notes() {
               className="p-1 rounded hover:bg-stone-100 text-stone-500"><X className="w-4 h-4" /></button>
           )}
         </div>
+        <select value={billingStatusFilter} onChange={(e) => setBillingStatusFilter(e.target.value)}
+          data-testid="notes-filter-billing-status" className={inputCls + " !w-auto"} title={t("filterBillingStatus")}>
+          <option value="">{t("allBillingStatuses")}</option>
+          <option value="unsigned">{t("billingStatusUnsigned")}</option>
+          <option value="pending_review">{t("billingStatusPendingReview")}</option>
+          <option value="approved">{t("billingStatusApproved")}</option>
+          <option value="needs_correction">{t("billingStatusNeedsCorrection")}</option>
+        </select>
       </div>
 
       {allowed && filtered.length > 0 && (
@@ -532,6 +573,7 @@ export default function Notes() {
         </Card>
       ) : filtered.length === 0 ? <Card><Empty text={t("noData")} /></Card> : viewMode === "list" ? (
         <Card className="overflow-hidden" data-testid="notes-list-table">
+                  <th className="px-5 py-3">{t("filterBillingStatus")}</th>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -549,6 +591,7 @@ export default function Notes() {
               <tbody>
                 {filtered.map((n, i) => (
                   <tr key={n.id} data-testid={`note-row-${n.id}`} className={`border-b border-border/60 ${n.completed ? "bg-moneygreen-100/70" : sel.has(n.id) ? "bg-moneygreen-50" : i % 2 ? "bg-tan-50/40" : ""}`}>
+                    <td className="px-5 py-3"><BillingBadge n={n} testid={`note-billing-status-${n.id}`} /></td>
                     {allowed && (
                       <td className="px-4 py-3">
                         <input type="checkbox" checked={sel.has(n.id)} onChange={() => sel.toggle(n.id)}
@@ -597,10 +640,11 @@ export default function Notes() {
                   <div className="w-9 h-9 rounded-md bg-moneygreen-100 flex items-center justify-center shrink-0">
                     <FileText className="w-4 h-4 text-moneygreen-600" />
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="font-heading font-bold text-moneygreen-800 truncate"><Private value={patientName(n.patient_id)} /></p>
                     <p className="text-xs text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))} · {providerName(n)}</p>
                   </div>
+                  <BillingBadge n={n} testid={`note-billing-status-${n.id}`} />
                   {n.completed && <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-moneygreen-600 text-white text-[10px] font-bold uppercase tracking-wide shrink-0 self-start" data-testid={`note-completed-badge-${n.id}`}><CheckCircle2 className="w-3 h-3" />{t("completed")}</span>}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-stone-500 mb-2">
@@ -640,6 +684,16 @@ export default function Notes() {
       {/* New / Edit note */}
       <Modal open={open} onClose={() => { setOpen(false); setEditId(null); }} title={editId ? t("editNote") : t("newNote")} wide>
         <form onSubmit={save} className="space-y-4">
+          {editWasApproved && (
+            <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-800 no-print" data-testid="edit-approved-warning">
+              {t("editApprovedWarning")}
+              <label className="flex items-center gap-2 mt-2 font-medium cursor-pointer">
+                <input type="checkbox" checked={!!form.title_nonclinical_confirmed} data-testid="title-nonclinical-confirm"
+                  onChange={(e) => setForm({ ...form, title_nonclinical_confirmed: e.target.checked })} className="w-4 h-4 accent-moneygreen-600" />
+                {t("titleNonClinicalConfirm")}
+              </label>
+            </div>
+          )}
           <div id="note-print" className="space-y-4">
             <div className="rounded-lg border border-border p-4 no-print">
               <EditableLetterhead settings={settings} onSaved={setSettings} t={t}
@@ -724,6 +778,58 @@ export default function Notes() {
                 </div>
               )}
             </div>
+
+            <div className="p-4 rounded-md bg-tan-50 border border-tan-200 no-print" data-testid="billing-review-panel">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-moneygreen-600 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" /> {t("billingReview")}
+                </p>
+                <BillingBadge n={viewing} testid="view-billing-status" />
+              </div>
+              <p className="text-xs text-stone-500 mb-3">{t("billingReviewHint")}</p>
+              {viewing.billing_reviewed_by && (
+                <p className="text-xs text-stone-600 mb-3" data-testid="billing-reviewed-meta">
+                  {t("billingReviewedBy")} <span className="font-semibold">{viewing.billing_reviewed_by}</span>
+                  {" · "}{fmtDateTime(viewing.billing_reviewed_at)}
+                  {viewing.billing_review_note && <> — "{viewing.billing_review_note}"</>}
+                </p>
+              )}
+              {viewing.history && viewing.history.length > 0 && (
+                <details className="mb-3 text-xs text-stone-500" data-testid="billing-review-history">
+                  <summary className="cursor-pointer font-semibold text-stone-600">{t("reviewHistory")} ({viewing.history.length})</summary>
+                  <div className="mt-2 space-y-2 pl-3 border-l-2 border-tan-300">
+                    {[...viewing.history].reverse().map((h, i) => (
+                      <div key={i}>
+                        <p>{fmtDateTime(h.archived_at)} — {h.archived_reason === "re-signed" ? t("historyResigned") : t("historyEditedAfterApproval")}</p>
+                        {h.billing_reviewed_by && (
+                          <p>{t("billingReviewedBy")} {h.billing_reviewed_by} · {fmtDateTime(h.billing_reviewed_at)}
+                            {h.billing_review_note && <> — "{h.billing_review_note}"</>}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+              {user?.role === "admin" && (
+                viewing.signature ? (
+                  <div className="space-y-2">
+                    <input value={reviewNote} onChange={(e) => setReviewNote(e.target.value)}
+                      placeholder={t("billingReviewNotePlaceholder")} className={inputCls} data-testid="billing-review-note-input" />
+                    <div className="flex flex-wrap gap-2">
+                      <Btn type="button" onClick={() => billingReview("approved")} disabled={reviewing} data-testid="billing-approve-btn">
+                        {reviewing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}{t("approveForBilling")}
+                      </Btn>
+                      <Btn type="button" variant="outline" onClick={() => billingReview("needs_correction")} disabled={reviewing} data-testid="billing-needs-correction-btn">
+                        <XCircle className="w-4 h-4" />{t("markNeedsCorrection")}
+                      </Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-stone-400 italic">{t("signFirstToReview")}</p>
+                )
+              )}
+            </div>
+
             <div className="flex justify-end gap-2 pt-2 no-print">
               <Btn variant="outline" onClick={() => { if (viewing?.id) api.post(`/notes/${viewing.id}/to-folder`).then(() => toast.success(t("savedToFolder"))).catch(() => {}); printSection("note-print"); }} data-testid="view-save-pdf-btn"><FileDown className="w-4 h-4" />{t("saveAsPdf")}</Btn>
               <Btn variant="outline" onClick={() => printSection("note-print")} data-testid="view-print-btn"><Printer className="w-4 h-4" />{t("print")}</Btn>

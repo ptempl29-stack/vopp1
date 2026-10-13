@@ -9,6 +9,7 @@ import {
   FolderArchive, Plus, Pencil, Trash2, ChevronLeft, Download, FileText,
   ReceiptText, Upload, FilePlus, CalendarClock, Eye, FolderInput, Send, ArrowUp, ArrowDown,
   Loader2, ShieldAlert, ShieldCheck, AlertTriangle, Wand2,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -98,6 +99,8 @@ export default function Claims() {
   const fileRef = useRef(null);
   const [fromDateOpen, setFromDateOpen] = useState(false);
   const [fromDate, setFromDate] = useState({ patient_id: "", date: "" });
+  const [datePatients, setDatePatients] = useState([]);
+  const [datePatientsLoading, setDatePatientsLoading] = useState(false);
   const [building, setBuilding] = useState(false);
   const [preview, setPreview] = useState(null);
   const [renameItem, setRenameItem] = useState(null);
@@ -199,6 +202,25 @@ export default function Claims() {
     finally { setDeleting(""); }
   };
 
+  const pickFromDateDate = async (e) => {
+    const date = e.target.value;
+    setFromDate({ patient_id: "", date });
+    setDatePatients([]);
+    if (!date) return;
+    setDatePatientsLoading(true);
+    try {
+      const r = await api.get("/claims/options/patients-by-date", { params: { date } });
+      setDatePatients(r.data);
+    } catch (err) { toast.error(apiErr(err)); }
+    finally { setDatePatientsLoading(false); }
+  };
+
+  const closeFromDate = () => {
+    setFromDateOpen(false);
+    setFromDate({ patient_id: "", date: "" });
+    setDatePatients([]);
+  };
+
   const buildFromDate = async (e) => {
     e.preventDefault();
     if (!fromDate.patient_id || !fromDate.date) return;
@@ -206,8 +228,7 @@ export default function Claims() {
     try {
       const r = await api.post("/claims/from-date", fromDate);
       toast.success(t("packetSaved"));
-      setFromDateOpen(false);
-      setFromDate({ patient_id: "", date: "" });
+      closeFromDate();
       load();
       setSelected(r.data);
     } catch (err) { toast.error(apiErr(err)); }
@@ -356,6 +377,19 @@ export default function Claims() {
   };
 
   const statusTone = (s) => (s === "complete" ? "green" : s === "submitted" ? "tan" : "amber");
+  const statusLabel = (p) => (p.status === "complete" && !p.approved ? t("legacyComplete") : t(p.status));
+  const approvePacket = async () => {
+    try {
+      const r = await api.post(`/claims/${selected.id}/approve`);
+      setSelected(r.data); toast.success(t("packetApprovedToast")); load();
+    } catch (err) { toast.error(apiErr(err)); }
+  };
+  const setTracking = async (field, value) => {
+    try {
+      const r = await api.put(`/claims/${selected.id}/tracking`, { [field]: value });
+      setSelected(r.data); toast.success(t("trackingSaved"));
+    } catch (err) { toast.error(apiErr(err)); }
+  };
 
   // ---------- Detail view ----------
   if (selected) {
@@ -369,6 +403,12 @@ export default function Claims() {
               <Btn variant="outline" onClick={() => { setSelected(null); load(); }} data-testid="claim-back"><ChevronLeft className="w-4 h-4" />{t("backToPackets")}</Btn>
               <Btn variant="outline" onClick={() => openEdit(selected)} data-testid="claim-edit-detail"><Pencil className="w-4 h-4" />{t("edit")}</Btn>
               <Btn variant="outline" onClick={() => { setSendTo(""); setSendOpen(true); }} data-testid="claim-send"><Send className="w-4 h-4" />{t("send")}</Btn>
+              {!selected.approved && (
+                <Btn variant="outline" onClick={approvePacket} disabled={selected.validation?.status === "blocked"} data-testid="claim-approve-btn"
+                  title={selected.validation?.status === "blocked" ? t("blockedCannotFinalize") : undefined}>
+                  <CheckCircle2 className="w-4 h-4" />{t("approvePacket")}
+                </Btn>
+              )}
               <Btn onClick={downloadMerged} disabled={packetBuilding || selected.validation?.status === "blocked"} data-testid="claim-download-merged"
                 title={selected.validation?.status === "blocked" ? t("blockedCannotFinalize") : undefined}>
                 {packetBuilding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
@@ -383,7 +423,32 @@ export default function Claims() {
           </Card>
           <Card className="p-4">
             <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("packetStatus")}</p>
-            <div className="mt-1"><Badge tone={statusTone(selected.status)}>{t(selected.status)}</Badge></div>
+            <div className="mt-1"><Badge tone={statusTone(selected.status)} data-testid="claim-status-badge">{statusLabel(selected)}</Badge></div>
+          </Card>
+          <Card className="p-4 lg:col-span-3" data-testid="claim-tracking-card">
+            <div className="flex flex-wrap gap-6 items-end text-sm">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("approvalStatus")}</p>
+                <p className="mt-1 text-stone-700" data-testid="claim-approval-info">
+                  {selected.approved ? `${t("approvedLabel")} · ${t("approvedByLabel")} ${selected.approved_by || "—"} · ${fmtDate((selected.approved_at || "").slice(0, 10))}`
+                    : selected.status === "complete" ? t("legacyComplete") : t("notApproved")}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("submissionStatus")}</p>
+                <select value={selected.submission_status || "not_submitted"} onChange={(e) => setTracking("submission_status", e.target.value)}
+                  className={inputCls + " mt-1 !w-auto"} data-testid="claim-submission-select">
+                  <option value="not_submitted">{t("notSubmitted")}</option><option value="submitted">{t("submitted")}</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("paymentStatus")}</p>
+                <select value={selected.payment_status || "unpaid"} onChange={(e) => setTracking("payment_status", e.target.value)}
+                  className={inputCls + " mt-1 !w-auto"} data-testid="claim-payment-select">
+                  <option value="unpaid">{t("unpaid")}</option><option value="paid">{t("paid")}</option><option value="denied">{t("denied")}</option>
+                </select>
+              </div>
+            </div>
           </Card>
           <Card className="p-4">
             <p className="text-xs font-bold uppercase tracking-wider text-stone-500">{t("createdBy")}</p>
@@ -572,7 +637,7 @@ export default function Claims() {
       <PageHeader title={t("claims")} subtitle={t("claimsSubtitle")}
         action={
           <div className="flex flex-wrap gap-2">
-            <Btn variant="outline" onClick={() => setFromDateOpen(true)} data-testid="build-from-date-btn"><CalendarClock className="w-4 h-4" />{t("buildFromDate")}</Btn>
+            <Btn variant="outline" onClick={() => { setFromDateOpen(true); setFromDate({ patient_id: "", date: "" }); setDatePatients([]); }} data-testid="build-from-date-btn"><CalendarClock className="w-4 h-4" />{t("buildFromDate")}</Btn>
             <Btn onClick={openNew} data-testid="new-claim-btn"><FilePlus className="w-4 h-4" />{t("newClaim")}</Btn>
           </div>} />
 
@@ -618,7 +683,7 @@ export default function Claims() {
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{p.patient_name || "—"}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-500 font-mono text-xs">{fmtDate(p.claim_number) || "—"}</td>
                     <td className="px-5 py-3 text-stone-600">{(p.items || []).length}</td>
-                    <td className="px-5 py-3"><Badge tone={statusTone(p.status)}>{t(p.status)}</Badge></td>
+                    <td className="px-5 py-3"><Badge tone={statusTone(p.status)}>{statusLabel(p)}</Badge></td>
                     <td className="px-5 py-3 hidden sm:table-cell"><ValChip v={p.validation} t={t} /></td>
                     <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
@@ -642,20 +707,27 @@ export default function Claims() {
         form={form} set={set} save={save} patients={patients} t={t}
         setClaimPatient={setClaimPatient} setClaimDate={setClaimDate} />
 
-      <Modal open={fromDateOpen} onClose={() => setFromDateOpen(false)} title={t("buildFromDateTitle")}>
+      <Modal open={fromDateOpen} onClose={closeFromDate} title={t("buildFromDateTitle")}>
         <form onSubmit={buildFromDate} className="space-y-4">
           <p className="text-sm text-stone-500">{t("buildFromDateHint")}</p>
-          <Field label={t("patient")}>
-            <ManagedSelect listKey="patients" required value={fromDate.patient_id} onChange={(e) => setFromDate((f) => ({ ...f, patient_id: e.target.value }))} className={inputCls} data-testid="fd-patient">
-              <option value="">{t("selectPatient")}</option>
-              {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </ManagedSelect>
-          </Field>
           <Field label={t("serviceDate")}>
-            <input required type="date" value={fromDate.date} onChange={(e) => setFromDate((f) => ({ ...f, date: e.target.value }))} className={inputCls} data-testid="fd-date" />
+            <input required type="date" value={fromDate.date} onChange={pickFromDateDate} className={inputCls} data-testid="fd-date" />
+          </Field>
+          <Field label={t("patient")}>
+            <ManagedSelect listKey="patients" required disabled={!fromDate.date || datePatientsLoading}
+              value={fromDate.patient_id} onChange={(e) => setFromDate((f) => ({ ...f, patient_id: e.target.value }))}
+              className={inputCls} data-testid="fd-patient">
+              <option value="">
+                {!fromDate.date ? t("selectDateFirst") : datePatientsLoading ? t("loading") : datePatients.length === 0 ? t("noCompletedVisitsOnDate") : t("selectPatient")}
+              </option>
+              {datePatients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </ManagedSelect>
+            {fromDate.date && !datePatientsLoading && datePatients.length === 0 && (
+              <p className="text-xs text-stone-500 mt-1.5">{t("noCompletedVisitsOnDateHint")}</p>
+            )}
           </Field>
           <div className="flex justify-end gap-2 pt-2">
-            <Btn variant="outline" type="button" onClick={() => setFromDateOpen(false)}>{t("cancel")}</Btn>
+            <Btn variant="outline" type="button" onClick={closeFromDate}>{t("cancel")}</Btn>
             <Btn type="submit" disabled={building || !fromDate.patient_id || !fromDate.date} data-testid="fd-build-btn">{t("build")}</Btn>
           </div>
         </form>
@@ -680,7 +752,7 @@ function PacketModal({ open, onClose, editing, form, set, save, patients, t, set
             <select value={form.status} onChange={set("status")} className={inputCls} data-testid="cf-status">
               <option value="draft">{t("draft")}</option>
               <option value="submitted">{t("submitted")}</option>
-              <option value="complete">{t("complete")}</option>
+              {form.status === "complete" && <option value="complete">{t("complete")}</option>}
             </select>
           </Field>
         </div>

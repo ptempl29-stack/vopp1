@@ -16,6 +16,19 @@ from core.audit import log_audit
 from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd
 from core.folder_filing import disp_date
 from models.schemas import NoteInput, SummarizeInput, IdList
+from core.config import CLINICAL_ROLES
+from core.note_versions import archive_version, verify_chain, is_substantive, needs_protection
+
+BILLING_REVIEW_STATUSES = {"approved", "needs_correction"}
+
+
+class BillingReviewInput(BaseModel):
+    status: str
+    note: Optional[str] = None
+
+
+def _is_note_provider(user: dict, note: dict) -> bool:
+    return user["role"] in CLINICAL_ROLES and user["name"] in (note.get("attending_provider"), note.get("author"))
 
 router = APIRouter()
 
@@ -40,10 +53,12 @@ async def create_note(data: NoteInput, user: dict = Depends(require_roles("docto
         doc["content"] = "\n".join(f"{k}: {v}" for k, v in parts if v)
     if not doc.get("content"):
         raise HTTPException(status_code=400, detail="Note content is required")
+    doc.pop("title_nonclinical_confirmed", None)
     doc.update({"id": str(uuid.uuid4()), "created_at": now_iso(), "author": user["name"]})
     if doc.get("signature"):
         doc["signed_by"] = user["name"]
         doc["signed_at"] = now_iso()
+    doc["billing_review_status"] = "pending_review" if doc.get("signature") else "unsigned"
     await db.notes.insert_one(doc)
     doc.pop("_id", None)
     try:
@@ -62,6 +77,7 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
     if not existing:
         raise HTTPException(status_code=404, detail="Note not found")
     doc = data.model_dump()
+    title_ok = doc.pop("title_nonclinical_confirmed", False)
     if doc.get("signature") and len(doc["signature"]) > 600000:
         raise HTTPException(status_code=400, detail="Signature too large")
     if doc.get("note_type") == "soap" and not doc.get("content"):
@@ -72,9 +88,28 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
         raise HTTPException(status_code=400, detail="Note content is required")
     doc["updated_at"] = now_iso()
     doc["updated_by"] = user["name"]
-    if doc.get("signature") and doc.get("signature") != existing.get("signature"):
+    resigned = bool(doc.get("signature")) and doc.get("signature") != existing.get("signature")
+    protected = needs_protection(existing)
+    substantive = protected and is_substantive(existing, {**doc, "title_nonclinical_confirmed": title_ok})
+    revised = bool(existing.get("version_count")) and not existing.get("signature")
+    if resigned and (substantive or revised or protected) and not _is_note_provider(user, {**existing, **doc}):
+        raise HTTPException(status_code=403, detail="Only the note's attending or authoring provider may sign this note")
+    if protected and (substantive or resigned):
+        await archive_version(existing, "substantive edit" if substantive else "re-signed", user)
+        doc["version_count"] = (existing.get("version_count") or 0) + 1
+        doc["revised_at"] = now_iso()
+    if substantive:
+        doc.update({"completed": False, "completed_at": None, "completed_by": None,
+                    "billing_reviewed_by": None, "billing_reviewed_at": None, "billing_review_note": None})
+        if not resigned:
+            doc.update({"signature": None, "signed_by": None, "signed_at": None})
+    if resigned:
         doc["signed_by"] = user["name"]
         doc["signed_at"] = now_iso()
+        doc["billing_review_status"] = "pending_review"
+        doc.update({"billing_reviewed_by": None, "billing_reviewed_at": None, "billing_review_note": None})
+    elif not doc.get("signature"):
+        doc["billing_review_status"] = "unsigned"
     await db.notes.update_one({"id": nid}, {"$set": doc})
     updated = await db.notes.find_one({"id": nid}, {"_id": 0})
     try:
@@ -94,6 +129,7 @@ async def delete_note(nid: str, user: dict = Depends(require_roles("doctor", "nu
         raise HTTPException(status_code=404, detail="Note not found")
     if user["role"] != "admin" and existing.get("author") not in (user["name"], None):
         raise HTTPException(status_code=403, detail="You can only delete notes you authored")
+    await archive_version(existing, "note deleted", user)
     await db.notes.delete_one({"id": nid})
     await log_audit("delete", "note", actor=user, resource_id=nid,
                     detail=f"{existing.get('note_type', 'free')}: {existing.get('title', '')}")
@@ -110,6 +146,8 @@ async def set_note_complete(nid: str, data: CompleteInput,
     existing = await db.notes.find_one({"id": nid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Note not found")
+    if data.completed and not existing.get("signature"):
+        raise HTTPException(status_code=400, detail="A note must be signed by its provider before it can be completed")
     if data.completed:
         upd = {"completed": True, "completed_at": now_iso(), "completed_by": user["name"]}
     else:
@@ -157,7 +195,7 @@ async def bulk_complete_notes(data: IdList, user: dict = Depends(require_roles("
     if not data.ids:
         return {"updated": 0}
     res = await db.notes.update_many(
-        {"id": {"$in": data.ids}},
+        {"id": {"$in": data.ids}, "signature": {"$nin": [None, ""]}},
         {"$set": {"completed": True, "completed_at": now_iso(), "completed_by": user["name"]}})
     await log_audit("update", "note", actor=user, detail=f"bulk complete ({res.modified_count})")
     return {"updated": res.modified_count}
@@ -169,6 +207,8 @@ async def bulk_delete_notes(data: IdList, user: dict = Depends(require_roles("do
     deletable = [d["id"] for d in docs
                  if user["role"] == "admin" or d.get("author") in (user["name"], None)]
     if deletable:
+        async for n in db.notes.find({"id": {"$in": deletable}}, {"_id": 0}):
+            await archive_version(n, "note deleted", user)
         await db.notes.delete_many({"id": {"$in": deletable}})
     await log_audit("delete", "note", actor=user, detail=f"bulk ({len(deletable)})")
     return {"deleted": len(deletable), "skipped": len(data.ids) - len(deletable)}
@@ -274,3 +314,51 @@ async def summarize_note(data: SummarizeInput, user: dict = Depends(require_role
     except Exception:
         logger.exception("summarize failed")
         raise HTTPException(status_code=500, detail="AI summarization failed. Please try again later.")
+
+
+@router.put("/notes/{nid}/billing-review")
+async def billing_review_note(nid: str, data: BillingReviewInput, user: dict = Depends(require_roles("admin"))):
+    """Administrative billing-readiness check only — not a clinical co-signature."""
+    if data.status not in BILLING_REVIEW_STATUSES:
+        raise HTTPException(status_code=400, detail="status must be 'approved' or 'needs_correction'")
+    existing = await db.notes.find_one({"id": nid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if not existing.get("signature"):
+        raise HTTPException(status_code=400, detail="This note has not been signed by its provider yet")
+    note_text = (data.note or "").strip()[:2000] or None
+    await db.notes.update_one({"id": nid}, {"$set": {
+        "billing_review_status": data.status, "billing_reviewed_by": user["name"],
+        "billing_reviewed_at": now_iso(), "billing_review_note": note_text}})
+    await log_audit("update", "note", actor=user, resource_id=nid,
+                    detail=f"billing review: {data.status}" + (f" — {note_text}" if note_text else ""))
+    return await db.notes.find_one({"id": nid}, {"_id": 0})
+
+
+@router.get("/notes/{nid}/versions")
+async def note_versions(nid: str, user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "admin"))):
+    note = await db.notes.find_one({"id": nid}, {"_id": 0, "attending_provider": 1, "author": 1, "version_count": 1})
+    first = await db.note_versions.find_one({"note_id": nid}, {"_id": 0, "snapshot.attending_provider": 1})
+    if not note and not first:
+        raise HTTPException(status_code=404, detail="Note not found")
+    ref = note or {"attending_provider": (first or {}).get("snapshot", {}).get("attending_provider")}
+    if user["role"] != "admin" and not _is_note_provider(user, ref):
+        raise HTTPException(status_code=403, detail="Only admins or the note's provider can view version history")
+    versions = await db.note_versions.find({"note_id": nid}, {"_id": 0}).sort("version", 1).to_list(1000)
+    integrity = await verify_chain(nid, (note or {}).get("version_count") if note else None)
+    await log_audit("view", "note", actor=user, resource_id=nid, detail=f"version history ({len(versions)})")
+    return {"versions": versions, "integrity": integrity}
+
+
+@router.get("/notes-integrity/verify")
+async def verify_all_versions(user: dict = Depends(require_roles("admin"))):
+    ids = await db.note_versions.distinct("note_id")
+    counts = {n["id"]: n.get("version_count") async for n in db.notes.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "version_count": 1})}
+    failed = []
+    for nid in ids:
+        r = await verify_chain(nid, counts.get(nid) if nid in counts else None)
+        if not r["ok"]:
+            failed.append({"note_id": nid, "problems": r["problems"]})
+    await log_audit("view", "note", actor=user, detail=f"integrity verify ({len(ids)} notes, {len(failed)} failed)")
+    return {"checked": len(ids), "failed": failed}
+

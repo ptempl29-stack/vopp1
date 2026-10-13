@@ -24,52 +24,166 @@ from core.pdf_utils import new_pdf, pdf_bytes, FONT
 router = APIRouter()
 
 
-def _invoice_pdf(inv: dict, clinic: str, rnc: str = "") -> bytes:
+def mask_ssn(ssn) -> str:
+    digits = re.sub(r"\D", "", str(ssn or ""))
+    return f"***-**-{digits[-4:]}" if len(digits) >= 4 else ""
+
+
+def _invoice_pdf(inv: dict, settings: dict) -> bytes:
+    """Saved-invoice layout: letterhead (with RNC), patient/invoice info, six-column items
+    table (CPT, Description, Units, Minutes, Unit Price, Fee) and the stored total.
+    SSN is masked; Minutes is the stored item value, never calculated."""
+    import base64
+    from io import BytesIO
     from core.folder_filing import disp_date
+
+    settings = settings or {}
+    clinic = settings.get("clinic_name") or "Veterans of Puerto Plata"
+    GREEN, GREY = (25, 90, 60), (105, 105, 105)
     pdf = new_pdf()
-    pdf.set_font(FONT, "B", 18)
-    pdf.cell(0, 12, (clinic or "")[:60], ln=True)
-    if rnc:
-        pdf.set_font(FONT, "", 9)
-        pdf.cell(0, 5, f"RNC: {rnc}", ln=True)
+    content_w = pdf.w - pdf.l_margin - pdf.r_margin
+
+    logo = settings.get("logo") or ""
+    text_x, y0 = pdf.l_margin, pdf.get_y()
+    if logo.startswith("data:image"):
+        try:
+            pdf.image(BytesIO(base64.b64decode(logo.split(",", 1)[1])), x=pdf.l_margin, y=y0, w=16, h=16)
+            text_x = pdf.l_margin + 20
+        except Exception as e:
+            logger.error(f"invoice pdf logo render failed: {e}")
+    pdf.set_xy(text_x, y0)
+    pdf.set_font(FONT, "B", 16)
+    pdf.cell(content_w - (text_x - pdf.l_margin), 7, clinic[:70], ln=True)
+    lines = []
+    if settings.get("tagline"):
+        lines.append((9, settings["tagline"][:100]))
+    if settings.get("rnc"):
+        lines.append((9, f"RNC: {settings['rnc']}"))
+    contact = [v for v in [settings.get("address"), settings.get("phone"),
+               f"WhatsApp: {settings['whatsapp']}" if settings.get("whatsapp") else "", settings.get("email")] if v]
+    if contact:
+        lines.append((8, "   |   ".join(contact)[:160]))
+    extra = [v for v in [f"Mailing Address: {settings['mailing_address']}" if settings.get("mailing_address") else "",
+             f"Primary Insurance: {settings['primary_insurance']}" if settings.get("primary_insurance") else ""] if v]
+    if extra:
+        lines.append((8, "   |   ".join(extra)[:160]))
+    pdf.set_text_color(*GREY)
+    for size, text in lines:
+        pdf.set_x(text_x)
+        pdf.set_font(FONT, "", size)
+        pdf.cell(0, 5, text, ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_y(max(pdf.get_y(), y0 + 18) + 2)
+    pdf.set_draw_color(*GREEN)
+    pdf.set_line_width(0.5)
+    pdf.line(pdf.l_margin, pdf.get_y(), pdf.l_margin + content_w, pdf.get_y())
+    pdf.ln(5)
+
     pdf.set_font(FONT, "B", 13)
-    pdf.cell(0, 9, f"Invoice {inv.get('invoice_number', '')}", ln=True)
+    pdf.cell(0, 8, f"Invoice {inv.get('invoice_number', '')}", ln=True)
     pdf.ln(2)
-    pdf.set_font(FONT, "", 11)
 
-    def row(label, val):
-        if val:
-            pdf.cell(45, 7, label, border=0)
-            pdf.cell(0, 7, str(val), ln=True)
+    col_gap = 8
+    col_w = (content_w - col_gap) / 2
+    top_y = pdf.get_y()
 
-    row("Patient:", inv.get("patient_name"))
-    row("DOB:", disp_date(inv.get("dob")) if inv.get("dob") else "")
-    row("Service Date:", disp_date(inv.get("service_date")) if inv.get("service_date") else "")
-    row("Provider:", inv.get("provider"))
-    row("Visit Reason:", inv.get("visit_reason"))
-    row("ICD-10:", inv.get("icd10"))
-    row("Status:", inv.get("status"))
-    pdf.ln(3)
-    pdf.set_font(FONT, "B", 10)
-    pdf.cell(28, 8, "CPT", border=1)
-    pdf.cell(90, 8, "Description", border=1)
-    pdf.cell(20, 8, "Qty", border=1, align="R")
-    pdf.cell(0, 8, "Amount", border=1, ln=True, align="R")
-    pdf.set_font(FONT, "", 10)
+    def info_block(x, title, rows):
+        pdf.set_xy(x, top_y)
+        pdf.set_font(FONT, "B", 8.5)
+        pdf.set_text_color(*GREEN)
+        pdf.cell(col_w, 5, title.upper(), ln=True)
+        pdf.line(x, pdf.get_y(), x + col_w, pdf.get_y())
+        pdf.ln(1.5)
+        for label, val in rows:
+            pdf.set_x(x)
+            pdf.set_font(FONT, "B", 8)
+            pdf.set_text_color(*GREY)
+            pdf.cell(28, 5.5, label)
+            pdf.set_font(FONT, "", 8.5)
+            pdf.set_text_color(0, 0, 0)
+            pdf.cell(col_w - 28, 5.5, str(val or "-")[:60], ln=True)
+        return pdf.get_y()
+
+    y_left = info_block(pdf.l_margin, "Patient Information", [
+        ("Full Name", inv.get("patient_name")),
+        ("DOB", disp_date(inv.get("dob")) if inv.get("dob") else ""),
+        ("SSN", mask_ssn(inv.get("ssn"))),
+        ("Gender", inv.get("gender")),
+        ("Policy No.", inv.get("policy_number"))])
+    y_right = info_block(pdf.l_margin + col_w + col_gap, "Invoice Information", [
+        ("Invoice No.", inv.get("invoice_number")),
+        ("Service Date", disp_date(inv.get("service_date")) if inv.get("service_date") else ""),
+        ("Status", (inv.get("status") or "").replace("_", " ").title()),
+        ("Visit Reason", inv.get("visit_reason")),
+        ("ICD-10-CM", inv.get("icd10")),
+        ("Provider", inv.get("provider"))])
+    pdf.set_y(max(y_left, y_right) + 3)
+
+    cpt_w, desc_w, units_w, min_w, price_w = 22, 58, 18, 20, 28
+    fee_w = content_w - (cpt_w + desc_w + units_w + min_w + price_w)
+    pdf.set_font(FONT, "B", 8.5)
+    pdf.set_fill_color(*GREEN)
+    pdf.set_text_color(255, 255, 255)
+    for w, label, al in ((cpt_w, "CPT", "L"), (desc_w, "Description", "L"), (units_w, "Units", "R"),
+                         (min_w, "Minutes", "R"), (price_w, "Unit Price", "R")):
+        pdf.cell(w, 7, label, border=1, align=al, fill=True)
+    pdf.cell(fee_w, 7, "Fee", border=1, align="R", ln=True, fill=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font(FONT, "", 8.5)
     for it in inv.get("items", []):
-        qty = it.get("quantity", 1)
-        pdf.cell(28, 8, str(it.get("cpt_code", ""))[:12], border=1)
-        pdf.cell(90, 8, str(it.get("description", ""))[:55], border=1)
-        pdf.cell(20, 8, str(qty), border=1, align="R")
-        pdf.cell(0, 8, f"${it.get('amount', 0) * qty:.2f}", border=1, ln=True, align="R")
-    pdf.set_font(FONT, "B", 11)
-    pdf.cell(138, 9, "Total", border=1)
-    pdf.cell(0, 9, f"${inv.get('total', 0):.2f}", border=1, ln=True, align="R")
+        qty = it.get("quantity", 1) or 0
+        unit_price = it.get("amount", 0) or 0
+        minutes = it.get("minutes")
+        pdf.cell(cpt_w, 7, str(it.get("cpt_code", ""))[:12], border=1)
+        pdf.cell(desc_w, 7, str(it.get("description", ""))[:46], border=1)
+        pdf.cell(units_w, 7, str(qty), border=1, align="R")
+        pdf.cell(min_w, 7, str(minutes) if minutes not in (None, "", 0) else "", border=1, align="R")
+        pdf.cell(price_w, 7, f"${unit_price:.2f}", border=1, align="R")
+        pdf.cell(fee_w, 7, f"${unit_price * qty:.2f}", border=1, align="R", ln=True)
+
+    pdf.ln(4)
+    pdf.set_font(FONT, "B", 9)
+    pdf.cell(content_w - 45, 8, "TOTAL", align="R")
+    pdf.set_font(FONT, "B", 15)
+    pdf.set_text_color(*GREEN)
+    pdf.cell(45, 8, f"${inv.get('total', 0):.2f}", align="R", ln=True)
+    pdf.set_text_color(0, 0, 0)
     if inv.get("notes"):
         pdf.ln(3)
-        pdf.set_font(FONT, "", 10)
-        pdf.multi_cell(0, 6, f"Notes: {inv['notes']}")
+        pdf.set_font(FONT, "", 9)
+        pdf.multi_cell(0, 5.5, f"Notes: {inv['notes']}")
     return pdf_bytes(pdf)
+
+# Explicit CPT timing rules — PENDING CLINIC/FMP CONFIRMATION. Used for review flags only;
+# never changes stored units, minutes, prices or invoices.
+CPT_TIMING_RULES = {
+    "99202": {"rule": "per_visit_time", "min": 15}, "99203": {"rule": "per_visit_time", "min": 30},
+    "99213": {"rule": "per_visit_time", "min": 20}, "99214": {"rule": "per_visit_time", "min": 30},
+    "90837": {"rule": "per_session_time", "min": 53, "standard_units": 1},
+    "99396": {"rule": "untimed"}, "90686": {"rule": "untimed"}, "80053": {"rule": "untimed"},
+    "85025": {"rule": "untimed"}, "93000": {"rule": "untimed"}, "36415": {"rule": "untimed"},
+}
+
+
+def cpt_billing_flags(item: dict) -> list:
+    code = str(item.get("cpt_code") or "").strip()
+    rule = CPT_TIMING_RULES.get(code)
+    if not code:
+        return []
+    if not rule:
+        return [f"CPT {code}: no confirmed timing/billing rule on file — review."]
+    flags, minutes = [], item.get("minutes")
+    if rule["rule"] != "untimed":
+        if minutes in (None, "", 0):
+            flags.append(f"CPT {code}: timed service has no minutes recorded — review.")
+        elif float(minutes) < rule["min"]:
+            flags.append(f"CPT {code}: {minutes} min is below the {rule['min']}-minute threshold — review.")
+    std = rule.get("standard_units")
+    if std and (item.get("quantity") or 1) != std:
+        flags.append(f"CPT {code}: billed with {item.get('quantity')} units; standard CPT convention is {std} per session "
+                     "— confirm the FMP billing arrangement.")
+    return flags
+
 
 CLAIM_STATUSES = {"draft", "submitted", "complete"}
 UPLOAD_EXTS = {"pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "txt", "xls", "xlsx"}
@@ -270,6 +384,8 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
     claim_day = str(claim.get("claim_number") or "")[:10]
     if not claim.get("id") or not patient_id or not claim_day:
         return claim
+    if claim.get("approved") or claim.get("submission_status") == "submitted" or claim.get("status") == "complete":
+        return claim  # frozen: approved/submitted/legacy-complete packets keep their historical documents
 
     original_items = claim.get("items", [])
     excluded_keys = set(claim.get("excluded_document_keys") or [])
@@ -293,7 +409,7 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
     if (invoice and invoice_key not in excluded_keys
             and not any(item.get("invoice_id") == invoice.get("id") for item in items)):
         try:
-            pdf = _invoice_pdf(invoice, clinic, rnc)
+            pdf = _invoice_pdf(invoice, await get_settings_doc())
             path = f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf"
             stored = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
@@ -567,6 +683,18 @@ def _compute_validation(claim: dict, patient: Optional[dict], notes: list,
 
     if not notes and not invoices:
         add("warning", "This packet has no progress note or invoice attached.")
+
+    for n in notes:
+        if n.get("version_count") and not n.get("signature"):
+            add("blocked", "A linked progress note was revised and must be re-signed by its provider.")
+        elif n.get("version_count") and n.get("billing_review_status") != "approved":
+            add("warning", "A linked progress note was revised and needs a new billing approval.")
+        if claim.get("approved") and n.get("revised_at") and n["revised_at"] > (claim.get("approved_at") or ""):
+            add("warning", "A linked progress note was revised after this packet was approved.")
+    for inv in invoices:
+        for it in inv.get("items", []):
+            for msg in cpt_billing_flags(it):
+                add("warning", msg)
 
     if dup_exists:
         add("warning", "Another claim packet already exists for this patient and date of service.")
@@ -858,6 +986,9 @@ async def list_claims(user: dict = Depends(require_roles("admin"))):
 async def create_claim(data: ClaimInput, user: dict = Depends(require_roles("admin"))):
     if data.status not in CLAIM_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid status")
+    if data.status == "complete":
+        raise HTTPException(status_code=400, detail="A packet becomes Complete only through explicit administrator approval")
+    await _refuse_duplicate_packet(data.patient_id, data.claim_number)
     doc = {"id": str(uuid.uuid4()), "name": data.name, "patient_id": data.patient_id,
            "patient_name": await _patient_name(data.patient_id), "claim_number": data.claim_number,
            "status": data.status, "notes": data.notes, "items": [],
@@ -878,6 +1009,103 @@ def _same_day(val, date_str) -> bool:
     return bool(val) and str(val)[:10] == str(date_str)[:10]
 
 
+async def _refuse_duplicate_packet(patient_id, claim_date, exclude_id=None):
+    day = _norm_date(claim_date)
+    if not patient_id or not day:
+        return
+    q = {"patient_id": patient_id}
+    if exclude_id:
+        q["id"] = {"$ne": exclude_id}
+    async for c in db.claim_packets.find(q, {"_id": 0, "id": 1, "name": 1, "claim_number": 1}):
+        if _norm_date(c.get("claim_number")) == day:
+            raise HTTPException(status_code=409, detail=f"A claim packet already exists for this patient and date "
+                                                        f"of service ({c.get('name') or c['id']}).")
+
+
+async def _qualifying_patient_ids(day: str) -> set:
+    """Strict server-side evidence of a visit on `day`: a COMPLETED appointment, or a
+    progress note that is signed AND marked Completed. Scheduled/cancelled visits don't count."""
+    ids = set()
+    async for a in db.appointments.find({"status": "completed"}, {"_id": 0, "patient_id": 1, "date": 1}):
+        if a.get("patient_id") and _same_day(a.get("date"), day):
+            ids.add(a["patient_id"])
+    async for n in db.notes.find({"completed": True, "signature": {"$nin": [None, ""]}},
+                                 {"_id": 0, "patient_id": 1, "visit_date": 1}):
+        if n.get("patient_id") and _same_day(n.get("visit_date"), day):
+            ids.add(n["patient_id"])
+    return ids
+
+
+@router.get("/claims/options/patients-by-date")
+async def patients_with_visit_on_date(date: str, user: dict = Depends(require_roles("admin"))):
+    ids = await _qualifying_patient_ids(date[:10])
+    if not ids:
+        return []
+    pts = await db.patients.find({"id": {"$in": list(ids)}}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).to_list(1000)
+    pts.sort(key=lambda p: (p["first_name"].lower(), p["last_name"].lower()))
+    return [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}"} for p in pts]
+
+
+class TrackingInput(BaseModel):
+    submission_status: Optional[str] = None
+    payment_status: Optional[str] = None
+
+
+SUBMISSION_STATUSES = {"not_submitted", "submitted"}
+PAYMENT_STATUSES = {"unpaid", "paid", "denied"}
+
+
+@router.post("/claims/{cid}/approve")
+async def approve_claim(cid: str, user: dict = Depends(require_roles("admin"))):
+    """The ONLY way a packet becomes Complete: explicit administrator approval."""
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    await _assert_not_blocked(c)
+    await db.claim_packets.update_one({"id": cid}, {"$set": {
+        "approved": True, "approved_by": user["name"], "approved_by_id": user["id"],
+        "approved_at": now_iso(), "status": "complete", "updated_at": now_iso()}})
+    await log_audit("update", "claim", actor=user, resource_id=cid, detail="approved packet · Complete")
+    return await _claim_response(cid)
+
+
+@router.put("/claims/{cid}/tracking")
+async def update_tracking(cid: str, data: TrackingInput, user: dict = Depends(require_roles("admin"))):
+    """Submission and payment are tracked separately from approval."""
+    upd = {}
+    if data.submission_status is not None:
+        if data.submission_status not in SUBMISSION_STATUSES:
+            raise HTTPException(status_code=400, detail="Invalid submission status")
+        upd.update({"submission_status": data.submission_status,
+                    "submitted_at": now_iso() if data.submission_status == "submitted" else None,
+                    "submitted_by": user["name"] if data.submission_status == "submitted" else None})
+    if data.payment_status is not None:
+        if data.payment_status not in PAYMENT_STATUSES:
+            raise HTTPException(status_code=400, detail="Invalid payment status")
+        upd["payment_status"] = data.payment_status
+    if not upd:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    res = await db.claim_packets.update_one({"id": cid}, {"$set": {**upd, "updated_at": now_iso()}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"tracking {upd}")
+    return await _claim_response(cid)
+
+
+@router.get("/claims/{cid}/checklist")
+async def claim_checklist(cid: str, user: dict = Depends(require_roles("admin"))):
+    """Read-only FMP checklist + plain-language warnings (no writes)."""
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    items = c.get("items", [])
+    cats = {it.get("category") or {"invoice": "invoice", "note": "progress_note"}.get(it.get("source"), "")
+            for it in items} - {""}
+    checklist = [{"category": cat, "label": label, "present": cat in cats} for cat, label in FMP_CHECKLIST]
+    warnings = [f"Missing: {row['label']}" for row in checklist if not row["present"]]
+    return {"checklist": checklist, "warnings": warnings}
+
+
 @router.post("/claims/from-date")
 async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require_roles("admin"))):
     from core.folder_filing import note_pdf
@@ -886,6 +1114,10 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
         raise HTTPException(status_code=404, detail="Patient not found")
     pname = f"{p['first_name']} {p['last_name']}"
     d = data.date[:10]
+    if data.patient_id not in await _qualifying_patient_ids(d):
+        raise HTTPException(status_code=400, detail="This patient has no completed appointment or signed, completed "
+                                                    "progress note on that date of service")
+    await _refuse_duplicate_packet(data.patient_id, d)
 
     invs = await db.invoices.find({"patient_id": data.patient_id}, {"_id": 0}).to_list(500)
     invs = [i for i in invs if _same_day(i.get("service_date"), d)]
@@ -904,7 +1136,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     items = []
     for inv in invs:
         try:
-            pdf = _invoice_pdf(inv, clinic, rnc)
+            pdf = _invoice_pdf(inv, await get_settings_doc())
         except Exception as e:
             logger.error(f"from-date invoice pdf failed: {e}")
             continue
@@ -990,6 +1222,10 @@ async def get_claim(cid: str, user: dict = Depends(require_roles("admin"))):
 async def update_claim(cid: str, data: ClaimInput, user: dict = Depends(require_roles("admin"))):
     if data.status not in CLAIM_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid status")
+    current = await db.claim_packets.find_one({"id": cid}, {"_id": 0, "status": 1})
+    if current and data.status == "complete" and current.get("status") != "complete":
+        raise HTTPException(status_code=400, detail="Use Approve — a packet becomes Complete only through explicit administrator approval")
+    await _refuse_duplicate_packet(data.patient_id, data.claim_number, exclude_id=cid)
     updates = {"name": data.name, "patient_id": data.patient_id,
                "patient_name": await _patient_name(data.patient_id), "claim_number": data.claim_number,
                "status": data.status, "notes": data.notes,
@@ -1119,7 +1355,7 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
     clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
     rnc = (await get_settings_doc()).get("rnc", "")
     try:
-        pdf_bytes = _invoice_pdf(inv, clinic, rnc)
+        pdf_bytes = _invoice_pdf(inv, await get_settings_doc())
     except Exception as e:
         logger.error(f"invoice pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
@@ -1230,8 +1466,7 @@ async def merged_pdf(cid: str, user: dict = Depends(require_roles("admin"))):
         raise HTTPException(status_code=404, detail="Claim packet not found")
     await _assert_not_blocked(c)
     pdf = await _build_packet_pdf(c)
-    await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
-    await log_audit("update", "claim", actor=user, resource_id=cid, detail="merged PDF · marked complete")
+    await log_audit("view", "claim", actor=user, resource_id=cid, detail="merged PDF downloaded")
     fname = (c.get("name") or "claim_packet").replace('"', "").replace(" ", "_")[:60]
     return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'})
@@ -1248,8 +1483,8 @@ async def _run_merge_job(cid: str, job_id: str):
             c = await db.claim_packets.find_one({"id": cid})
             pdf = await _build_packet_pdf(c)
             key = f"{APP_NAME}/claim_jobs/{cid}/{job_id}.pdf"
-            put_object(key, pdf, "application/pdf")
-            await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
+            stored = put_object(key, pdf, "application/pdf")
+            key = stored.get("path") or key
             await db.claim_pdf_jobs.update_one({"id": job_id},
                 {"$set": {"status": "done", "storage_path": key, "updated_at": now_iso()}})
         except Exception as e:
@@ -1397,8 +1632,7 @@ async def send_packet_email(cid: str, data: SendPacket, user: dict = Depends(req
                     attachments=[{"filename": fname, "content": pdf, "content_type": "application/pdf"}])
     if not ok:
         raise HTTPException(status_code=502, detail="Send failed — check the sender domain and recipient address")
-    await db.claim_packets.update_one({"id": cid}, {"$set": {"status": "complete", "updated_at": now_iso()}})
-    await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"emailed packet to {to} · marked complete")
+    await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"emailed packet to {to}")
     return {"ok": True, "to": to}
 
 
@@ -1426,5 +1660,6 @@ async def claim_to_folder(cid: str, user: dict = Depends(require_roles("admin"))
                                       date_str=claim_date)
     if not item:
         raise HTTPException(status_code=502, detail="Could not file PDF")
+    await db.folder_items.update_one({"id": item["id"]}, {"$set": {"source": "claim_packet", "claim_packet_id": cid}})
     await log_audit("create", "folder", actor=user, resource_id=pid, detail=f"auto-filed claim {cid}")
     return {"ok": True, "patient_name": f"{p['first_name']} {p['last_name']}"}
