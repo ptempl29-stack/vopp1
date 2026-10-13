@@ -239,7 +239,9 @@ export default function Notes() {
   const openNew = () => { setForm({ ...blank, signature: user?.default_signature || "" }); setEditId(null); setSigKey((k) => k + 1); setOpen(true); setEditWasApproved(false); };
   const openEdit = (n) => {
     setForm({ ...blank, ...n }); setEditId(n.id); setViewing(null); setSigKey((k) => k + 1); setOpen(true);
-    setEditWasApproved(!!(n.signature || n.completed || billingStatus(n) === "approved"));
+    const wasProtected = !!(n.signature || n.completed || billingStatus(n) === "approved");
+    setEditWasApproved(wasProtected);
+    if (wasProtected) setForm((f) => ({ ...f, signature: "" }));  // provider must actively sign the revision
   };
 
   const duplicateNote = (n) => {

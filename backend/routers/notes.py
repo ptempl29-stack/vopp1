@@ -118,9 +118,14 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
     doc["updated_by"] = user["name"]
     if (doc.get("attending_provider") or "") != (existing.get("attending_provider") or ""):
         doc["attending_provider_id"] = await _resolve_provider_id(doc.get("attending_provider"))
-    resigned = bool(doc.get("signature")) and doc.get("signature") != existing.get("signature")
     protected = needs_protection(existing)
     substantive = protected and is_substantive(existing, {**doc, "title_nonclinical_confirmed": title_ok})
+    if protected and not substantive and not doc.get("signature"):
+        for f in ("signature", "signed_by", "signed_at"):
+            doc.pop(f, None)  # non-substantive save without re-signing keeps the existing signature
+    # A signature submitted with a substantive revision is an explicit signing of the NEW version,
+    # even when it is the provider's saved/default signature image.
+    resigned = bool(doc.get("signature")) and (doc.get("signature") != existing.get("signature") or substantive)
     revised = bool(existing.get("version_count")) and not existing.get("signature")
     if resigned and not await _is_note_provider(user, existing if existing.get("attending_provider") else {**existing, **doc}):
         raise HTTPException(status_code=403, detail="Only the note's attending or authoring provider may sign this note")
