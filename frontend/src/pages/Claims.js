@@ -250,17 +250,18 @@ export default function Claims() {
     try { setSelected((await api.post(`/claims/${selected.id}/attach-note`, { note_id: pickNote })).data); setPickNote(""); }
     catch (e) { toast.error(apiErr(e)); }
   };
-  const onUpload = async (e) => {
+  const onUpload = async (e, category = "") => {
     const file = e.target.files[0];
     if (!file) return;
     const fd = new FormData();
     fd.append("file", file);
+    if (category) fd.append("category", category);
     setBusy(true);
     try {
       setSelected((await api.post(`/claims/${selected.id}/upload`, fd, { headers: { "Content-Type": "multipart/form-data" } })).data);
-      toast.success(t("uploadDocument") + " ✓");
+      toast.success(t(category === "cover_sheet" ? "uploadCoverSheet" : "uploadDocument") + " ✓");
     } catch (err) { toast.error(apiErr(err)); }
-    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
+    finally { setBusy(false); e.target.value = ""; }
   };
   const removeItem = async (itemId) => {
     if (!window.confirm(t("confirmRemoveClaimItem"))) return;
@@ -356,12 +357,14 @@ export default function Claims() {
   };
 
   const reorderItem = async (idx, dir) => {
-    const items = [...(selected.items || [])];
+    const all = selected.items || [];
+    const covers = all.filter((x) => x.category === "cover_sheet");
+    const items = all.filter((x) => x.category !== "cover_sheet");
     const j = idx + dir;
     if (j < 0 || j >= items.length) return;
     [items[idx], items[j]] = [items[j], items[idx]];
-    setSelected({ ...selected, items });
-    try { await api.put(`/claims/${selected.id}/items-order`, { ids: items.map((x) => x.id) }); }
+    setSelected({ ...selected, items: [...covers, ...items] });
+    try { await api.put(`/claims/${selected.id}/items-order`, { ids: [...covers, ...items].map((x) => x.id) }); }
     catch (e) { toast.error(apiErr(e)); refreshSelected(selected.id); }
   };
 
@@ -393,11 +396,14 @@ export default function Claims() {
 
   // ---------- Detail view ----------
   if (selected) {
-    const items = selected.items || [];
+    const allItems = selected.items || [];
+    const cover = allItems.find((x) => x.category === "cover_sheet");
+    const items = allItems.filter((x) => x.category !== "cover_sheet");
+    const frozen = selected.approved || selected.submission_status === "submitted" || selected.status === "complete";
     return (
       <div data-testid="claim-detail">
         <PageHeader title={selected.name}
-          subtitle={`${selected.claim_number ? fmtDate(selected.claim_number) : t("claimNo") + " —"} · ${items.length} ${t("items")}`}
+          subtitle={`${selected.claim_number ? fmtDate(selected.claim_number) : t("claimNo") + " —"} · ${allItems.length} ${t("items")}`}
           action={
             <div className="flex flex-wrap gap-2">
               <Btn variant="outline" onClick={() => { setSelected(null); load(); }} data-testid="claim-back"><ChevronLeft className="w-4 h-4" />{t("backToPackets")}</Btn>
@@ -429,7 +435,7 @@ export default function Claims() {
           <Card className="p-4 lg:col-span-3" data-testid="claim-required-docs-card">
             <p className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">{t("requiredDocuments")}</p>
             <div className="flex flex-wrap gap-2">
-              {[["va_disability_letter", "reqDisabilityLetter"], ["invoice", "reqInvoice"], ["progress_note", "reqProgressNote"],
+              {[["cover_sheet", "reqCoverSheet"], ["va_disability_letter", "reqDisabilityLetter"], ["invoice", "reqInvoice"], ["progress_note", "reqProgressNote"],
                 ["provider_exequatur", "reqExequatur"], ["provider_diploma", "reqDiploma"]].map(([cat, key]) => {
                 const ok = (selected.items || []).some((x) => x.category === cat);
                 return <Badge key={cat} tone={ok ? "green" : "red"} data-testid={`required-doc-${cat}`}>{ok ? "✓" : "✗"} {t(key)}</Badge>;
@@ -546,7 +552,7 @@ export default function Claims() {
 
         {/* Items list */}
         <Card className="overflow-hidden">
-          {items.length === 0 ? <Empty text={t("noItemsYet")} /> : (
+          {(
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -558,9 +564,24 @@ export default function Claims() {
                 </thead>
                 <tbody>
                   <tr className="border-b border-border/60 bg-moneygreen-50/40" data-testid="claim-item-cover-sheet">
-                    <td className="px-5 py-3"><Badge tone="green">{t("coverSheetLabel")}</Badge></td>
-                    <td className="px-5 py-3 text-stone-700">{t("coverSheetFixed")}</td>
-                    <td className="px-5 py-3 text-right text-xs text-stone-400">{t("fixedFirst")}</td>
+                    <td className="px-5 py-3"><Badge tone={cover ? "green" : "red"}>{t("coverSheetLabel")}</Badge></td>
+                    <td className="px-5 py-3 text-stone-700">
+                      <span className="font-semibold">{t("coverSheetFixed")}</span>
+                      <span className="block text-xs text-stone-500" data-testid="claim-cover-sheet-file">{cover ? cover.filename : t("notUploaded")}</span>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex justify-end items-center gap-1">
+                        <span className="text-xs text-stone-400 mr-2">{t("fixedFirst")}</span>
+                        {cover && <Btn variant="ghost" onClick={() => previewItem(cover)} data-testid="claim-cover-sheet-view" className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>}
+                        {cover && !frozen && <Btn variant="ghost" onClick={() => removeItem(cover.id)} disabled={!!deleting} data-testid="claim-cover-sheet-remove" className="!px-2 !text-destructive" title={t("removeFromPacket")}><Trash2 className="w-4 h-4" /></Btn>}
+                        {!frozen && (
+                          <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer bg-moneygreen-600 text-white hover:bg-moneygreen-700 transition-colors ${busy ? "opacity-60 pointer-events-none" : ""}`} data-testid="claim-cover-sheet-upload-btn">
+                            <Upload className="w-3.5 h-3.5" />{cover ? t("replace") : t("uploadCoverSheet")}
+                            <input type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={(e) => onUpload(e, "cover_sheet")} data-testid="claim-cover-sheet-input" />
+                          </label>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                   {items.map((it, i) => {
                     const Icon = sourceIcon[it.source] || FileText;

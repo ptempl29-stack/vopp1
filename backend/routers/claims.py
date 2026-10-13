@@ -5,7 +5,7 @@ import uuid
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
@@ -186,9 +186,10 @@ def cpt_billing_flags(item: dict) -> list:
 
 
 # Default document order for packets built from a date (cover sheet is always generated first).
-FMP_DEFAULT_ORDER = {"va_disability_letter": 0, "invoice": 1, "progress_note": 2,
+FMP_DEFAULT_ORDER = {"cover_sheet": -1, "va_disability_letter": 0, "invoice": 1, "progress_note": 2,
                      "provider_exequatur": 3, "provider_diploma": 4}
-APPROVAL_REQUIRED = (("va_disability_letter", "VA Disability Breakdown Letter"), ("invoice", "Invoice"),
+APPROVAL_REQUIRED = (("cover_sheet", "FMP Claim Cover Sheet"),
+                     ("va_disability_letter", "VA Disability Breakdown Letter"), ("invoice", "Invoice"),
                      ("progress_note", "Progress Note"), ("provider_exequatur", "Provider Exequatur"),
                      ("provider_diploma", "Provider Diploma"))
 
@@ -199,6 +200,8 @@ async def _approval_blockers(claim: dict) -> list:
     items = claim.get("items") or []
     cats = {it.get("category") for it in items}
     problems = [f"Missing required document: {label}" for cat, label in APPROVAL_REQUIRED if cat not in cats]
+    if sum(1 for it in items if it.get("category") == "cover_sheet") > 1:
+        problems.append("More than one FMP Claim Cover Sheet is attached — keep only one.")
     if "va_disability_letter" not in cats and claim.get("patient_id"):
         n_letters = len(await _disability_letter_candidates(claim["patient_id"]))
         if n_letters > 1:
@@ -235,6 +238,11 @@ _CATEGORY_KEYWORDS = [
     ("invoice", ("invoice", "factura")),
     ("progress_note", ("progress", "nota de progreso", "progress note", "clinical note")),
 ]
+
+
+def _cover_first(items: list) -> list:
+    return [i for i in items if i.get("category") == "cover_sheet"] + \
+           [i for i in items if i.get("category") != "cover_sheet"]
 
 
 def _guess_category(filename: str) -> str:
@@ -845,9 +853,27 @@ async def _claim_response(claim_id: str) -> Optional[dict]:
 
 
 async def _build_packet_pdf(c) -> bytes:
-    """Build the full FMP packet PDF: auto-generated Summary cover + Checklist pages,
-    followed by every attached document (merged)."""
+    """Merge the attached documents, staff-uploaded FMP cover sheet first. Only legacy
+    frozen packets (approved/submitted/complete) keep their historical summary page."""
     c = await _sync_claim_packet_documents(c)
+    frozen = c.get("approved") or c.get("submission_status") == "submitted" or c.get("status") == "complete"
+    if not frozen:
+        from pypdf import PdfWriter
+        writer = PdfWriter()
+        for item in _cover_first(c.get("items", [])):
+            try:
+                data, _ = get_object(item["storage_path"])
+                _append_document(writer, data, item["filename"])
+                del data
+            except Exception as e:
+                logger.error(f"packet merge skip {item.get('filename')}: {e}")
+        if not writer.pages:
+            raise HTTPException(status_code=400, detail="No PDF/image documents to merge in this packet")
+        out = io.BytesIO()
+        writer.write(out)
+        writer.close()
+        gc.collect()
+        return out.getvalue()
     from pypdf import PdfWriter, PdfReader
     from PIL import Image
     from core.pdf_utils import new_pdf, pdf_bytes, FONT
@@ -1318,10 +1344,14 @@ async def attach_form(cid: str, payload: dict, user: dict = Depends(require_role
 
 
 @router.post("/claims/{cid}/upload")
-async def upload_to_claim(cid: str, file: UploadFile = File(...), user: dict = Depends(require_roles("admin"))):
+async def upload_to_claim(cid: str, file: UploadFile = File(...), category: str = Form(""),
+                          user: dict = Depends(require_roles("admin"))):
     c = await db.claim_packets.find_one({"id": cid})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
+    is_cover = category == "cover_sheet"
+    if is_cover and (c.get("approved") or c.get("submission_status") == "submitted" or c.get("status") == "complete"):
+        raise HTTPException(status_code=400, detail="This packet is approved/submitted; its cover sheet cannot be changed")
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "bin"
     if ext not in UPLOAD_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
@@ -1337,10 +1367,15 @@ async def upload_to_claim(cid: str, file: UploadFile = File(...), user: dict = D
         raise HTTPException(status_code=502, detail="File storage failed")
     item = {"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
             "storage_path": result["path"], "filename": file.filename, "content_type": safe_ct,
-            "size": result.get("size"), "category": _guess_category(file.filename)}
-    await db.claim_packets.update_one(
-        {"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
-    await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"upload {file.filename}")
+            "size": result.get("size"), "category": "cover_sheet" if is_cover else _guess_category(file.filename)}
+    if is_cover:  # one cover sheet per packet, always position 1; the replaced file stays in storage
+        others = [i for i in c.get("items", []) if i.get("category") != "cover_sheet"]
+        await db.claim_packets.update_one({"id": cid}, {"$set": {"items": [item] + others, "updated_at": now_iso()}})
+    else:
+        await db.claim_packets.update_one(
+            {"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
+    await log_audit("update", "claim", actor=user, resource_id=cid,
+                    detail=f"upload {'cover sheet ' if is_cover else ''}{file.filename}")
     return await _claim_response(cid)
 
 
@@ -1602,6 +1637,7 @@ async def reorder_items(cid: str, data: ItemOrder, user: dict = Depends(require_
     by_id = {i["id"]: i for i in items}
     ordered = [by_id[i] for i in data.ids if i in by_id]
     ordered += [i for i in items if i["id"] not in set(data.ids)]
+    ordered = _cover_first(ordered)
     await db.claim_packets.update_one({"id": cid}, {"$set": {"items": ordered, "updated_at": now_iso()}})
     return await _claim_response(cid)
 
