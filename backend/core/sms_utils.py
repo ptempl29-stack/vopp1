@@ -18,6 +18,10 @@ def _normalize(phone: str) -> str:
 
 
 def send_sms(to_phone: str, body: str) -> bool:
+    from core import sandbox
+    if sandbox.outbound_blocked():
+        logger.warning("SMS BLOCKED (Preview): no outgoing SMS is sent from Preview")
+        return False
     if not sms_configured():
         logger.info("SMS not configured; skipping send")
         return False

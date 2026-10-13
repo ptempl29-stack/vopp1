@@ -206,6 +206,9 @@ def _get_message(cfg: dict, pwd: str, folder: str, uid: str):
 
 
 def _delete_message(cfg: dict, pwd: str, folder: str, uid: str):
+    from core import sandbox
+    if sandbox.outbound_blocked():
+        raise RuntimeError("Clinic mailbox changes are blocked in Preview")
     m = _imap(cfg, pwd)
     try:
         m.select(folder)
@@ -236,6 +239,9 @@ def _unread_count(cfg: dict, pwd: str, folder: str):
 
 
 def _send_message(cfg: dict, pwd: str, to, cc, subject, body_text, attachments=None):
+    from core import sandbox
+    if sandbox.outbound_blocked():
+        raise RuntimeError("Sending from the clinic mailbox is blocked in Preview")
     msg = EmailMessage()
     msg["From"] = cfg["email_address"]
     msg["To"] = ", ".join(to)
@@ -274,6 +280,10 @@ def _wrap(fn, *args):
         raise
     except (imaplib.IMAP4.error, smtplib.SMTPException) as e:
         raise HTTPException(status_code=400, detail=f"Mail server error: {e}")
+    except RuntimeError as e:
+        if "blocked in Preview" in str(e):
+            raise HTTPException(status_code=403, detail=str(e))
+        raise
     except Exception as e:
         logger.error(f"mailbox op failed: {e}")
         raise HTTPException(status_code=502, detail=f"Mailbox connection failed: {e}")
