@@ -29,3 +29,8 @@
 - Notes: append-only HMAC-sealed note_versions, substantive edit clears signature/completed/approval, provider-only re-sign, complete requires signature, billing review, versions + integrity endpoints, deletion tombstones.
 - Forms provider credentials (staff only), messages threads/attachments/unread, folder servicing status, provider-active toggle, Completed Work Reports (audit-logged), i18n EN/ES.
 - Not ported (by decision): patient/appointment sort changes, forced merge order, approval-time auto-filing.
+
+## Signature fix (PREVIEW, not deployed)
+- Cause: editing a signed/Completed note + inserting the provider's SAVED signature (same image) was treated as carried-over -> signature silently cleared (HTTP 200) and auto-complete failed.
+- Fix: notes.py — signature submitted with a substantive revision = explicit re-sign (authorized provider only); non-substantive save without signature keeps existing; authorization by account id (author_id/attending_provider_id) with normalized legacy-name fallback (unique match); admins/non-clinical cannot sign; can't reassign attending to self to bypass. Notes.js — editing a protected note clears the pad.
+- Tests: API 8/8, UI iteration_44 8/8. ZZTEST Psych user added.

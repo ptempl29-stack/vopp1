@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only regression for the provider-signature fix on Progress Notes (/notes), using Preview-only ZZTEST data. Logged in as zztest.psych@example.com and ran the full scenario on patient 'ZZTEST Smoke' (patient_id e38a7b87-9fad-460b-b0ac-4b4a7af31c8b) using Playwright. Verified: (1) new note creation with ZZTEST Psych provider, body text, drawn signature on canvas[data-testid=note-signature], 'Mark this note complete when signed' auto-completes the note — card shows signature block + COMPLETED badge, backend GET /api/notes?patient_id confirms completed=True, signature starts with data:image, attending_provider='ZZTEST Psych'; (2) 'Save as my default' (save-default-sig-btn) persists the user's default signature so insert-saved-sig-btn appears in subsequent editors; (3) opening Edit on the signed/completed note clears the signature pad (shows 'Sign here' placeholder) — provider must actively re-sign; after editing content and clicking 'Insert my signature' then Save, the note stays signed+completed (COMPLETED badge + 'Pending Billing Review' badge still visible, API shows completed=True sig_len>0); (4) editing the same note, modifying content, saving WITHOUT signing yields unsigned+not-completed (badge removed, signature cleared); (5) logging out and logging in as zztest.nurse@example.com, editing the psychologist's note, drawing a signature and saving returns the 403 error toast 'Only the note's attending or authoring provider may sign this note' (visible in screenshot); (6) signature canvas renders correctly at desktop 1920x1080 (682x160) and mobile 390x844 (272x160). Playwright drawing: initial attempt failed because mouse strokes were issued at coords where the canvas was outside the viewport — fixed by scroll_into_view_if_needed + drawing from canvas center. All 8 UI/integration assertions passed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "any page load", "issue": "Two console errors on every page load: 'load hidden options failed AxiosError: Request failed with status code 401'. Pre-existing from iteration 43, non-blocking (page still renders).", "affected_selectors": []}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "frontend/src/pages/Notes.js openEdit (~line 240-245) correctly clears form.signature when the note is signed/completed/approved; good defensive fix.",
+    "frontend/src/pages/Notes.js save (~line 198-213) issues a best-effort PUT /notes/{id}/complete after an edit that includes a signature — the backend-side fix in routers/notes.py update_note handles the resign atomically, so this redundant /complete call is a safety net. Consider removing once auto-complete-on-signed-resign is fully relied upon.",
+    "SignaturePad canvas is a fixed 520 width internal canvas scaled via CSS to parent width — mouse coordinates are correctly rescaled by pos(). No issues found.",
+    "Pre-existing 'load hidden options failed 401' console errors still noisy; same comment as iteration 43."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only)", "frontend": "100% (8/8 assertions passed)"},
+  "test_credentials": "zztest.psych@example.com / ZZtest-2026! ; zztest.nurse@example.com / ZZtest-2026!",
+  "seed_data_creation": "Created one real progress note on ZZTEST Smoke (id dff52600-ece3-4855-846f-b99aec7d2156) during the test. It ended the run in Unsigned/Not-Completed state after step 4 and was then left as-is (not deleted) so the main agent can verify. An earlier iteration also left note 9031e2be, ba9c492e in various states on the same patient. No non-ZZTEST data was touched. No mailbox/email/SMS/backup actions attempted.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Patient 'ZZTEST Smoke' id is e38a7b87-9fad-460b-b0ac-4b4a7af31c8b. Preview ZZTEST users (psych/nurse/doctor) at zztest.<role>@example.com / ZZtest-2026! are seeded and working. The nf-patient / nf-provider dropdowns are ManagedSelect portals; option elements have data-testid='nf-patient-opt-<id>' or 'nf-provider-opt-<name>'. The signature canvas is width-scaled; always call scroll_into_view_if_needed() before issuing mouse strokes, otherwise mouse.move(x,y) at offscreen coords is a no-op. There is no GET /api/notes/{id} route — fetch /api/notes?patient_id=<id> and filter by id to verify a single note's state. Backend router routers/notes.py update_note correctly: (a) accepts a signed revision from the authoring/attending provider and treats it as a re-sign of the new version (completed stays True), (b) clears signature + completed when a substantive edit is saved without a signature, (c) returns 403 'Only the note's attending or authoring provider may sign this note' when a non-provider role attempts to attach a signature.",
+  "rca_of_the_issue": "N/A for this iteration — the signature-insert bug fix (backend update_note + frontend openEdit) was successfully verified end-to-end against the live preview. The only hiccup was in my Playwright script: the canvas was below the modal viewport so mouse strokes landed on nothing; scrolling the canvas into view before drawing fixed it."
+}
