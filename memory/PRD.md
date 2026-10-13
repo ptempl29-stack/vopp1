@@ -52,3 +52,4 @@ usvopp@yahoo.com / Football2023? (display name "CEO"). SEED_DEMO_USERS=false.
 - Tests: backend/tests/test_cover_sheet_upload.py 10/10, disability 8/8, iteration_46 frontend 8/8.
 - fmp.py "Generate FMP Packet" template date-stamp flow unchanged.
 - 2026-06: Added "Ready to approve" badge (list + detail; ready_to_approve flag from claims.py _ready_to_approve). Deploy of cover sheet + badge authorized and queued.
+- 2026-06: Bulk approval (PREVIEW ONLY): "Ready to approve" filter chip, row checkboxes, confirm + result modals; POST /api/claims/bulk-approve (admin, per-packet re-validation via _approve_one, skips cover_review/not-ready with reasons, audit "(bulk)"). Tests iteration_47/48 pass. Not deployed.
