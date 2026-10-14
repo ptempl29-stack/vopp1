@@ -21,7 +21,21 @@ const categoryLabelKey = {
   provider_exequatur: "catExequatur", provider_diploma: "catDiploma",
 };
 const blankForm = { name: "", patient_id: "", claim_number: "", status: "draft", notes: "",
-  va_claim_number: "", veteran_physical_address: "", veteran_mailing_address: "", diagnosis_narrative: "", payment_to: "provider" };
+  va_claim_number: "", veteran_physical_address: "", veteran_mailing_address: "", diagnosis_narrative: "", payment_to: "" };
+
+const PAY_SRC = { cover_sheet_text: "paySrcScan", cover_sheet_ai: "paySrcScan", cover_sheet: "paySrcScan",
+  staff_confirmed: "paySrcStaff", user_confirmed: "paySrcStaff" };
+const PaymentStatus = ({ selected, t }) => {
+  const to = selected.payment_to;
+  if (!to) return <span className="block text-xs font-semibold text-amber-700" data-testid="claim-payment-status">☐ {t("payProvider")} ☐ {t("payVeteran")} · {t("paymentNeedsReview")}</span>;
+  return (
+    <span className="block text-xs text-moneygreen-800" data-testid="claim-payment-status">
+      {to === "provider" ? "☒" : "☐"} {t("payProvider")}  {to === "veteran" ? "☒" : "☐"} {t("payVeteran")}
+      {PAY_SRC[selected.payment_to_source] && <span className="text-stone-500"> · {t(PAY_SRC[selected.payment_to_source])}</span>}
+    </span>
+  );
+};
+
 
 const VAL_TONE = {
   blocked: { border: "border-l-red-500", bg: "bg-red-50", icon: ShieldAlert, iconCls: "text-red-600", label: "validationBlocked" },
@@ -173,7 +187,7 @@ export default function Claims() {
       status: p.status || "draft", notes: p.notes || "",
       va_claim_number: p.va_claim_number || "", veteran_physical_address: p.veteran_physical_address || "",
       veteran_mailing_address: p.veteran_mailing_address || "", diagnosis_narrative: p.diagnosis_narrative || "",
-      payment_to: p.payment_to || "provider" });
+      payment_to: p.payment_to || "" });
     setModalOpen(true);
   };
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -280,6 +294,13 @@ export default function Claims() {
     } catch (err) { toast.error(apiErr(err)); }
     finally { setBusy(false); e.target.value = ""; }
   };
+  const confirmPayment = async (to) => {
+    setBusy(true);
+    try { setSelected((await api.put(`/claims/${selected.id}/payment-recipient`, { payment_to: to })).data); toast.success(t("paymentConfirmed")); }
+    catch (e) { toast.error(apiErr(e)); }
+    finally { setBusy(false); }
+  };
+
   const removeItem = async (itemId) => {
     if (!window.confirm(t("confirmRemoveClaimItem"))) return;
     const key = `item:${itemId}`;
@@ -581,15 +602,35 @@ export default function Claims() {
                   </tr>
                 </thead>
                 <tbody>
+                  <tr className="border-b border-border/60 bg-tan-50/60" data-testid="claim-item-checklist">
+                    <td className="px-5 py-3"><Badge tone="green">{t("checklistLabel")}</Badge></td>
+                    <td className="px-5 py-3 text-stone-700">
+                      <span className="font-semibold">{t("checklistFixed")}</span>
+                      <PaymentStatus selected={selected} t={t} />
+                    </td>
+                    <td className="px-5 py-3 text-right text-xs text-stone-400">{t("fixedFirst")}</td>
+                  </tr>
                   <tr className="border-b border-border/60 bg-moneygreen-50/40" data-testid="claim-item-cover-sheet">
                     <td className="px-5 py-3"><Badge tone={cover ? "green" : "red"}>{t("coverSheetLabel")}</Badge></td>
                     <td className="px-5 py-3 text-stone-700">
                       <span className="font-semibold">{t("coverSheetFixed")}</span>
                       <span className="block text-xs text-stone-500" data-testid="claim-cover-sheet-file">{cover ? cover.filename : t("notUploaded")}</span>
+                      {cover && !frozen && (
+                        <div className={`mt-2 inline-flex flex-wrap items-center gap-2 px-2.5 py-1.5 rounded-md border text-xs ${selected.payment_to ? "border-border bg-white" : "border-amber-300 bg-amber-50"}`} data-testid="claim-payment-review">
+                          {!selected.payment_to && <span className="font-semibold text-amber-800">{t("paymentNeedsReview")}{selected.payment_review_reason ? ` — ${selected.payment_review_reason}` : ""}</span>}
+                          {selected.payment_to && <span className="text-stone-500">{t("paymentChange")}</span>}
+                          {["provider", "veteran"].map((to) => (
+                            <button key={to} type="button" disabled={busy} onClick={() => confirmPayment(to)} data-testid={`claim-payment-${to}`}
+                              className={`px-2.5 py-1 rounded font-semibold transition-colors ${selected.payment_to === to ? "bg-moneygreen-600 text-white" : "bg-tan-100 text-stone-700 hover:bg-tan-200"}`}>
+                              {t(to === "provider" ? "payProvider" : "payVeteran")}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end items-center gap-1">
-                        <span className="text-xs text-stone-400 mr-2">{t("fixedFirst")}</span>
+                        <span className="text-xs text-stone-400 mr-2">{t("fixedSecond")}</span>
                         {cover && <Btn variant="ghost" onClick={() => previewItem(cover)} data-testid="claim-cover-sheet-view" className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>}
                         {cover && !frozen && <Btn variant="ghost" onClick={() => removeItem(cover.id)} disabled={!!deleting} data-testid="claim-cover-sheet-remove" className="!px-2 !text-destructive" title={t("removeFromPacket")}><Trash2 className="w-4 h-4" /></Btn>}
                         {!frozen && (
@@ -874,6 +915,7 @@ function PacketModal({ open, onClose, editing, form, set, save, patients, t, set
             <Field label={t("vaClaimNumber")}><input value={form.va_claim_number} onChange={set("va_claim_number")} className={inputCls} data-testid="cf-va-number" /></Field>
             <Field label={t("paymentTo")}>
               <select value={form.payment_to} onChange={set("payment_to")} className={inputCls} data-testid="cf-payment-to">
+                <option value="">{t("paymentNeedsReview")}</option>
                 <option value="provider">{t("payProvider")}</option>
                 <option value="veteran">{t("payVeteran")}</option>
               </select>

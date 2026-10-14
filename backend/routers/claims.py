@@ -21,6 +21,7 @@ from core.claim_invoices import (best_effort_cleanup, claim_document_key, invoic
 from routers.settings import get_settings_doc
 from core.pdf_utils import new_pdf, pdf_bytes, FONT
 from core.ssn import format_ssn, with_patient_ssn
+from core.payment_box import detect_payment_box
 
 router = APIRouter()
 
@@ -198,6 +199,8 @@ async def _approval_blockers(claim: dict) -> list:
     problems = [f"Missing required document: {label}" for cat, label in APPROVAL_REQUIRED if cat not in cats]
     if sum(1 for it in items if it.get("category") == "cover_sheet") > 1:
         problems.append("More than one FMP Claim Cover Sheet is attached — keep only one.")
+    if "cover_sheet" in cats and claim.get("payment_to") not in ("provider", "veteran"):
+        problems.append("Payment box on the FMP Claim Cover Sheet needs staff review — choose Provider or Veteran.")
     if "va_disability_letter" not in cats and claim.get("patient_id"):
         n_letters = len(await _disability_letter_candidates(claim["patient_id"]))
         if n_letters > 1:
@@ -859,27 +862,9 @@ async def _ready_to_approve(c: dict, blockers: list = None) -> bool:
 
 
 async def _build_packet_pdf(c) -> bytes:
-    """Merge the attached documents, staff-uploaded FMP cover sheet first. Only legacy
-    frozen packets (approved/submitted/complete) keep their historical summary page."""
+    """FMP packet PDF: generated Fully Developed Claim summary/checklist pages first,
+    then the staff-uploaded cover sheet, then every other attached document."""
     c = await _sync_claim_packet_documents(c)
-    frozen = c.get("approved") or c.get("submission_status") == "submitted" or c.get("status") == "complete"
-    if not frozen:
-        from pypdf import PdfWriter
-        writer = PdfWriter()
-        for item in _cover_first(c.get("items", [])):
-            try:
-                data, _ = get_object(item["storage_path"])
-                _append_document(writer, data, item["filename"])
-                del data
-            except Exception as e:
-                logger.error(f"packet merge skip {item.get('filename')}: {e}")
-        if not writer.pages:
-            raise HTTPException(status_code=400, detail="No PDF/image documents to merge in this packet")
-        out = io.BytesIO()
-        writer.write(out)
-        writer.close()
-        gc.collect()
-        return out.getvalue()
     from pypdf import PdfWriter, PdfReader
     from PIL import Image
     from core.pdf_utils import new_pdf, pdf_bytes, FONT
@@ -889,12 +874,12 @@ async def _build_packet_pdf(c) -> bytes:
     clinic = settings.get("clinic_name", "Veterans of Puerto Plata")
     rnc = settings.get("rnc", "")
     clinic_addr = settings.get("address", "")
-    items = c.get("items", [])
+    items = _cover_first(c.get("items", []))
 
     p = await db.patients.find_one({"id": c.get("patient_id")}, {"_id": 0}) if c.get("patient_id") else None
     vet_name = c.get("patient_name") or (f"{p['first_name']} {p['last_name']}" if p else "")
     dob = (p or {}).get("dob", "")
-    ssn = (p or {}).get("ssn", "")
+    ssn = format_ssn((p or {}).get("ssn", ""))
 
     inv = await _resolve_claim_invoice(c)
     note = None
@@ -914,12 +899,15 @@ async def _build_packet_pdf(c) -> bytes:
     inv_no = (inv or {}).get("invoice_number", "")
     amount = (inv or {}).get("total")
     svc_date = disp_date(c.get("claim_number")) or disp_date((inv or {}).get("service_date")) or ""
+    src = {"cover_sheet_text": "read from cover sheet", "cover_sheet_ai": "read from scanned cover sheet",
+           "cover_sheet": "read from cover sheet", "staff_confirmed": "confirmed by staff",
+           "user_confirmed": "confirmed by staff"}.get(c.get("payment_to_source"), "")
     if c.get("payment_to") == "provider":
-        pay = "Provider payment requested - Provider box on VA Form 10-7959f-2"
+        pay = f"☒ Provider   ☐ Veteran   (VA Form 10-7959f-2{', ' + src if src else ''})"
     elif c.get("payment_to") == "veteran":
-        pay = "Veteran payment requested - Veteran box on VA Form 10-7959f-2"
+        pay = f"☐ Provider   ☒ Veteran   (VA Form 10-7959f-2{', ' + src if src else ''})"
     else:
-        pay = "Payment recipient not selected"
+        pay = "☐ Provider   ☐ Veteran   — NEEDS STAFF REVIEW: payment box unclear or not marked"
 
     # ================= Professional cover + checklist =================
     GREEN = (25, 90, 60)
@@ -1339,6 +1327,10 @@ async def update_claim(cid: str, data: ClaimInput, user: dict = Depends(require_
                "status": data.status, "notes": data.notes,
                **{f: getattr(data, f) for f in _COVER_FIELDS},
                "updated_at": now_iso()}
+    updates["payment_to"] = updates.get("payment_to") or None
+    if current and updates["payment_to"] != current.get("payment_to"):
+        updates.update(payment_to_source="staff_confirmed" if updates["payment_to"] else None,
+                       payment_review=not updates["payment_to"])
     res = await db.claim_packets.update_one({"id": cid}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Claim packet not found")
@@ -1411,14 +1403,41 @@ async def upload_to_claim(cid: str, file: UploadFile = File(...), category: str 
     item = {"id": str(uuid.uuid4()), "source": "upload", "form_id": None,
             "storage_path": result["path"], "filename": file.filename, "content_type": safe_ct,
             "size": result.get("size"), "category": "cover_sheet" if is_cover else _guess_category(file.filename)}
-    if is_cover:  # one cover sheet per packet, always position 1; the replaced file stays in storage
+    if is_cover:  # one cover sheet per packet; the replaced file stays in storage; the scan is never modified
         others = [i for i in c.get("items", []) if i.get("category") != "cover_sheet"]
-        await db.claim_packets.update_one({"id": cid}, {"$set": {"items": [item] + others, "updated_at": now_iso()}})
+        det = await detect_payment_box(payload, safe_ct, file.filename)
+        await db.claim_packets.update_one({"id": cid}, {"$set": {
+            "items": [item] + others, "updated_at": now_iso(),
+            "payment_to": det["payment_to"], "payment_to_source": det["source"],
+            "payment_review": det["payment_to"] is None, "payment_review_reason": det["reason"]}})
     else:
         await db.claim_packets.update_one(
             {"id": cid}, {"$push": {"items": item}, "$set": {"updated_at": now_iso()}})
     await log_audit("update", "claim", actor=user, resource_id=cid,
-                    detail=f"upload {'cover sheet ' if is_cover else ''}{file.filename}")
+                    detail=f"upload {'cover sheet ' if is_cover else ''}{file.filename}"
+                           + (f" · payment box: {det['payment_to'] or 'needs review'}" if is_cover else ""))
+    return await _claim_response(cid)
+
+
+class PaymentRecipientInput(BaseModel):
+    payment_to: str
+
+
+@router.put("/claims/{cid}/payment-recipient")
+async def confirm_payment_recipient(cid: str, data: PaymentRecipientInput, user: dict = Depends(require_roles("admin"))):
+    """Staff decision for the payment box after reviewing the uploaded cover sheet."""
+    if data.payment_to not in ("provider", "veteran"):
+        raise HTTPException(status_code=400, detail="Choose provider or veteran")
+    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Claim packet not found")
+    if c.get("approved") or c.get("submission_status") == "submitted" or c.get("status") == "complete":
+        raise HTTPException(status_code=400, detail="This packet is approved/submitted; it cannot be changed")
+    await db.claim_packets.update_one({"id": cid}, {"$set": {
+        "payment_to": data.payment_to, "payment_to_source": "staff_confirmed", "payment_review": False,
+        "payment_confirmed_by": user["name"], "payment_confirmed_at": now_iso(), "updated_at": now_iso()}})
+    await log_audit("update", "claim", actor=user, resource_id=cid,
+                    detail=f"payment box set by staff: {c.get('payment_to') or 'unset'} → {data.payment_to}")
     return await _claim_response(cid)
 
 
