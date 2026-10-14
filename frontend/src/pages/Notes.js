@@ -12,6 +12,7 @@ import { AddIcdCodeModal } from "../components/AddIcdCodeModal";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
+import { IcdDescriptions } from "../components/IcdDescriptions";
 import { printSection } from "../lib/print";
 import { fmtDate, fmtDateTime } from "../lib/date";
 import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X, CheckCircle2, Download, ChevronDown, Receipt, XCircle, ShieldCheck } from "lucide-react";
@@ -251,7 +252,7 @@ export default function Notes() {
       ...blank,
       patient_id: n.patient_id || "",
       content: n.content || "",
-      icd10: n.icd10 || "", cpt_code: n.cpt_code || "", risk_level: n.risk_level || "",
+      icd10: n.icd10 || "", icd10_descriptions: n.icd10_descriptions || [], cpt_code: n.cpt_code || "", risk_level: n.risk_level || "",
       attending_provider: n.attending_provider || "",
       exequatur_number: n.exequatur_number || "",
       dob: p.dob || n.dob || "", ssn: p.ssn || n.ssn || "", gender: p.gender || n.gender || "",
@@ -375,6 +376,7 @@ export default function Notes() {
                 </div>
               </div>
             </HRow>
+            <IcdDescriptions value={form.icd10} saved={form.icd10_descriptions} catalog={icdCatalog} t={t} testPrefix="nf" />
           </div>
           <div>
             <HRow label={t("cptCode")}>
@@ -448,7 +450,7 @@ export default function Notes() {
           <ReadRow label={t("dob")} value={fmtDate(form.dob)} />
           <ReadRow label={t("socialSecurity")} value={form.ssn} />
           <ReadRow label={t("dateOfSession")} value={fmtDate(form.visit_date)} />
-          <ReadRow label={t("icd10Code")} value={form.icd10} />
+          <ReadRow label={t("icd10Code")} value={form.icd10 && <IcdDescriptions value={form.icd10} saved={form.icd10_descriptions} catalog={icdCatalog} t={t} testPrefix="nprint" />} />
           <ReadRow label={t("cptCode")} value={form.cpt_code} />
           <ReadRow label={t("riskAssessment")} value={form.risk_level ? riskLabel(form.risk_level) : ""} />
           <ReadRow label={t("provider")} value={form.attending_provider} />
@@ -467,7 +469,7 @@ export default function Notes() {
           <ReadRow label={t("dob")} value={<Private value={fmtDate(curPatient(n.patient_id).dob || n.dob)} />} />
           <ReadRow label={t("socialSecurity")} value={<Private value={curPatient(n.patient_id).ssn || n.ssn} />} />
           <ReadRow label={t("dateOfSession")} value={fmtDate(n.visit_date)} />
-          <ReadRow label={t("icd10Code")} value={n.icd10} />
+          <ReadRow label={t("icd10Code")} value={n.icd10 && <IcdDescriptions value={n.icd10} saved={n.icd10_descriptions} catalog={icdCatalog} t={t} testPrefix="nview" />} />
           <ReadRow label={t("cptCode")} value={n.cpt_code} />
           <ReadRow label={t("riskAssessment")} value={n.risk_level ? riskLabel(n.risk_level) : ""} />
           <ReadRow label={t("provider")} value={providerName(n)} />

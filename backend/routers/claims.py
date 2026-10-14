@@ -56,8 +56,9 @@ def _invoice_pdf(inv: dict, settings: dict) -> bytes:
         lines.append((9, settings["tagline"][:100]))
     if settings.get("rnc"):
         lines.append((9, f"RNC: {settings['rnc']}"))
-    contact = [v for v in [settings.get("address"), settings.get("phone"),
-               f"WhatsApp: {settings['whatsapp']}" if settings.get("whatsapp") else "", settings.get("email")] if v]
+    contact = [v for v in [settings.get("address"),
+               "  ".join(x for x in (settings.get("email"), settings.get("phone")) if x),
+               f"WhatsApp: {settings['whatsapp']}" if settings.get("whatsapp") else ""] if v]
     if contact:
         lines.append((8, "   |   ".join(contact)))
     extra = [v for v in [f"Mailing Address: {settings['mailing_address']}" if settings.get("mailing_address") else "",
@@ -205,15 +206,22 @@ async def _approval_blockers(claim: dict) -> list:
             problems.append(f"{n_letters} possible VA Disability Letters were found in this patient's folder — "
                             "staff must review and attach the correct one.")
     note_ids = [it["note_id"] for it in items if it.get("source") == "note" and it.get("note_id")]
-    for n in await db.notes.find({"id": {"$in": note_ids}}, {"_id": 0}).to_list(50) if note_ids else []:
+    found = await db.notes.find({"id": {"$in": note_ids}}, {"_id": 0}).to_list(50) if note_ids else []
+    if len({n["id"] for n in found}) < len(set(note_ids)):
+        problems.append("Attached progress note no longer exists — re-attach.")
+    for n in found:
         if not (n.get("signature") or "").startswith("data:image"):
             problems.append("The progress note is not signed by its provider.")
             continue
         if not n.get("completed"):
             problems.append("The progress note is not marked Completed.")
         assigned, signer = await note_provider_id(n), await note_signer_id(n)
-        if not assigned or not signer or assigned != signer:
-            problems.append("The progress note was not signed by its assigned provider.")
+        if not assigned:
+            problems.append(f"The progress note's attending provider ({n.get('attending_provider') or 'not set'}) "
+                            "does not match a clinical provider account — set the attending provider.")
+        elif not signer or assigned != signer:
+            problems.append(f"The progress note was signed by {n.get('signed_by') or 'an unknown account'}, "
+                            f"but it must be signed by its attending provider, {n.get('attending_provider')}.")
     if note_ids and len(note_ids) != len(set(note_ids)):
         problems.append("The same progress note is attached more than once.")
     return problems
@@ -520,7 +528,7 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
             rendered = {**note,
                         "patient_name": (f"{patient['first_name']} {patient['last_name']}" if patient else ""),
                         "dob": (patient or {}).get("dob"), "ssn": (patient or {}).get("ssn")}
-            pdf = note_pdf(rendered, clinic, rnc, await get_settings_doc())
+            pdf = note_pdf(await with_icd_descriptions(rendered), clinic, rnc, await get_settings_doc())
             path = f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf"
             stored = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None,
@@ -1090,7 +1098,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     for n in notes:
         note = {**n, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn")}
         try:
-            pdf = note_pdf(note, clinic, rnc, await get_settings_doc())
+            pdf = note_pdf(await with_icd_descriptions(note), clinic, rnc, await get_settings_doc())
         except Exception as e:
             logger.error(f"from-date note pdf failed: {e}")
             continue
@@ -1345,7 +1353,7 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
     clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
     rnc = (await get_settings_doc()).get("rnc", "")
     try:
-        pdf = note_pdf(note, clinic, rnc, await get_settings_doc())
+        pdf = note_pdf(await with_icd_descriptions(note), clinic, rnc, await get_settings_doc())
     except Exception as e:
         logger.error(f"note pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render note PDF")

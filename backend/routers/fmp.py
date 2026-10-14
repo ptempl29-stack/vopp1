@@ -390,7 +390,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
     # 3) progress note
     try:
         n = {**note, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn")}
-        pdf = note_pdf(n, clinic, rnc, await get_settings_doc())
+        pdf = note_pdf(await with_icd_descriptions(n), clinic, rnc, await get_settings_doc())
         path = f"{APP_NAME}/fmp/{data.patient_id}/generated/{uuid.uuid4()}.pdf"
         result = put_object(path, pdf, "application/pdf")
         items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None, "note_id": note["id"],

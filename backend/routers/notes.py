@@ -15,7 +15,7 @@ from core.db import db, now_iso, logger
 from core.security import require_roles
 from core.audit import log_audit
 from core.ssn import redact_ssn, guard_ssn_write
-from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd
+from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd, with_icd_descriptions, icd_descriptions
 from core.folder_filing import disp_date
 from models.schemas import NoteInput, SummarizeInput, IdList
 from core.config import CLINICAL_ROLES
@@ -57,6 +57,7 @@ async def list_notes(patient_id: Optional[str] = None, user: dict = Depends(requ
 @router.post("/notes")
 async def create_note(data: NoteInput, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
     doc = await guard_ssn_write(user, data.model_dump())
+    doc["icd10_descriptions"] = await icd_descriptions(doc.get("icd10"))
     if doc.get("signature") and len(doc["signature"]) > 600000:
         raise HTTPException(status_code=400, detail="Signature too large")
     if doc.get("note_type") == "soap" and not doc.get("content"):
@@ -93,6 +94,7 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
     if not existing:
         raise HTTPException(status_code=404, detail="Note not found")
     doc = await guard_ssn_write(user, data.model_dump(), existing.get("ssn"))
+    doc["icd10_descriptions"] = await icd_descriptions(doc.get("icd10"))
     title_ok = doc.pop("title_nonclinical_confirmed", False)
     if doc.get("signature") and len(doc["signature"]) > 600000:
         raise HTTPException(status_code=400, detail="Signature too large")
@@ -257,7 +259,7 @@ async def note_to_folder(nid: str, user: dict = Depends(require_roles("doctor", 
     vd = note.get("visit_date")
     ds = fmt_date(vd)
     try:
-        pdf = note_pdf(note, clinic, rnc, s)
+        pdf = note_pdf(await with_icd_descriptions(note), clinic, rnc, s)
     except Exception as e:
         logger.error(f"note pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render note PDF")

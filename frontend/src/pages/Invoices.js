@@ -6,6 +6,7 @@ import { usePrivacy, Private } from "../context/PrivacyContext";
 import { printSection } from "../lib/print";
 import { useLang } from "../context/LanguageContext";
 import { useAuth } from "../context/AuthContext";
+import { IcdDescriptions } from "../components/IcdDescriptions";
 import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
@@ -36,23 +37,6 @@ const statusSelectClass = (status) => STATUS_SELECT_CLASS[statusTone[status]] ||
 const statusKey = { in_transit: "inTransit", paid: "paid", denied: "denied", unpaid: "unpaid", void: "draft", outstanding: "outstanding" };
 
 
-const IcdDescriptions = ({ value, catalog, t }) => {
-  const codes = String(value || "").split(/[,;\n]+/).map((c) => c.trim()).filter(Boolean);
-  if (!codes.length) return null;
-  const desc = Object.fromEntries((catalog || []).map((c) => [String(c.code).trim().toUpperCase(), (c.description || "").trim()]));
-  return (
-    <div className="mt-1.5 space-y-1" data-testid="inv-icd-descriptions">
-      {codes.map((code, i) => (
-        <div key={`${code}-${i}`} className="text-xs leading-snug" data-testid={`inv-icd-desc-${i}`}>
-          {codes.length > 1 && <span className="block font-mono font-semibold text-moneygreen-800">{code}</span>}
-          {desc[code.toUpperCase()]
-            ? <span className="block text-stone-600">{desc[code.toUpperCase()]}</span>
-            : <span className="block text-amber-700 no-print" data-testid={`inv-icd-desc-missing-${i}`}>{t("icdDescMissing")}</span>}
-        </div>
-      ))}
-    </div>
-  );
-};
 
 const cellCls = "w-full px-2 py-1.5 rounded-md bg-white border border-border focus:outline-none focus:ring-2 focus:ring-moneygreen-500 text-sm";
 
@@ -238,7 +222,7 @@ export default function Invoices() {
         patient_id: d.patient_id || "", patient_name: d.patient_name || "", dob: d.dob || "",
         ssn: d.ssn || "", policy_number: d.policy_number || "", gender: d.gender || "",
         invoice_number: d.invoice_number || "", service_date: d.service_date || new Date().toISOString().slice(0, 10),
-        visit_reason: d.visit_reason || "", icd10: d.icd10 || "", provider: d.provider || "", status: d.status || "in_transit",
+        visit_reason: d.visit_reason || "", icd10: d.icd10 || "", icd10_descriptions: d.icd10_descriptions || [], provider: d.provider || "", status: d.status || "in_transit",
       });
       setItems((d.items || []).length ? d.items.map((it) => ({ _uid: `it-${seq++}`, ...it, minutes: (Number(it.quantity) || 0) * 15 })) : [newItem()]);
       setViewing(null);
@@ -393,7 +377,7 @@ export default function Invoices() {
                       )}
                     </div>
                   </div>
-                  <IcdDescriptions value={inv.icd10} catalog={icdCatalog} t={t} />
+                  <IcdDescriptions value={inv.icd10} saved={inv.icd10_descriptions} catalog={icdCatalog} t={t} />
                 </CField>
                 <CField label={t("attendingProvider")}>
                   <ManagedSelect listKey="providers" value={inv.provider || ""} onChange={setF("provider")} className={cellCls} data-testid="inv-provider">
@@ -576,7 +560,7 @@ export default function Invoices() {
                     <VRow label={t("completed")} value={viewing.completed_at ? fmtDate((viewing.completed_at || "").slice(0, 10)) : ""} />
                     <VRow label={t("status")} value={statusLabel(viewing.status)} />
                     <VRow label={t("visitReason")} value={viewing.visit_reason} />
-                    <VRow label="ICD-10-CM" value={viewing.icd10 && <>{viewing.icd10}<IcdDescriptions value={viewing.icd10} catalog={icdCatalog} t={t} /></>} />
+                    <VRow label="ICD-10-CM" value={viewing.icd10 && <><IcdDescriptions value={viewing.icd10} saved={viewing.icd10_descriptions} catalog={icdCatalog} t={t} testPrefix="view" /></>} />
                     <VRow label={t("attendingProvider")} value={viewing.provider} />
                   </div>
                 </div>

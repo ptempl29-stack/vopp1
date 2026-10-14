@@ -12,7 +12,7 @@ from core.security import get_current_user, require_roles
 from core.audit import log_audit
 from core.ssn import with_patient_ssn, redact_ssn, can_view_full_ssn
 from core.invoice_numbers import compute_next_invoice_number
-from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd, with_icd_descriptions
+from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd, with_icd_descriptions, icd_descriptions
 from models.schemas import CptInput, InvoiceInput, IdList
 from pydantic import BaseModel
 
@@ -220,7 +220,7 @@ async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles(
            "patient_id": data.patient_id, "patient_name": name,
            "dob": data.dob, "ssn": data.ssn if full else None, "policy_number": data.policy_number, "gender": data.gender,
            "service_date": data.service_date, "visit_reason": data.visit_reason,
-           "icd10": data.icd10, "provider": data.provider,
+           "icd10": data.icd10, "icd10_descriptions": await icd_descriptions(data.icd10), "provider": data.provider,
            "items": items, "total": round(total, 2), "status": data.status, "notes": data.notes,
            "completed_at": now_iso() if data.status == "paid" else None,
            "created_at": now_iso(), "created_by": user["name"]}
@@ -319,7 +319,7 @@ async def update_invoice(iid: str, data: InvoiceInput, user: dict = Depends(requ
            "dob": data.dob, "ssn": data.ssn if await can_view_full_ssn(user) else existing.get("ssn"),
            "policy_number": data.policy_number, "gender": data.gender,
            "service_date": data.service_date, "visit_reason": data.visit_reason,
-           "icd10": data.icd10, "provider": data.provider,
+           "icd10": data.icd10, "icd10_descriptions": await icd_descriptions(data.icd10), "provider": data.provider,
            "items": items, "total": round(total, 2), "status": data.status, "notes": data.notes,
            "completed_at": (existing.get("completed_at") or now_iso()) if data.status == "paid" else None,
            "updated_at": now_iso(), "updated_by": user["name"]}

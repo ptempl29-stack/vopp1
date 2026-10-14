@@ -26,10 +26,10 @@ async def main():
            "items": [{"cpt_code": "90837", "description": "Psychotherapy 60 min", "quantity": 2, "amount": 150.0, "minutes": 60}]}
     orig = copy.deepcopy(inv)
     r = await with_icd_descriptions(inv)
-    check("each code followed by its own description", r["icd10"].split("\n") == ["F43.10", PTSD, "F32.9", MDD, "7eth"])
+    check("each code followed by its own description", r["icd10"].split("\n") == [f"F43.10 — {PTSD}", f"F32.9 — {MDD}", "7eth"])
     check("code without description shown alone (no guess)", r["icd10"].endswith("7eth"))
     check("original invoice untouched (amounts/CPT/data)", inv == orig)
-    check("single code", (await with_icd_descriptions({"icd10": "F43.10"}))["icd10"] == f"F43.10\n{PTSD}")
+    check("single code", (await with_icd_descriptions({"icd10": "F43.10"}))["icd10"] == f"F43.10 — {PTSD}")
     check("empty code unchanged", (await with_icd_descriptions({"icd10": ""}))["icd10"] == "")
     for name, pdf in [("FMP claim invoice PDF", _invoice_pdf(r, {})), ("folder invoice PDF", invoice_pdf(r, {}))]:
         t = " ".join(txt(pdf).split())

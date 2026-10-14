@@ -117,7 +117,8 @@ def letterhead(pdf, settings: dict):
         pdf.set_font(FONT, "B", 8)
         pdf.cell(text_w, 4.5, f"RNC: {s['rnc']}", ln=True)
     pdf.set_y(max(pdf.get_y(), y0 + logo_w) + 2)
-    rows = [[s.get("address"), s.get("phone"), f"WhatsApp: {s['whatsapp']}" if s.get("whatsapp") else "", s.get("email")],
+    email_phone = "  ".join(v for v in (s.get("email"), s.get("phone")) if v)
+    rows = [[s.get("address"), email_phone, f"WhatsApp: {s['whatsapp']}" if s.get("whatsapp") else ""],
             [f"Mailing Address: {s['mailing_address']}" if s.get("mailing_address") else "",
              f"Primary Insurance: {s['primary_insurance']}" if s.get("primary_insurance") else ""]]
     for bits in rows:
@@ -292,7 +293,7 @@ def note_pdf(note: dict, clinic: str, rnc: str = "", settings: dict = None) -> b
             pdf.set_font(FONT, "B", 10)
             pdf.cell(45, 7, label, border=0)
             pdf.set_font(FONT, "", 10)
-            pdf.cell(0, 7, str(val), ln=True)
+            pdf.multi_cell(0, 7 if "\n" not in str(val) else 5.5, str(val), align="L")
 
     vd = note.get("visit_date")
     row("Patient:", note.get("patient_name"))

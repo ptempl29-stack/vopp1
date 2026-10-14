@@ -25,9 +25,13 @@ export const Letterhead = ({ settings }) => {
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-xs text-stone-500">
         {settings.address && <span className="inline-flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{settings.address}</span>}
-        {settings.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3.5 h-3.5" />{settings.phone}</span>}
+        {(settings.email || settings.phone) && (
+          <span className="inline-flex items-center gap-2" data-testid="letterhead-email-phone">
+            {settings.email && <span className="inline-flex items-center gap-1"><Mail className="w-3.5 h-3.5" />{settings.email}</span>}
+            {settings.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3.5 h-3.5" />{settings.phone}</span>}
+          </span>
+        )}
         {settings.whatsapp && <span className="inline-flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" />WhatsApp: {settings.whatsapp}</span>}
-        {settings.email && <span className="inline-flex items-center gap-1"><Mail className="w-3.5 h-3.5" />{settings.email}</span>}
       </div>
       {(settings.mailing_address || settings.primary_insurance) && (
         <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1 text-xs text-stone-500">

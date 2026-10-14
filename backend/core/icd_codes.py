@@ -28,16 +28,25 @@ def split_icd(value) -> list:
     return [p.strip() for p in re.split(r"[,;\n]+", str(value or "")) if p.strip()]
 
 
+async def icd_descriptions(value) -> list:
+    """[{code, description}] for each code in an ICD-10 field, from the diagnosis library."""
+    codes = split_icd(value)
+    if not codes:
+        return []
+    cat = {d["code"].strip().upper(): (d.get("description") or "").strip()
+           for d in await db.icd_codes.find({}, {"_id": 0, "code": 1, "description": 1}).to_list(5000)}
+    return [{"code": c, "description": cat.get(c.upper(), "")} for c in codes]
+
+
 async def with_icd_descriptions(doc: dict) -> dict:
-    """PDF copy of an invoice whose icd10 lists each code with its catalog description beneath it."""
+    """PDF copy whose icd10 reads 'CODE — description' per line; saved descriptions win over the library."""
     codes = split_icd(doc.get("icd10"))
     if not codes:
         return doc
-    cat = {d["code"].strip().upper(): (d.get("description") or "").strip()
-           for d in await db.icd_codes.find({}, {"_id": 0, "code": 1, "description": 1}).to_list(5000)}
+    saved = {str(d.get("code", "")).upper(): d.get("description") or "" for d in doc.get("icd10_descriptions") or []}
+    lib = {d["code"].upper(): d["description"] for d in await icd_descriptions(doc.get("icd10"))}
     lines = []
-    for code in codes:
-        lines.append(code)
-        if cat.get(code.upper()):
-            lines.append(cat[code.upper()])
+    for c in codes:
+        desc = saved.get(c.upper()) or lib.get(c.upper())
+        lines.append(f"{c} — {desc}" if desc else c)
     return {**doc, "icd10": "\n".join(lines)}
