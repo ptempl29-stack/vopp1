@@ -583,14 +583,6 @@ export default function Claims() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-b border-border/60 bg-tan-50/60" data-testid="claim-item-checklist">
-                    <td className="px-5 py-3"><Badge tone="green">{t("checklistLabel")}</Badge></td>
-                    <td className="px-5 py-3 text-stone-700">
-                      <span className="font-semibold">{t("checklistFixed")}</span>
-                      <span className="block text-xs text-moneygreen-800" data-testid="claim-payment-status">{t("paymentTo")}: {t("payProviderFixed")}</span>
-                    </td>
-                    <td className="px-5 py-3 text-right text-xs text-stone-400">{t("fixedFirst")}</td>
-                  </tr>
                   <tr className="border-b border-border/60 bg-moneygreen-50/40" data-testid="claim-item-cover-sheet">
                     <td className="px-5 py-3"><Badge tone={cover ? "green" : "red"}>{t("coverSheetLabel")}</Badge></td>
                     <td className="px-5 py-3 text-stone-700">
@@ -599,7 +591,7 @@ export default function Claims() {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end items-center gap-1">
-                        <span className="text-xs text-stone-400 mr-2">{t("fixedSecond")}</span>
+                        <span className="text-xs text-stone-400 mr-2">{t("fixedFirst")}</span>
                         {cover && <Btn variant="ghost" onClick={() => previewItem(cover)} data-testid="claim-cover-sheet-view" className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>}
                         {cover && !frozen && <Btn variant="ghost" onClick={() => removeItem(cover.id)} disabled={!!deleting} data-testid="claim-cover-sheet-remove" className="!px-2 !text-destructive" title={t("removeFromPacket")}><Trash2 className="w-4 h-4" /></Btn>}
                         {!frozen && (

@@ -860,153 +860,19 @@ async def _ready_to_approve(c: dict, blockers: list = None) -> bool:
 
 
 async def _build_packet_pdf(c) -> bytes:
-    """FMP packet PDF: generated Fully Developed Claim summary/checklist pages first,
-    then the staff-uploaded cover sheet, then every other attached document."""
+    """FMP packet PDF: the attached documents merged, staff-uploaded cover sheet first."""
+    from pypdf import PdfWriter
     c = await _sync_claim_packet_documents(c)
-    from pypdf import PdfWriter, PdfReader
-    from PIL import Image
-    from core.pdf_utils import new_pdf, pdf_bytes, FONT
-    from core.folder_filing import fmt_date, disp_date
-
-    settings = await get_settings_doc()
-    clinic = settings.get("clinic_name", "Veterans of Puerto Plata")
-    rnc = settings.get("rnc", "")
-    clinic_addr = settings.get("address", "")
-    items = _cover_first(c.get("items", []))
-
-    p = await db.patients.find_one({"id": c.get("patient_id")}, {"_id": 0}) if c.get("patient_id") else None
-    vet_name = c.get("patient_name") or (f"{p['first_name']} {p['last_name']}" if p else "")
-    dob = (p or {}).get("dob", "")
-    ssn = format_ssn((p or {}).get("ssn", ""))
-
-    inv = await _resolve_claim_invoice(c)
-    note = None
-    note_item = next((i for i in items if i.get("source") == "note" and i.get("note_id")), None)
-    if note_item:
-        note = await db.notes.find_one({"id": note_item["note_id"]}, {"_id": 0})
-
-    provider = (inv or {}).get("attending_provider") or (note or {}).get("attending_provider") or ""
-    icd = (inv or {}).get("icd10") or (note or {}).get("icd10") or ""
-    diagnosis = c.get("diagnosis_narrative") or (await with_icd_descriptions({"icd10": icd}))["icd10"]
-    cpt_desc = ""
-    if inv and inv.get("items"):
-        it0 = inv["items"][0]
-        cpt_desc = f"{it0.get('cpt_code', '')} - {it0.get('description', '')}".strip(" -")
-    elif note:
-        cpt_desc = note.get("cpt_code", "") or ""
-    inv_no = (inv or {}).get("invoice_number", "")
-    amount = (inv or {}).get("total")
-    svc_date = disp_date(c.get("claim_number")) or disp_date((inv or {}).get("service_date")) or ""
-    pay = "Pay Provider"
-
-    # ================= Professional cover + checklist =================
-    GREEN = (25, 90, 60)
-    GREEN_LT = (232, 243, 237)
-    TAN_LT = (247, 242, 232)
-    INK = (38, 38, 38)
-    GREY = (105, 105, 105)
-
-    pdf = new_pdf()
-    content_w = pdf.w - pdf.l_margin - pdf.r_margin
-
-    def band(title, subtitle=None):
-        band_h = 24 if rnc else 20
-        y0 = pdf.get_y()
-        pdf.set_fill_color(*GREEN)
-        pdf.rect(pdf.l_margin, y0, content_w, band_h, style="F")
-        pdf.set_xy(pdf.l_margin + 4, y0 + 3.5)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font(FONT, "B", 9)
-        pdf.cell(content_w - 8, 4.5, (clinic or "").upper()[:80], ln=True)
-        if rnc:
-            pdf.set_x(pdf.l_margin + 4)
-            pdf.set_font(FONT, "", 7.5)
-            pdf.cell(content_w - 8, 4, f"RNC: {rnc}", ln=True)
-        pdf.set_x(pdf.l_margin + 4)
-        pdf.set_font(FONT, "B", 14)
-        pdf.cell(content_w - 8, 8, title, ln=True)
-        pdf.set_y(y0 + band_h)
-        if subtitle:
-            pdf.set_x(pdf.l_margin)
-            pdf.set_fill_color(*TAN_LT)
-            pdf.set_text_color(*GREY)
-            pdf.set_font(FONT, "", 8.5)
-            pdf.cell(content_w, 7, "  " + subtitle, ln=True, fill=True)
-        pdf.set_text_color(*INK)
-        pdf.ln(5)
-
-    def section_title(txt):
-        pdf.set_x(pdf.l_margin)
-        pdf.set_font(FONT, "B", 10.5)
-        pdf.set_text_color(*GREEN)
-        pdf.cell(0, 7, txt, ln=True)
-        y = pdf.get_y()
-        pdf.set_draw_color(*GREEN)
-        pdf.set_line_width(0.4)
-        pdf.line(pdf.l_margin, y, pdf.l_margin + content_w, y)
-        pdf.set_text_color(*INK)
-        pdf.ln(2)
-
-    lw, lh = 58, 6
-    vw = content_w - lw
-
-    def prow(label, val, idx):
-        val = str(val or "-")
-        pdf.set_font(FONT, "", 9)
-        n = max(1, len(pdf.multi_cell(vw - 4, lh, val, dry_run=True, output="LINES")))
-        rh = n * lh + 2
-        y0 = pdf.get_y()
-        if y0 + rh > pdf.h - pdf.b_margin:
-            pdf.add_page()
-            y0 = pdf.get_y()
-        pdf.set_fill_color(*(GREEN_LT if idx % 2 == 0 else (255, 255, 255)))
-        pdf.rect(pdf.l_margin, y0, content_w, rh, style="F")
-        pdf.set_xy(pdf.l_margin + 2, y0 + 1)
-        pdf.set_font(FONT, "B", 8.5)
-        pdf.set_text_color(*GREY)
-        pdf.multi_cell(lw - 2, lh, label)
-        pdf.set_xy(pdf.l_margin + lw + 2, y0 + 1)
-        pdf.set_font(FONT, "", 9)
-        pdf.set_text_color(*INK)
-        pdf.multi_cell(vw - 4, lh, val)
-        pdf.set_y(y0 + rh)
-
-    band("Foreign Medical Program - Fully Developed Claim",
-         f"Claim Packet  ·  {vet_name or 'Veteran'}  ·  {svc_date or ''}")
-
-    section_title("Claim Summary")
-    rows = [
-        ("Veteran", vet_name),
-        ("Date of Birth", disp_date(dob) if dob else ""),
-        ("SSN / VA Claim File No.", f"{ssn or '-'}  /  {c.get('va_claim_number') or '-'}"),
-        ("Date of Service", svc_date),
-        ("Provider", f"{provider}, {clinic}" if provider else clinic),
-        ("Clinic Address", clinic_addr),
-        ("Diagnosis Treated", diagnosis),
-        ("CPT Code / Service", cpt_desc),
-        ("Invoice No.", inv_no),
-        ("Amount Billed", f"${amount:.2f}" if amount is not None else "-"),
-        ("Payment Direction", pay),
-    ]
-    if c.get("veteran_physical_address"):
-        rows.append(("Veteran Physical Address", c.get("veteran_physical_address")))
-    if c.get("veteran_mailing_address"):
-        rows.append(("Veteran Mailing Address", c.get("veteran_mailing_address")))
-    for i, (l, v) in enumerate(rows):
-        prow(l, v, i)
-
-    cover_bytes = pdf_bytes(pdf)
-
     writer = PdfWriter()
-    for page in PdfReader(io.BytesIO(cover_bytes)).pages:
-        writer.add_page(page)
-    for item in items:
+    for item in _cover_first(c.get("items", [])):
         try:
             data, _ = get_object(item["storage_path"])
             _append_document(writer, data, item["filename"])
             del data
         except Exception as e:
             logger.error(f"packet merge skip {item.get('filename')}: {e}")
+    if not writer.pages:
+        raise HTTPException(status_code=400, detail="No PDF/image documents to merge in this packet")
     out = io.BytesIO()
     writer.write(out)
     writer.close()
@@ -1172,20 +1038,6 @@ async def update_tracking(cid: str, data: TrackingInput, user: dict = Depends(re
         raise HTTPException(status_code=404, detail="Claim packet not found")
     await log_audit("update", "claim", actor=user, resource_id=cid, detail=f"tracking {upd}")
     return await _claim_response(cid)
-
-
-@router.get("/claims/{cid}/checklist")
-async def claim_checklist(cid: str, user: dict = Depends(require_roles("admin"))):
-    """Read-only FMP checklist + plain-language warnings (no writes)."""
-    c = await db.claim_packets.find_one({"id": cid}, {"_id": 0})
-    if not c:
-        raise HTTPException(status_code=404, detail="Claim packet not found")
-    items = c.get("items", [])
-    cats = {it.get("category") or {"invoice": "invoice", "note": "progress_note"}.get(it.get("source"), "")
-            for it in items} - {""}
-    checklist = [{"category": cat, "label": label, "present": cat in cats} for cat, label in FMP_CHECKLIST]
-    warnings = [f"Missing: {row['label']}" for row in checklist if not row["present"]]
-    return {"checklist": checklist, "warnings": warnings}
 
 
 @router.post("/claims/from-date")

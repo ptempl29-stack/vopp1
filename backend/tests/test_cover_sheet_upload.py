@@ -57,10 +57,10 @@ check("reorder cannot move cover off position 1", r["items"][0]["category"] == "
 
 m = requests.get(f"{API}/claims/{cid}/merged", headers=H)
 if m.status_code == 200:
-    pages = [pg.extract_text() for pg in PdfReader(io.BytesIO(m.content)).pages]
-    check("merged PDF page 1 is the generated checklist", "Fully Developed Claim" in pages[0])
-    cover_idx = next(i for i, tx in enumerate(pages) if "ZZCOVER-B" in tx)
-    check("uploaded cover directly follows checklist pages", all("Fully Developed Claim" in tx or "Checklist" in tx for tx in pages[:cover_idx]))
+    pages = [pg.extract_text() or "" for pg in PdfReader(io.BytesIO(m.content)).pages]
+    check("merged PDF page 1 is the uploaded cover", "ZZCOVER-B" in pages[0])
+    check("no Fully Developed Claim checklist pages", not any("Fully Developed Claim" in tx or "Claim Summary" in tx for tx in pages))
+    check("checklist endpoint removed", requests.get(f"{API}/claims/{cid}/checklist", headers=H).status_code in (404, 405))
 else:
     check(f"merged PDF built ({m.status_code} {m.text[:120]})", False)
 
