@@ -13,6 +13,7 @@ from core.db import db, now_iso, logger
 from core.config import APP_NAME
 from core.security import require_roles
 from core.audit import log_audit
+from core.icd_codes import with_icd_descriptions
 from core.storage import put_object, get_object, delete_object
 from core.folder_filing import disp_date, fmt_date
 from core.claim_invoices import payment_recipient_from_fields, progress_note_codes
@@ -373,7 +374,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
         try:
             inv = {**invoice, "patient_name": pname, "dob": p.get("dob"),
                    "ssn": p.get("ssn") or invoice.get("ssn")}
-            pdf = _invoice_pdf(inv, await get_settings_doc())
+            pdf = _invoice_pdf(await with_icd_descriptions(inv), await get_settings_doc())
             path = f"{APP_NAME}/fmp/{data.patient_id}/generated/{uuid.uuid4()}.pdf"
             result = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,

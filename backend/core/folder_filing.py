@@ -202,7 +202,7 @@ def invoice_pdf(inv: dict, settings: dict = None) -> bytes:
             pdf.set_xy(xcol + col_w * 0.42, yy)
             pdf.set_font(FONT, "", 8.5)
             pdf.set_text_color(*INK)
-            pdf.multi_cell(col_w * 0.58, 5, val)
+            pdf.multi_cell(col_w * 0.58, 5, val, align="L")
             yy = max(yy + 5, pdf.get_y())
         return yy
 
