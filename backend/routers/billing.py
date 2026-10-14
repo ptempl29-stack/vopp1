@@ -10,6 +10,7 @@ from core.db import db, now_iso, logger
 from core.config import INVOICE_STATUSES
 from core.security import get_current_user, require_roles
 from core.audit import log_audit
+from core.ssn import with_patient_ssn
 from core.invoice_numbers import compute_next_invoice_number
 from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd
 from models.schemas import CptInput, InvoiceInput, IdList
@@ -288,7 +289,7 @@ async def invoice_to_folder(iid: str, user: dict = Depends(require_roles("biller
     ds = fmt_date(sd)
     num = inv.get("invoice_number") or "Invoice"
     try:
-        pdf = invoice_pdf(inv, s or {})
+        pdf = invoice_pdf(await with_patient_ssn(inv), s or {})
     except Exception:
         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
     label = f"Patient Invoice {num} {ds}".strip()

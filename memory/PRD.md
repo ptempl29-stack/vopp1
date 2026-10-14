@@ -53,3 +53,4 @@ usvopp@yahoo.com / Football2023? (display name "CEO"). SEED_DEMO_USERS=false.
 - fmp.py "Generate FMP Packet" template date-stamp flow unchanged.
 - 2026-06: Added "Ready to approve" badge (list + detail; ready_to_approve flag from claims.py _ready_to_approve). Deploy of cover sheet + badge authorized and queued.
 - 2026-06: Bulk approval (PREVIEW ONLY): "Ready to approve" filter chip, row checkboxes, confirm + result modals; POST /api/claims/bulk-approve (admin, per-packet re-validation via _approve_one, skips cover_review/not-ready with reasons, audit "(bulk)"). Tests iteration_47/48 pass. Not deployed.
+- 2026-06: Full SSN (PREVIEW ONLY): core/ssn.py format_ssn (XXX-XX-XXXX) + with_patient_ssn (patient record by patient_id wins, fallback typed). Used in claims._invoice_pdf, folder_filing.invoice_pdf, note_pdf (new SSN line), billing/claims/fmp call sites. Saved PDFs untouched; Privacy mode toggle kept. Test backend/tests/test_full_ssn.py 11/11. Not deployed.

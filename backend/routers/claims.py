@@ -20,19 +20,15 @@ from core.claim_invoices import (best_effort_cleanup, claim_document_key, invoic
                                  without_excluded_claim_documents)
 from routers.settings import get_settings_doc
 from core.pdf_utils import new_pdf, pdf_bytes, FONT
+from core.ssn import format_ssn, with_patient_ssn
 
 router = APIRouter()
-
-
-def mask_ssn(ssn) -> str:
-    digits = re.sub(r"\D", "", str(ssn or ""))
-    return f"***-**-{digits[-4:]}" if len(digits) >= 4 else ""
 
 
 def _invoice_pdf(inv: dict, settings: dict) -> bytes:
     """Saved-invoice layout: letterhead (with RNC), patient/invoice info, six-column items
     table (CPT, Description, Units, Minutes, Unit Price, Fee) and the stored total.
-    SSN is masked; Minutes is the stored item value, never calculated."""
+    Full SSN from the invoice's own patient; Minutes is the stored item value, never calculated."""
     import base64
     from io import BytesIO
     from core.folder_filing import disp_date
@@ -107,7 +103,7 @@ def _invoice_pdf(inv: dict, settings: dict) -> bytes:
     y_left = info_block(pdf.l_margin, "Patient Information", [
         ("Full Name", inv.get("patient_name")),
         ("DOB", disp_date(inv.get("dob")) if inv.get("dob") else ""),
-        ("SSN", mask_ssn(inv.get("ssn"))),
+        ("SSN", format_ssn(inv.get("ssn"))),
         ("Gender", inv.get("gender")),
         ("Policy No.", inv.get("policy_number"))])
     y_right = info_block(pdf.l_margin + col_w + col_gap, "Invoice Information", [
@@ -497,7 +493,7 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
     if (invoice and invoice_key not in excluded_keys
             and not any(item.get("invoice_id") == invoice.get("id") for item in items)):
         try:
-            pdf = _invoice_pdf(invoice, await get_settings_doc())
+            pdf = _invoice_pdf(await with_patient_ssn(invoice), await get_settings_doc())
             path = f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf"
             stored = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
@@ -1245,7 +1241,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     items = []
     for inv in invs:
         try:
-            pdf = _invoice_pdf(inv, await get_settings_doc())
+            pdf = _invoice_pdf(await with_patient_ssn(inv), await get_settings_doc())
         except Exception as e:
             logger.error(f"from-date invoice pdf failed: {e}")
             continue
@@ -1476,7 +1472,7 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
     clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
     rnc = (await get_settings_doc()).get("rnc", "")
     try:
-        pdf_bytes = _invoice_pdf(inv, await get_settings_doc())
+        pdf_bytes = _invoice_pdf(await with_patient_ssn(inv), await get_settings_doc())
     except Exception as e:
         logger.error(f"invoice pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render invoice PDF")

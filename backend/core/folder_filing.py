@@ -6,6 +6,7 @@ from core.db import db, now_iso, logger
 from core.config import APP_NAME
 from core.storage import put_object
 from core.pdf_utils import new_pdf, pdf_bytes, FONT
+from core.ssn import format_ssn
 
 
 def fmt_date(d) -> str:
@@ -227,7 +228,7 @@ def invoice_pdf(inv: dict, settings: dict = None) -> bytes:
     y_left = section(col1_x, "Patient Information", [
         ("Full Name:", inv.get("patient_name")),
         ("DOB:", disp_date(inv.get("dob")) if inv.get("dob") else ""),
-        ("SSN:", (lambda d: f"***-**-{d[-4:]}" if len(d) >= 4 else "")("".join(ch for ch in str(inv.get("ssn") or "") if ch.isdigit()))),
+        ("SSN:", format_ssn(inv.get("ssn"))),
         ("Gender:", inv.get("gender")),
         ("Policy #:", inv.get("policy_number")),
     ])
@@ -316,6 +317,7 @@ def note_pdf(note: dict, clinic: str, rnc: str = "") -> bytes:
     vd = note.get("visit_date")
     row("Patient:", note.get("patient_name"))
     row("DOB:", disp_date(note.get("dob")))
+    row("SSN:", format_ssn(note.get("ssn")))
     row("Date of Session:", disp_date(vd))
     row("Provider:", note.get("attending_provider") or note.get("author"))
     row("ICD-10:", note.get("icd10"))
