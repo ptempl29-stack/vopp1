@@ -58,16 +58,16 @@ def _invoice_pdf(inv: dict, settings: dict) -> bytes:
     contact = [v for v in [settings.get("address"), settings.get("phone"),
                f"WhatsApp: {settings['whatsapp']}" if settings.get("whatsapp") else "", settings.get("email")] if v]
     if contact:
-        lines.append((8, "   |   ".join(contact)[:160]))
+        lines.append((8, "   |   ".join(contact)))
     extra = [v for v in [f"Mailing Address: {settings['mailing_address']}" if settings.get("mailing_address") else "",
              f"Primary Insurance: {settings['primary_insurance']}" if settings.get("primary_insurance") else ""] if v]
     if extra:
-        lines.append((8, "   |   ".join(extra)[:160]))
+        lines.append((8, "   |   ".join(extra)))
     pdf.set_text_color(*GREY)
     for size, text in lines:
         pdf.set_x(text_x)
         pdf.set_font(FONT, "", size)
-        pdf.cell(0, 5, text, ln=True)
+        pdf.multi_cell(content_w - (text_x - pdf.l_margin), 5, text)
     pdf.set_text_color(0, 0, 0)
     pdf.set_y(max(pdf.get_y(), y0 + 18) + 2)
     pdf.set_draw_color(*GREEN)
@@ -519,7 +519,7 @@ async def _sync_claim_packet_documents(claim: dict) -> dict:
             rendered = {**note,
                         "patient_name": (f"{patient['first_name']} {patient['last_name']}" if patient else ""),
                         "dob": (patient or {}).get("dob"), "ssn": (patient or {}).get("ssn")}
-            pdf = note_pdf(rendered, clinic, rnc)
+            pdf = note_pdf(rendered, clinic, rnc, await get_settings_doc())
             path = f"{APP_NAME}/claims/{claim['id']}/{uuid.uuid4()}.pdf"
             stored = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None,
@@ -1260,7 +1260,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     for n in notes:
         note = {**n, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn")}
         try:
-            pdf = note_pdf(note, clinic, rnc)
+            pdf = note_pdf(note, clinic, rnc, await get_settings_doc())
         except Exception as e:
             logger.error(f"from-date note pdf failed: {e}")
             continue
@@ -1515,7 +1515,7 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
     clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
     rnc = (await get_settings_doc()).get("rnc", "")
     try:
-        pdf = note_pdf(note, clinic, rnc)
+        pdf = note_pdf(note, clinic, rnc, await get_settings_doc())
     except Exception as e:
         logger.error(f"note pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render note PDF")

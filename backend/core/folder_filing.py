@@ -82,27 +82,66 @@ _INV_STATUS_COLORS = {
 }
 
 
+def letterhead(pdf, settings: dict):
+    """Full company header shared by invoice and progress-note PDFs."""
+    import io
+    import base64
+    GREEN, GREEN_MID, GREY = (21, 94, 61), (34, 124, 82), (115, 115, 115)
+    s = settings or {}
+    content_w = pdf.w - pdf.l_margin - pdf.r_margin
+    x0, y0, logo_w = pdf.l_margin, pdf.get_y(), 20
+    logo = s.get("logo") or ""
+    embedded = False
+    if logo.startswith("data:image"):
+        try:
+            pdf.image(io.BytesIO(base64.b64decode(logo.split(",", 1)[1])), x=x0, y=y0, w=logo_w, h=logo_w)
+            embedded = True
+        except Exception:
+            embedded = False
+    if not embedded:
+        pdf.set_fill_color(*GREEN_MID)
+        pdf.rect(x0, y0, logo_w, logo_w, style="F")
+    text_x, text_w = x0 + logo_w + 5, content_w - logo_w - 5
+    pdf.set_xy(text_x, y0)
+    pdf.set_text_color(*GREEN)
+    pdf.set_font(FONT, "B", 16)
+    pdf.multi_cell(text_w, 7, (s.get("clinic_name") or "Veterans of Puerto Plata")[:70])
+    if s.get("tagline"):
+        pdf.set_x(text_x)
+        pdf.set_text_color(*GREY)
+        pdf.set_font(FONT, "", 9)
+        pdf.cell(text_w, 5, s["tagline"][:80], ln=True)
+    if s.get("rnc"):
+        pdf.set_x(text_x)
+        pdf.set_text_color(60, 60, 60)
+        pdf.set_font(FONT, "B", 8)
+        pdf.cell(text_w, 4.5, f"RNC: {s['rnc']}", ln=True)
+    pdf.set_y(max(pdf.get_y(), y0 + logo_w) + 2)
+    rows = [[s.get("address"), s.get("phone"), f"WhatsApp: {s['whatsapp']}" if s.get("whatsapp") else "", s.get("email")],
+            [f"Mailing Address: {s['mailing_address']}" if s.get("mailing_address") else "",
+             f"Primary Insurance: {s['primary_insurance']}" if s.get("primary_insurance") else ""]]
+    for bits in rows:
+        bits = [b for b in bits if b]
+        if bits:
+            pdf.set_x(x0)
+            pdf.set_font(FONT, "", 8)
+            pdf.set_text_color(*GREY)
+            pdf.multi_cell(content_w, 4.5, "   |   ".join(bits))
+    pdf.set_text_color(33, 33, 33)
+    pdf.ln(1)
+    pdf.set_draw_color(*GREEN_MID)
+    pdf.set_line_width(0.6)
+    pdf.line(x0, pdf.get_y(), x0 + content_w, pdf.get_y())
+    pdf.ln(5)
+
+
 def invoice_pdf(inv: dict, settings: dict = None) -> bytes:
     """Render an invoice PDF styled to match the in-app invoice view: clinic
     letterhead (logo/tagline/RNC/contact), a status badge, a two-column
     Patient/Invoice information block, and a dark-green line-item table."""
-    import io
-    import base64
 
     settings = settings or {}
-    clinic = settings.get("clinic_name") or "Veterans of Puerto Plata"
-    tagline = settings.get("tagline") or ""
-    rnc = settings.get("rnc") or ""
-    address = settings.get("address") or ""
-    phone = settings.get("phone") or ""
-    whatsapp = settings.get("whatsapp") or ""
-    email = settings.get("email") or ""
-    mailing = settings.get("mailing_address") or ""
-    insurance = settings.get("primary_insurance") or ""
-    logo = settings.get("logo") or ""
-
     GREEN = (21, 94, 61)
-    GREEN_MID = (34, 124, 82)
     GREEN_DARK = (23, 61, 44)
     TAN = (250, 246, 238)
     INK = (33, 33, 33)
@@ -112,64 +151,7 @@ def invoice_pdf(inv: dict, settings: dict = None) -> bytes:
     pdf = new_pdf()
     content_w = pdf.w - pdf.l_margin - pdf.r_margin
     x0 = pdf.l_margin
-
-    # ---- Letterhead ----
-    logo_w = 20
-    y0 = pdf.get_y()
-    embedded = False
-    if logo.startswith("data:image"):
-        try:
-            b64 = logo.split(",", 1)[1]
-            img = io.BytesIO(base64.b64decode(b64))
-            pdf.image(img, x=x0, y=y0, w=logo_w, h=logo_w)
-            embedded = True
-        except Exception:
-            embedded = False
-    if not embedded:
-        pdf.set_fill_color(*GREEN_MID)
-        pdf.rect(x0, y0, logo_w, logo_w, style="F")
-
-    text_x = x0 + logo_w + 5
-    text_w = content_w - logo_w - 5
-    pdf.set_xy(text_x, y0)
-    pdf.set_text_color(*GREEN)
-    pdf.set_font(FONT, "B", 16)
-    pdf.multi_cell(text_w, 7, clinic[:70])
-    if tagline:
-        pdf.set_x(text_x)
-        pdf.set_text_color(*GREY)
-        pdf.set_font(FONT, "", 9)
-        pdf.cell(text_w, 5, tagline[:80], ln=True)
-    if rnc:
-        pdf.set_x(text_x)
-        pdf.set_text_color(60, 60, 60)
-        pdf.set_font(FONT, "B", 8)
-        pdf.cell(text_w, 4.5, f"RNC: {rnc}", ln=True)
-
-    pdf.set_y(max(pdf.get_y(), y0 + logo_w) + 2)
-
-    contact_bits = [b for b in [address, phone, (f"WhatsApp: {whatsapp}" if whatsapp else ""), email] if b]
-    if contact_bits:
-        pdf.set_x(x0)
-        pdf.set_font(FONT, "", 8)
-        pdf.set_text_color(*GREY)
-        pdf.multi_cell(content_w, 4.5, "   |   ".join(contact_bits))
-
-    extra_bits = [b for b in [(f"Mailing Address: {mailing}" if mailing else ""),
-                               (f"Primary Insurance: {insurance}" if insurance else "")] if b]
-    if extra_bits:
-        pdf.set_x(x0)
-        pdf.set_font(FONT, "", 8)
-        pdf.set_text_color(*GREY)
-        pdf.multi_cell(content_w, 4.5, "   |   ".join(extra_bits))
-
-    pdf.set_text_color(*INK)
-    pdf.ln(1)
-    pdf.set_draw_color(*GREEN_MID)
-    pdf.set_line_width(0.6)
-    yline = pdf.get_y()
-    pdf.line(x0, yline, x0 + content_w, yline)
-    pdf.ln(5)
+    letterhead(pdf, settings)
 
     # ---- Invoice number / date (left) + status badge (right) ----
     y2 = pdf.get_y()
@@ -295,13 +277,11 @@ def invoice_pdf(inv: dict, settings: dict = None) -> bytes:
     return pdf_bytes(pdf)
 
 
-def note_pdf(note: dict, clinic: str, rnc: str = "") -> bytes:
+def note_pdf(note: dict, clinic: str, rnc: str = "", settings: dict = None) -> bytes:
     pdf = new_pdf()
-    pdf.set_font(FONT, "B", 18)
-    pdf.cell(0, 12, (clinic or "")[:60], ln=True)
-    if rnc:
-        pdf.set_font(FONT, "", 9)
-        pdf.cell(0, 5, f"RNC: {rnc}", ln=True)
+    letterhead(pdf, {**(settings or {}), "clinic_name": (settings or {}).get("clinic_name") or clinic,
+                     "rnc": (settings or {}).get("rnc") or rnc})
+    pdf.set_text_color(0, 0, 0)
     pdf.set_font(FONT, "B", 13)
     pdf.cell(0, 9, "Progress Note", ln=True)
     pdf.ln(2)

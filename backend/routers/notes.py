@@ -257,7 +257,7 @@ async def note_to_folder(nid: str, user: dict = Depends(require_roles("doctor", 
     vd = note.get("visit_date")
     ds = fmt_date(vd)
     try:
-        pdf = note_pdf(note, clinic, rnc)
+        pdf = note_pdf(note, clinic, rnc, s)
     except Exception as e:
         logger.error(f"note pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render note PDF")
