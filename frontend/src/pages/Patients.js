@@ -164,7 +164,7 @@ export default function Patients() {
                 <p className="text-xs text-stone-500">{t("dob")}</p><p className="font-semibold text-moneygreen-800"><Private value={fmtDate(detail.dob)} /></p>
               </div>
               <div className="p-3 rounded-md bg-tan-50 border border-border">
-                <p className="text-xs text-stone-500">{t("socialSecurity")}</p><p className="font-semibold text-moneygreen-800"><Private value={detail.ssn} /></p>
+                <p className="text-xs text-stone-500">{t("socialSecurity")}</p><p className="font-semibold text-moneygreen-800" data-testid="pd-ssn"><Private value={detail.ssn} /></p>
               </div>
               <div className="p-3 rounded-md bg-tan-50 border border-border">
                 <p className="text-xs text-stone-500">{t("phone")}</p><p className="font-semibold text-moneygreen-800">{detail.phone || "—"}</p>
