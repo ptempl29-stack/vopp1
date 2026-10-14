@@ -12,54 +12,9 @@ from core.security import require_roles
 from core.audit import log_audit
 from core.storage import put_object, get_object, delete_object
 from routers.settings import get_settings_doc
-from core.pdf_utils import new_pdf, pdf_bytes, FONT
+from core.folder_filing import invoice_pdf as _invoice_pdf, note_pdf
 
 router = APIRouter()
-
-
-def _invoice_pdf(inv: dict, clinic: str) -> bytes:
-    from core.folder_filing import disp_date
-    pdf = new_pdf()
-    pdf.set_font(FONT, "B", 18)
-    pdf.cell(0, 12, (clinic or "")[:60], ln=True)
-    pdf.set_font(FONT, "B", 13)
-    pdf.cell(0, 9, f"Invoice {inv.get('invoice_number', '')}", ln=True)
-    pdf.ln(2)
-    pdf.set_font(FONT, "", 11)
-
-    def row(label, val):
-        if val:
-            pdf.cell(45, 7, label, border=0)
-            pdf.cell(0, 7, str(val), ln=True)
-
-    row("Patient:", inv.get("patient_name"))
-    row("DOB:", disp_date(inv.get("dob")) if inv.get("dob") else "")
-    row("Service Date:", disp_date(inv.get("service_date")) if inv.get("service_date") else "")
-    row("Provider:", inv.get("provider"))
-    row("Visit Reason:", inv.get("visit_reason"))
-    row("ICD-10:", inv.get("icd10"))
-    row("Status:", inv.get("status"))
-    pdf.ln(3)
-    pdf.set_font(FONT, "B", 10)
-    pdf.cell(28, 8, "CPT", border=1)
-    pdf.cell(90, 8, "Description", border=1)
-    pdf.cell(20, 8, "Qty", border=1, align="R")
-    pdf.cell(0, 8, "Amount", border=1, ln=True, align="R")
-    pdf.set_font(FONT, "", 10)
-    for it in inv.get("items", []):
-        qty = it.get("quantity", 1)
-        pdf.cell(28, 8, str(it.get("cpt_code", ""))[:12], border=1)
-        pdf.cell(90, 8, str(it.get("description", ""))[:55], border=1)
-        pdf.cell(20, 8, str(qty), border=1, align="R")
-        pdf.cell(0, 8, f"${it.get('amount', 0) * qty:.2f}", border=1, ln=True, align="R")
-    pdf.set_font(FONT, "B", 11)
-    pdf.cell(138, 9, "Total", border=1)
-    pdf.cell(0, 9, f"${inv.get('total', 0):.2f}", border=1, ln=True, align="R")
-    if inv.get("notes"):
-        pdf.ln(3)
-        pdf.set_font(FONT, "", 10)
-        pdf.multi_cell(0, 6, f"Notes: {inv['notes']}")
-    return pdf_bytes(pdf)
 
 CLAIM_STATUSES = {"draft", "submitted", "complete"}
 UPLOAD_EXTS = {"pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "txt", "xls", "xlsx"}
@@ -212,7 +167,8 @@ async def _build_packet_pdf(c) -> bytes:
 
     provider = (inv or {}).get("attending_provider") or (note or {}).get("attending_provider") or ""
     icd = (inv or {}).get("icd10") or (note or {}).get("icd10") or ""
-    diagnosis = c.get("diagnosis_narrative") or icd
+    from core.icd10 import label_for as icd10_label_for
+    diagnosis = c.get("diagnosis_narrative") or (await icd10_label_for(icd) if icd else "")
     cpt_desc = ""
     if inv and inv.get("items"):
         it0 = inv["items"][0]
@@ -424,6 +380,7 @@ def _same_day(val, date_str) -> bool:
 @router.post("/claims/from-date")
 async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require_roles("admin"))):
     from core.folder_filing import note_pdf
+    from core.icd10 import label_for as icd10_label_for
     p = await db.patients.find_one({"id": data.patient_id}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -438,7 +395,7 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     if not invs and not notes:
         raise HTTPException(status_code=404, detail="No invoice or progress note found for that patient on that date")
 
-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    settings_doc = await get_settings_doc()
     m = d.split("-")
     disp = f"{m[1]}/{m[2]}/{m[0]}" if len(m) == 3 else d
     packet_name = f"{pname} {disp} FMP Claim"
@@ -446,7 +403,8 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     items = []
     for inv in invs:
         try:
-            pdf = _invoice_pdf(inv, clinic)
+            inv = {**inv, "icd10": await icd10_label_for(inv.get("icd10"))}
+            pdf = _invoice_pdf(inv, settings_doc)
         except Exception as e:
             logger.error(f"from-date invoice pdf failed: {e}")
             continue
@@ -462,9 +420,10 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
                       "content_type": "application/pdf", "size": result.get("size"), "category": "invoice"})
 
     for n in notes:
-        note = {**n, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn")}
+        note = {**n, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn"),
+                "icd10": await icd10_label_for(n.get("icd10"))}
         try:
-            pdf = note_pdf(note, clinic)
+            pdf = note_pdf(note, settings_doc)
         except Exception as e:
             logger.error(f"from-date note pdf failed: {e}")
             continue
@@ -617,9 +576,11 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
     inv = await db.invoices.find_one({"id": payload.get("invoice_id")}, {"_id": 0})
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    settings_doc = await get_settings_doc()
+    from core.icd10 import label_for as icd10_label_for
+    inv = {**inv, "icd10": await icd10_label_for(inv.get("icd10"))}
     try:
-        pdf_bytes = _invoice_pdf(inv, clinic)
+        pdf_bytes = _invoice_pdf(inv, settings_doc)
     except Exception as e:
         logger.error(f"invoice pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
@@ -641,6 +602,7 @@ async def attach_invoice(cid: str, payload: dict, user: dict = Depends(require_r
 @router.post("/claims/{cid}/attach-note")
 async def attach_note(cid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
     from core.folder_filing import note_pdf, disp_date
+    from core.icd10 import label_for as icd10_label_for
     c = await db.claim_packets.find_one({"id": cid})
     if not c:
         raise HTTPException(status_code=404, detail="Claim packet not found")
@@ -649,10 +611,11 @@ async def attach_note(cid: str, payload: dict, user: dict = Depends(require_role
         raise HTTPException(status_code=404, detail="Note not found")
     p = await db.patients.find_one({"id": n.get("patient_id")}, {"_id": 0}) if n.get("patient_id") else None
     pname = (f"{p['first_name']} {p['last_name']}" if p else n.get("patient_name")) or ""
-    note = {**n, "patient_name": pname, "dob": (p or {}).get("dob") or n.get("dob"), "ssn": (p or {}).get("ssn")}
-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    note = {**n, "patient_name": pname, "dob": (p or {}).get("dob") or n.get("dob"), "ssn": (p or {}).get("ssn"),
+            "icd10": await icd10_label_for(n.get("icd10"))}
+    settings_doc = await get_settings_doc()
     try:
-        pdf = note_pdf(note, clinic)
+        pdf = note_pdf(note, settings_doc)
     except Exception as e:
         logger.error(f"note pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render note PDF")

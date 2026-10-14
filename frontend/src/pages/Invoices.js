@@ -6,6 +6,7 @@ import { usePrivacy, Private } from "../context/PrivacyContext";
 import { printSection } from "../lib/print";
 import { useLang } from "../context/LanguageContext";
 import { Letterhead } from "../components/Letterhead";
+import { Icd10Picker, Icd10Label } from "../components/Icd10Field";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
@@ -268,10 +269,16 @@ export default function Invoices() {
                   </select>
                 </CField>
                 <CField label="ICD-10-CM">
-                  <input list="inv-icd-history" value={inv.icd10 || ""} onChange={setF("icd10")} className={cellCls} data-testid="inv-icd10" placeholder="e.g. F41.1" autoComplete="off" />
-                  <datalist id="inv-icd-history" data-testid="inv-icd-datalist">
-                    {icdHistory.map((c) => <option key={c} value={c} />)}
-                  </datalist>
+                  <Icd10Picker value={inv.icd10} onChange={(code) => setInv((s) => ({ ...s, icd10: code }))}
+                    className={cellCls} testId="inv-icd10" placeholder={t("icd10SearchPlaceholder") || "Search code or description"} t={t} />
+                  {icdHistory.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1" data-testid="inv-icd-datalist">
+                      {icdHistory.map((c) => (
+                        <button key={c} type="button" onClick={() => setInv((s) => ({ ...s, icd10: c }))}
+                          className="text-xs px-2 py-0.5 rounded-full bg-moneygreen-100 text-moneygreen-700 hover:bg-moneygreen-200 font-mono font-semibold transition-colors">{c}</button>
+                      ))}
+                    </div>
+                  )}
                 </CField>
                 <CField label={t("attendingProvider")}>
                   <ManagedSelect listKey="providers" value={inv.provider || ""} onChange={setF("provider")} className={cellCls} data-testid="inv-provider">
@@ -451,7 +458,7 @@ export default function Invoices() {
                     <VRow label={t("completed")} value={viewing.completed_at ? fmtDate((viewing.completed_at || "").slice(0, 10)) : ""} />
                     <VRow label={t("status")} value={statusLabel(viewing.status)} />
                     <VRow label={t("visitReason")} value={viewing.visit_reason} />
-                    <VRow label="ICD-10-CM" value={viewing.icd10} />
+                    <VRow label="ICD-10-CM" value={<Icd10Label code={viewing.icd10} />} />
                     <VRow label={t("attendingProvider")} value={viewing.provider} />
                   </div>
                 </div>
@@ -518,7 +525,7 @@ export default function Invoices() {
                       <div className="flex items-center gap-2 min-w-0">
                         <Badge tone="green">{t("session")}</Badge>
                         <span className="text-xs font-mono text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</span>
-                        {n.icd10 && <span className="text-xs text-stone-500">· ICD-10 {n.icd10}</span>}
+                        {n.icd10 && <span className="text-xs text-stone-500">· ICD-10 <Icd10Label code={n.icd10} /></span>}
                       </div>
                       <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-moneygreen-600 shrink-0" />
                     </div>

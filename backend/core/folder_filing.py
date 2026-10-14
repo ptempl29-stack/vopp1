@@ -64,10 +64,92 @@ def _mc(pdf, text, bold=False, size=11):
     pdf.multi_cell(0, 6, text)
 
 
-def invoice_pdf(inv: dict, clinic: str) -> bytes:
+def draw_compact_header(pdf, settings: dict) -> None:
+    """Draw the approved compact company header onto the current page, starting
+    at the cursor's current y. Six fixed lines, in this exact order:
+      1) clinic name
+      2) RNC
+      3) DR address | DR phone
+      4) primary email | second DR phone
+      5) WhatsApp | admin email | US phone
+      6) Mailing Address
+    Only the field CONTENTS are configurable (via Company Header Settings);
+    this order and grouping must never change. Advances pdf's cursor past the
+    header (and a divider rule) so callers can continue writing below it."""
+    settings = settings or {}
+    clinic = settings.get("clinic_name") or "Veterans of Puerto Plata"
+    rnc = settings.get("rnc") or ""
+    address = settings.get("address") or ""
+    phone = settings.get("phone") or ""
+    email = settings.get("email") or ""
+    phone2 = settings.get("phone2") or ""
+    whatsapp = settings.get("whatsapp") or ""
+    admin_email = settings.get("admin_email") or ""
+    phone3 = settings.get("phone3") or ""
+    mailing = settings.get("mailing_address") or ""
+    logo = settings.get("logo") or ""
+
+    content_w = pdf.w - pdf.l_margin - pdf.r_margin
+    x0 = pdf.l_margin
+    logo_w = 16
+    y0 = pdf.get_y()
+
+    embedded = False
+    if logo.startswith("data:image"):
+        try:
+            import io
+            import base64
+            b64 = logo.split(",", 1)[1]
+            img = io.BytesIO(base64.b64decode(b64))
+            pdf.image(img, x=x0, y=y0, w=logo_w, h=logo_w)
+            embedded = True
+        except Exception:
+            embedded = False
+    if not embedded:
+        pdf.set_fill_color(26, 90, 60)
+        pdf.rect(x0, y0, logo_w, logo_w, style="F")
+
+    text_x = x0 + logo_w + 4
+    text_w = content_w - logo_w - 4
+
+    def hline(txt, bold=False, size=8.5):
+        if not txt:
+            return
+        pdf.set_x(text_x)
+        pdf.set_font(FONT, "B" if bold else "", size)
+        pdf.multi_cell(text_w, 4.2, txt)
+
+    pdf.set_xy(text_x, y0)
+    pdf.set_text_color(20, 20, 20)
+    pdf.set_font(FONT, "B", 13)
+    pdf.multi_cell(text_w, 5.5, clinic[:80])
+
+    if rnc:
+        hline(f"RNC: {rnc}", bold=True)
+    hline(" | ".join(x for x in [address, phone] if x))
+    hline(" | ".join(x for x in [email, phone2] if x))
+    line5 = []
+    if whatsapp:
+        line5.append(f"WhatsApp: {whatsapp}")
+    if admin_email:
+        line5.append(admin_email)
+    if phone3:
+        line5.append(phone3)
+    hline(" | ".join(line5))
+    if mailing:
+        hline(f"Mailing Address: {mailing}")
+
+    y_after = max(pdf.get_y(), y0 + logo_w) + 2
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_draw_color(26, 90, 60)
+    pdf.set_line_width(0.5)
+    pdf.line(x0, y_after, x0 + content_w, y_after)
+    pdf.set_xy(x0, y_after + 3)
+
+
+def invoice_pdf(inv: dict, settings: dict) -> bytes:
     pdf = new_pdf()
-    pdf.set_font(FONT, "B", 18)
-    pdf.cell(0, 12, (clinic or "")[:60], ln=True)
+    draw_compact_header(pdf, settings)
     pdf.set_font(FONT, "B", 13)
     pdf.cell(0, 9, f"Invoice {inv.get('invoice_number', '')}", ln=True)
     pdf.ln(2)
@@ -108,10 +190,9 @@ def invoice_pdf(inv: dict, clinic: str) -> bytes:
     return pdf_bytes(pdf)
 
 
-def note_pdf(note: dict, clinic: str) -> bytes:
+def note_pdf(note: dict, settings: dict) -> bytes:
     pdf = new_pdf()
-    pdf.set_font(FONT, "B", 18)
-    pdf.cell(0, 12, (clinic or "")[:60], ln=True)
+    draw_compact_header(pdf, settings)
     pdf.set_font(FONT, "B", 13)
     pdf.cell(0, 9, "Progress Note", ln=True)
     pdf.ln(2)

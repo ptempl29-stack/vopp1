@@ -10,6 +10,7 @@ import { PageHeader, Modal, Btn, Empty, Card, inputCls } from "../components/ui-
 import { ManagedSelect } from "../components/ManagedSelect";
 import { SignaturePad } from "../components/SignaturePad";
 import { Letterhead, EditableLetterhead } from "../components/Letterhead";
+import { Icd10Picker, Icd10Label, Icd10CodeTip } from "../components/Icd10Field";
 import { printSection } from "../lib/print";
 import { fmtDate } from "../lib/date";
 import { Plus, Sparkles, Loader2, FileText, PenLine, Printer, FileDown, Eye, Pencil, Stamp, Save, Trash2, LayoutGrid, List, Copy, Filter, X } from "lucide-react";
@@ -174,7 +175,10 @@ export default function Notes() {
           <HRow label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={headerInputCls} data-testid="nf-dob" /></HRow>
           <HRow label={t("socialSecurity")}><input value={form.ssn || ""} onChange={set("ssn")} className={headerInputCls} data-testid="nf-ssn" placeholder="XXX-XX-XXXX" /></HRow>
           <div>
-            <HRow label={t("icd10Code")}><input value={form.icd10 || ""} onChange={set("icd10")} className={headerInputCls} data-testid="nf-icd10" placeholder="e.g. F33.0" /></HRow>
+            <HRow label={t("icd10Code")}>
+              <Icd10Picker value={form.icd10} onChange={(code) => setForm((f) => ({ ...f, icd10: code }))}
+                className={headerInputCls} testId="nf-icd10" placeholder={t("icd10SearchPlaceholder") || "Search code or description"} t={t} />
+            </HRow>
             {codeHistory.icd10.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 mt-1 pl-2" data-testid="icd-suggestions">
                 <span className="text-xs text-stone-400">{t("usedBefore")}:</span>
@@ -235,7 +239,7 @@ export default function Notes() {
           <ReadRow label={t("dob")} value={fmtDate(form.dob)} />
           <ReadRow label={t("socialSecurity")} value={form.ssn} />
           <ReadRow label={t("dateOfSession")} value={fmtDate(form.visit_date)} />
-          <ReadRow label={t("icd10Code")} value={form.icd10} />
+          <ReadRow label={t("icd10Code")} value={<Icd10Label code={form.icd10} />} />
           <ReadRow label={t("cptCode")} value={form.cpt_code} />
           <ReadRow label={t("riskAssessment")} value={form.risk_level ? riskLabel(form.risk_level) : ""} />
           <ReadRow label={t("provider")} value={form.attending_provider} />
@@ -254,7 +258,7 @@ export default function Notes() {
           <ReadRow label={t("dob")} value={<Private value={fmtDate(curPatient(n.patient_id).dob || n.dob)} />} />
           <ReadRow label={t("socialSecurity")} value={<Private value={curPatient(n.patient_id).ssn || n.ssn} />} />
           <ReadRow label={t("dateOfSession")} value={fmtDate(n.visit_date)} />
-          <ReadRow label={t("icd10Code")} value={n.icd10} />
+          <ReadRow label={t("icd10Code")} value={<Icd10Label code={n.icd10} />} />
           <ReadRow label={t("cptCode")} value={n.cpt_code} />
           <ReadRow label={t("riskAssessment")} value={n.risk_level ? riskLabel(n.risk_level) : ""} />
           <ReadRow label={t("provider")} value={providerName(n)} />
@@ -347,7 +351,9 @@ export default function Notes() {
                     <td className="px-5 py-3 font-semibold text-moneygreen-800 cursor-pointer" onClick={() => setViewing(n)}><Private value={patientName(n.patient_id)} /></td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</td>
                     <td className="px-5 py-3 hidden md:table-cell text-stone-600">{providerName(n)}</td>
-                    <td className="px-5 py-3 hidden lg:table-cell text-stone-500 font-mono text-xs">{[n.icd10, n.cpt_code].filter(Boolean).join(" / ") || "—"}</td>
+                    <td className="px-5 py-3 hidden lg:table-cell text-stone-500 font-mono text-xs">
+                      {n.icd10 ? <Icd10CodeTip code={n.icd10} /> : "—"}{n.cpt_code ? ` / ${n.cpt_code}` : ""}
+                    </td>
                     <td className="px-5 py-3 text-stone-600">{n.risk_level ? riskLabel(n.risk_level) : "—"}</td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-1">
@@ -382,7 +388,7 @@ export default function Notes() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-stone-500 mb-2">
-                  {n.icd10 && <span><b className="text-stone-600">ICD-10:</b> {n.icd10}</span>}
+                  {n.icd10 && <span><b className="text-stone-600">ICD-10:</b> <Icd10Label code={n.icd10} /></span>}
                   {n.cpt_code && <span><b className="text-stone-600">CPT:</b> {n.cpt_code}</span>}
                   {n.risk_level && <span><b className="text-stone-600">{t("riskAssessment")}:</b> {riskLabel(n.risk_level)}</span>}
                 </div>
@@ -413,7 +419,7 @@ export default function Notes() {
           <div id="note-print" className="space-y-4">
             <div className="rounded-lg border border-border p-4 no-print">
               <EditableLetterhead settings={settings} onSaved={setSettings} t={t}
-                canEdit={["admin", "doctor", "nurse", "psychologist"].includes(user?.role)} />
+                canEdit={user?.role === "admin"} />
             </div>
             <div className="print-only"><Letterhead settings={settings} /></div>
             <div className="no-print">{editableHeader}</div>

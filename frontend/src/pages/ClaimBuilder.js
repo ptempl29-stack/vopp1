@@ -5,6 +5,7 @@ import { useLang } from "../context/LanguageContext";
 import { Private } from "../context/PrivacyContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
+import { Icd10CodeTip } from "../components/Icd10Field";
 import { fmtDate } from "../lib/date";
 import {
   DollarSign, UploadCloud, FileText, Wand2, CheckCircle2, AlertTriangle, XCircle,
@@ -175,7 +176,7 @@ export default function ClaimBuilder() {
                       {v.signed ? <Badge tone="green">{t("signedBadge")}</Badge> : <Badge tone="amber">{t("unsigned")}</Badge>}
                     </div>
                     <p className="text-xs text-stone-500 mt-1">{v.provider || "—"}{v.reason ? ` · ${v.reason}` : ""}</p>
-                    <p className="text-xs text-stone-400 mt-0.5">{v.invoice_number ? `${t("invoice")} ${v.invoice_number}` : t("noInvoiceLinked")}{v.icd10 ? ` · ICD-10 ${v.icd10}` : ""}</p>
+                    <p className="text-xs text-stone-400 mt-0.5">{v.invoice_number ? `${t("invoice")} ${v.invoice_number}` : t("noInvoiceLinked")}{v.icd10 ? <> · ICD-10 <Icd10CodeTip code={v.icd10} /></> : ""}</p>
                   </button>
                 ))}
               </div>

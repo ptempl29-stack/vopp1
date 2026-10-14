@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 
 from core.db import db, now_iso
-from core.config import INVOICE_STATUSES
+from core.config import INVOICE_STATUSES, DEFAULT_SETTINGS
 from core.security import get_current_user, require_roles
 from core.audit import log_audit
 from models.schemas import CptInput, InvoiceInput, IdList
@@ -173,6 +173,7 @@ async def get_invoice(iid: str, user: dict = Depends(require_roles("biller", "re
 @router.post("/invoices/{iid}/to-folder")
 async def invoice_to_folder(iid: str, user: dict = Depends(require_roles("biller", "receptionist"))):
     from core.folder_filing import invoice_pdf, file_pdf_into_folder, fmt_date
+    from core.icd10 import label_for as icd10_label_for
     inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -182,14 +183,14 @@ async def invoice_to_folder(iid: str, user: dict = Depends(require_roles("biller
     p = await db.patients.find_one({"id": pid}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
-    inv = {**inv, "patient_name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob")}
+    inv = {**inv, "patient_name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob"),
+           "icd10": await icd10_label_for(inv.get("icd10"))}
     s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
-    clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
     sd = inv.get("service_date")
     ds = fmt_date(sd)
     num = inv.get("invoice_number") or "Invoice"
     try:
-        pdf = invoice_pdf(inv, clinic)
+        pdf = invoice_pdf(inv, s or DEFAULT_SETTINGS)
     except Exception:
         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
     label = f"Patient Invoice {num} {ds}".strip()

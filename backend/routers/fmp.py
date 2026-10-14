@@ -231,6 +231,7 @@ def _validate(patient, note, invoice, dos):
 @router.post("/fmp/generate")
 async def generate_packet(data: GenerateInput, user: dict = Depends(require_roles(*FMP_ROLES))):
     from core.folder_filing import note_pdf
+    from core.icd10 import label_for as icd10_label_for
     p = await db.patients.find_one({"id": data.patient_id}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -289,7 +290,7 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
         if status == "ready":
             status = "review"
 
-    clinic = (await get_settings_doc()).get("clinic_name", "Veterans of Puerto Plata")
+    settings_doc = await get_settings_doc()
     items = []
     cover_review = None
 
@@ -315,8 +316,9 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
     # 2) invoice
     if invoice:
         try:
-            inv = {**invoice, "patient_name": pname, "dob": p.get("dob")}
-            pdf = _invoice_pdf(inv, clinic)
+            inv = {**invoice, "patient_name": pname, "dob": p.get("dob"),
+                   "icd10": await icd10_label_for(invoice.get("icd10"))}
+            pdf = _invoice_pdf(inv, settings_doc)
             path = f"{APP_NAME}/fmp/{data.patient_id}/generated/{uuid.uuid4()}.pdf"
             result = put_object(path, pdf, "application/pdf")
             items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
@@ -331,8 +333,9 @@ async def generate_packet(data: GenerateInput, user: dict = Depends(require_role
 
     # 3) progress note
     try:
-        n = {**note, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn")}
-        pdf = note_pdf(n, clinic)
+        n = {**note, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn"),
+             "icd10": await icd10_label_for(note.get("icd10"))}
+        pdf = note_pdf(n, settings_doc)
         path = f"{APP_NAME}/fmp/{data.patient_id}/generated/{uuid.uuid4()}.pdf"
         result = put_object(path, pdf, "application/pdf")
         items.append({"id": str(uuid.uuid4()), "source": "note", "form_id": None, "note_id": note["id"],

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 from core.db import db, now_iso, logger
+from core.config import DEFAULT_SETTINGS
 from core.security import require_roles
 from core.audit import log_audit
 from models.schemas import NoteInput, SummarizeInput, IdList
@@ -97,6 +98,7 @@ async def bulk_delete_notes(data: IdList, user: dict = Depends(require_roles("do
 @router.post("/notes/{nid}/to-folder")
 async def note_to_folder(nid: str, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
     from core.folder_filing import note_pdf, file_pdf_into_folder, fmt_date
+    from core.icd10 import label_for as icd10_label_for
     note = await db.notes.find_one({"id": nid}, {"_id": 0})
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -106,13 +108,13 @@ async def note_to_folder(nid: str, user: dict = Depends(require_roles("doctor", 
     p = await db.patients.find_one({"id": pid}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
-    note = {**note, "patient_name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob"), "ssn": p.get("ssn")}
+    note = {**note, "patient_name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob"), "ssn": p.get("ssn"),
+            "icd10": await icd10_label_for(note.get("icd10"))}
     s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
-    clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
     vd = note.get("visit_date")
     ds = fmt_date(vd)
     try:
-        pdf = note_pdf(note, clinic)
+        pdf = note_pdf(note, s or DEFAULT_SETTINGS)
     except Exception as e:
         logger.error(f"note pdf failed: {e}")
         raise HTTPException(status_code=500, detail="Could not render note PDF")

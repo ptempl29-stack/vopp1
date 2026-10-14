@@ -131,10 +131,14 @@ class FormInput(BaseModel):
 class SettingsInput(BaseModel):
     clinic_name: str
     tagline: Optional[str] = ""
+    rnc: Optional[str] = ""
     address: Optional[str] = ""
     phone: Optional[str] = ""
     email: Optional[str] = ""
+    phone2: Optional[str] = ""
     whatsapp: Optional[str] = Field(default="", max_length=40)
+    admin_email: Optional[str] = ""
+    phone3: Optional[str] = ""
     mailing_address: Optional[str] = ""
     primary_insurance: Optional[str] = ""
     logo: Optional[str] = ""
