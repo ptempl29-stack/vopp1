@@ -70,10 +70,7 @@ export default function PublicForm() {
           <div className="w-9 h-9 rounded-md bg-moneygreen-500 flex items-center justify-center">
             <Stethoscope className="w-5 h-5 text-white" />
           </div>
-          <div className="flex flex-col">
-            <span className="font-heading font-extrabold text-white text-sm leading-tight">{settings?.clinic_name || "Veterans of Puerto Plata"}</span>
-            {settings?.rnc && <span className="text-[10px] text-tan-200 font-semibold">RNC: {settings.rnc}</span>}
-          </div>
+          <span className="font-heading font-extrabold text-white text-sm">Veterans of Puerto Plata</span>
         </div>
         <button onClick={toggle} data-testid="public-lang-toggle"
           className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-moneygreen-700 text-tan-100 text-sm font-semibold hover:bg-moneygreen-600 transition-colors duration-200">

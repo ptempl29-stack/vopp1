@@ -1,25 +1,20 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import api, { apiErr } from "../lib/api";
 import { useSearchParams } from "react-router-dom";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import { usePrivacy, Private } from "../context/PrivacyContext";
 import { printSection } from "../lib/print";
 import { useLang } from "../context/LanguageContext";
-import { useAuth } from "../context/AuthContext";
-import { IcdDescriptions } from "../components/IcdDescriptions";
 import { Letterhead } from "../components/Letterhead";
+import { Icd10Picker, Icd10Label } from "../components/Icd10Field";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
-import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy, Loader2, X, ChevronDown } from "lucide-react";
+import { Plus, Trash2, FilePlus2, Save, FileDown, Printer, NotebookPen, ChevronRight, Eye, Pencil, Copy } from "lucide-react";
 import { toast } from "sonner";
-import { AddIcdCodeModal } from "../components/AddIcdCodeModal";
 
 let seq = 0;
 const newItem = () => ({ _uid: `it-${seq++}`, cpt_code: "", description: "", quantity: 1, minutes: 15, amount: 0 });
-// Full-hour therapy codes default to 4 units (4 × 15-min = 60 min) since that's how they're billed.
-const FOUR_UNIT_CODES = ["90837", "90791"];
-const defaultQtyFor = (code) => (FOUR_UNIT_CODES.includes(code) ? 4 : 1);
 const emptyInvoice = {
   patient_id: "", patient_name: "", dob: "", ssn: "", policy_number: "", gender: "",
   invoice_number: "", service_date: new Date().toISOString().slice(0, 10),
@@ -36,12 +31,9 @@ const STATUS_SELECT_CLASS = {
 const statusSelectClass = (status) => STATUS_SELECT_CLASS[statusTone[status]] || STATUS_SELECT_CLASS.amber;
 const statusKey = { in_transit: "inTransit", paid: "paid", denied: "denied", unpaid: "unpaid", void: "draft", outstanding: "outstanding" };
 
-
-
 const cellCls = "w-full px-2 py-1.5 rounded-md bg-white border border-border focus:outline-none focus:ring-2 focus:ring-moneygreen-500 text-sm";
 
 export default function Invoices() {
-  const { user } = useAuth();
   const { t } = useLang();
   const [params, setParams] = useSearchParams();
   const statusFilter = params.get("status");
@@ -60,14 +52,7 @@ export default function Invoices() {
   const [billingNotes, setBillingNotes] = useState([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [icdHistory, setIcdHistory] = useState([]);
-  const [icdCatalog, setIcdCatalog] = useState([]);
-  const [addIcdOpen, setAddIcdOpen] = useState(false);
-  const [icdHistOpen, setIcdHistOpen] = useState(false);
-  const [icdAllOpen, setIcdAllOpen] = useState(false);
-  const icdHistRef = useRef(null);
-  const icdAllRef = useRef(null);
   const [invoiceSearch, setInvoiceSearch] = useState("");
-  const [deletingInvoice, setDeletingInvoice] = useState("");
 
   const statusLabel = (s) => t(statusKey[s] || s);
   const loadInvoices = () => api.get("/invoices").then((r) => setInvoices(r.data)).catch(() => {});
@@ -78,50 +63,14 @@ export default function Invoices() {
       .then((r) => setIcdHistory(r.data.icd10 || [])).catch(() => setIcdHistory([]));
   };
 
-  const dismissIcd = async (code) => {
-    const pid = inv.patient_id;
-    if (!pid) return;
-    try {
-      await api.post("/invoices/patient-code-history/dismiss", { patient_id: pid, code });
-      setIcdHistory((h) => h.filter((c) => c !== code));
-      toast.success(t("icdRemoved"));
-    } catch { toast.error("Failed"); }
-  };
-
-  useEffect(() => {
-    const onDown = (e) => {
-      if (icdHistRef.current && !icdHistRef.current.contains(e.target)) setIcdHistOpen(false);
-      if (icdAllRef.current && !icdAllRef.current.contains(e.target)) setIcdAllOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, []);
-
   useEffect(() => {
     api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
     api.get("/patients").then((r) => setPatients(r.data)).catch(() => {});
     api.get("/cpt-codes").then((r) => setCpt(r.data)).catch(() => {});
-    api.get("/icd-codes").then((r) => setIcdCatalog(r.data)).catch(() => {});
     api.get("/users").then((r) => setProviders(r.data.filter((u) => ["doctor", "psychologist", "nurse", "admin"].includes(u.role)))).catch(() => {});
     loadInvoices();
     loadNumber();
   }, []);
-
-  // Deep link from a note or patient page: /invoices?from_note=<id>&patient_id=<id>
-  useEffect(() => {
-    const noteId = params.get("from_note");
-    const pid = params.get("patient_id");
-    if (!noteId || cpt.length === 0) return;
-    api.get("/notes/for-billing", { params: { patient_id: pid } })
-      .then((r) => {
-        const n = (r.data || []).find((x) => x.id === noteId);
-        if (n) applyNote(n, pid);
-        else toast.error(t("noteNotFound"));
-      })
-      .catch((err) => toast.error(apiErr(err)))
-      .finally(() => { params.delete("from_note"); params.delete("patient_id"); setParams(params, { replace: true }); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cpt, patients]);
 
   const shownInvoices = (statusFilter
     ? invoices.filter((v) => (statusFilter === "outstanding" ? v.status !== "paid" : v.status === statusFilter))
@@ -152,9 +101,7 @@ export default function Invoices() {
   const setItem = (idx, patch) => setItems(items.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   const onCode = (idx, code) => {
     const c = cpt.find((x) => x.code === code);
-    const qty = defaultQtyFor(code);
-    setItem(idx, { cpt_code: code, description: c?.description || "", amount: c?.amount || 0, quantity: qty, minutes: qty * 15 });
-    if (FOUR_UNIT_CODES.includes(code)) setInv((s) => ({ ...s, visit_reason: "Psychotherapy" }));
+    setItem(idx, { cpt_code: code, description: c?.description || "", amount: c?.amount || 0 });
   };
   const total = items.reduce((s, i) => s + (Number(i.amount) || 0) * (Number(i.quantity) || 0), 0);
 
@@ -172,28 +119,22 @@ export default function Invoices() {
       .catch((err) => toast.error(apiErr(err)))
       .finally(() => setLoadingNotes(false));
   };
-  const applyNote = (n, pid) => {
-    const patientId = pid || notePatient;
-    const p = patients.find((x) => x.id === patientId);
+  const applyNote = (n) => {
+    const p = patients.find((x) => x.id === notePatient);
     setInv((s) => ({
       ...s,
-      patient_id: patientId,
+      patient_id: notePatient,
       patient_name: p ? `${p.first_name} ${p.last_name}` : s.patient_name,
       dob: n.dob || p?.dob || s.dob,
       gender: n.gender || p?.gender || s.gender,
       ssn: n.ssn || s.ssn,
       service_date: n.visit_date || (n.created_at || "").slice(0, 10) || s.service_date,
-      visit_reason: FOUR_UNIT_CODES.includes(n.cpt_code) ? "Psychotherapy" : (n.reason_for_visit || s.visit_reason),
+      visit_reason: n.reason_for_visit || s.visit_reason,
       icd10: n.icd10 || s.icd10,
       provider: n.attending_provider || s.provider,
     }));
-    if (n.cpt_code) {
-      const c = cpt.find((x) => x.code === n.cpt_code);
-      const qty = defaultQtyFor(n.cpt_code);
-      setItems([{ _uid: `it-${seq++}`, cpt_code: n.cpt_code, description: c?.description || "", quantity: qty, minutes: qty * 15, amount: c?.amount || 0 }]);
-    }
     setNoteModal(false);
-    loadIcdHistory(patientId);
+    loadIcdHistory(notePatient);
     toast.success(t("prefilledFromNote"));
   };
   const reasonOptions = inv.visit_reason && !reasons.includes(inv.visit_reason)
@@ -204,11 +145,8 @@ export default function Invoices() {
     if (!inv.patient_id && !inv.patient_name) { toast.error(t("patient")); return; }
     if (valid.length === 0) { toast.error(t("addItem")); return; }
     try {
-      let saved;
-      if (editId) { saved = await api.put(`/invoices/${editId}`, { ...inv, items: valid }); toast.success(t("updated")); }
-      else { saved = await api.post("/invoices", { ...inv, items: valid }); toast.success(t("save") + " ✓"); }
-      window.localStorage.setItem("vpp_invoice_saved_at", String(Date.now()));
-      window.dispatchEvent(new CustomEvent("vpp:invoice-saved", { detail: saved.data }));
+      if (editId) { await api.put(`/invoices/${editId}`, { ...inv, items: valid }); toast.success(t("updated")); }
+      else { await api.post("/invoices", { ...inv, items: valid }); toast.success(t("save") + " ✓"); }
       resetInvoice(); loadInvoices();
     } catch (err) { toast.error(apiErr(err)); }
   };
@@ -222,7 +160,7 @@ export default function Invoices() {
         patient_id: d.patient_id || "", patient_name: d.patient_name || "", dob: d.dob || "",
         ssn: d.ssn || "", policy_number: d.policy_number || "", gender: d.gender || "",
         invoice_number: d.invoice_number || "", service_date: d.service_date || new Date().toISOString().slice(0, 10),
-        visit_reason: d.visit_reason || "", icd10: d.icd10 || "", icd10_descriptions: d.icd10_descriptions || [], provider: d.provider || "", status: d.status || "in_transit",
+        visit_reason: d.visit_reason || "", icd10: d.icd10 || "", provider: d.provider || "", status: d.status || "in_transit",
       });
       setItems((d.items || []).length ? d.items.map((it) => ({ _uid: `it-${seq++}`, ...it, minutes: (Number(it.quantity) || 0) * 15 })) : [newItem()]);
       setViewing(null);
@@ -261,14 +199,7 @@ export default function Invoices() {
   };
 
   const removeInvoice = async (id) => {
-    if (!window.confirm(t("confirmDeleteInvoice"))) return;
-    setDeletingInvoice(id);
-    try {
-      await api.delete(`/invoices/${id}`);
-      toast.success(t("delete") + " ✓");
-      loadInvoices();
-    } catch (err) { toast.error(apiErr(err), { duration: Infinity }); }
-    finally { setDeletingInvoice(""); }
+    try { await api.delete(`/invoices/${id}`); loadInvoices(); } catch (err) { toast.error(apiErr(err)); }
   };
   const removeSelected = async () => {
     try { await bulkDelete("/invoices/bulk-delete", [...sel.selected], t); sel.clear(); loadInvoices(); }
@@ -313,7 +244,7 @@ export default function Invoices() {
                   <input type="date" value={inv.dob || ""} onChange={setF("dob")} className={`${cellCls} no-print`} data-testid="inv-dob" />
                   <span className="print-only text-sm text-moneygreen-800">{fmtDate(inv.dob) || "—"}</span>
                 </CField>
-                <CField label="SSN"><input value={inv.ssn || ""} onChange={setF("ssn")} readOnly={!user?.can_view_full_ssn} title={user?.can_view_full_ssn ? "" : t("ssnNoAccess")} className={cellCls} data-testid="inv-ssn" placeholder="XXX-XX-XXXX" /></CField>
+                <CField label="SSN"><input value={inv.ssn || ""} onChange={setF("ssn")} className={cellCls} data-testid="inv-ssn" placeholder="XXX-XX-XXXX" /></CField>
                 <CField label={t("policyNumber")}><input value={inv.policy_number || ""} onChange={setF("policy_number")} className={cellCls} data-testid="inv-policy" /></CField>
                 <CField label={t("gender")}>
                   <select value={inv.gender || ""} onChange={setF("gender")} className={cellCls}>
@@ -338,46 +269,16 @@ export default function Invoices() {
                   </select>
                 </CField>
                 <CField label="ICD-10-CM">
-                  <div className="flex gap-1.5">
-                    <div className="relative flex-1" ref={icdHistRef}>
-                      <button type="button" onClick={() => setIcdHistOpen((o) => !o)} data-testid="inv-icd10"
-                        className={cellCls + " flex items-center justify-between text-left gap-1"}>
-                        <span className={inv.icd10 ? "font-mono text-moneygreen-800 truncate" : "text-stone-400 truncate"}>{inv.icd10 || t("usedBefore")}</span>
-                        <ChevronDown className="w-4 h-4 text-stone-400 shrink-0" />
-                      </button>
-                      {icdHistOpen && (
-                        <div className="absolute z-30 mt-1 w-full bg-white border border-border rounded-md shadow-lg max-h-56 overflow-auto" data-testid="inv-icd-history-panel">
-                          {icdHistory.length === 0 ? (
-                            <div className="px-3 py-2 text-xs text-stone-400">{t("noCodes")}</div>
-                          ) : icdHistory.map((c) => (
-                            <div key={c} className="flex items-center justify-between hover:bg-moneygreen-50">
-                              <button type="button" onClick={() => { setF("icd10")({ target: { value: c } }); setIcdHistOpen(false); }}
-                                data-testid={`inv-icd-opt-${c}`} className="flex-1 text-left px-3 py-1.5 font-mono text-sm text-moneygreen-800">{c}</button>
-                              <button type="button" onClick={() => dismissIcd(c)} data-testid={`inv-icd-opt-remove-${c}`} title={t("removeIcdSuggestion")}
-                                className="px-2 py-1.5 text-stone-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                  <Icd10Picker value={inv.icd10} onChange={(code) => setInv((s) => ({ ...s, icd10: code }))}
+                    className={cellCls} testId="inv-icd10" placeholder={t("icd10SearchPlaceholder") || "Search code or description"} t={t} />
+                  {icdHistory.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1" data-testid="inv-icd-datalist">
+                      {icdHistory.map((c) => (
+                        <button key={c} type="button" onClick={() => setInv((s) => ({ ...s, icd10: c }))}
+                          className="text-xs px-2 py-0.5 rounded-full bg-moneygreen-100 text-moneygreen-700 hover:bg-moneygreen-200 font-mono font-semibold transition-colors">{c}</button>
+                      ))}
                     </div>
-                    <div className="relative" ref={icdAllRef}>
-                      <button type="button" onClick={() => setIcdAllOpen((o) => !o)} title={t("allCodes")} data-testid="inv-icd10-add"
-                        className="shrink-0 px-2 h-full rounded-md border border-moneygreen-600 text-moneygreen-700 hover:bg-moneygreen-50 transition-colors flex items-center"><Plus className="w-4 h-4" /></button>
-                      {icdAllOpen && (
-                        <div className="absolute z-30 mt-1 right-0 w-72 bg-white border border-border rounded-md shadow-lg max-h-64 overflow-auto" data-testid="inv-icd-all-panel">
-                          {icdCatalog.map((c) => (
-                            <button key={c.code} type="button" onClick={() => { setF("icd10")({ target: { value: c.code } }); setIcdAllOpen(false); }}
-                              data-testid={`inv-icd-all-${c.code}`} className="w-full text-left px-3 py-1.5 text-sm text-stone-700 hover:bg-moneygreen-50">
-                              <span className="font-mono font-semibold text-moneygreen-800">{c.code}</span>{c.description ? ` — ${c.description}` : ""}
-                            </button>
-                          ))}
-                          <button type="button" onClick={() => { setIcdAllOpen(false); setAddIcdOpen(true); }} data-testid="inv-icd-add-new"
-                            className="w-full text-left px-3 py-1.5 text-xs text-moneygreen-700 font-semibold border-t border-border hover:bg-moneygreen-50 flex items-center gap-1"><Plus className="w-3.5 h-3.5" />{t("newIcdCode")}</button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <IcdDescriptions value={inv.icd10} saved={inv.icd10_descriptions} catalog={icdCatalog} t={t} />
+                  )}
                 </CField>
                 <CField label={t("attendingProvider")}>
                   <ManagedSelect listKey="providers" value={inv.provider || ""} onChange={setF("provider")} className={cellCls} data-testid="inv-provider">
@@ -513,10 +414,7 @@ export default function Invoices() {
                           <Btn variant="ghost" onClick={() => viewInvoice(v.id)} data-testid={`view-invoice-${v.id}`} className="!px-2" title={t("view")}><Eye className="w-4 h-4" /></Btn>
                           <Btn variant="ghost" onClick={() => editInvoice(v.id)} data-testid={`edit-invoice-${v.id}`} className="!px-2" title={t("edit")}><Pencil className="w-4 h-4" /></Btn>
                           <Btn variant="ghost" onClick={() => duplicateInvoice(v.id)} data-testid={`duplicate-invoice-${v.id}`} className="!px-2" title={t("duplicate")}><Copy className="w-4 h-4" /></Btn>
-                          <Btn variant="ghost" onClick={() => removeInvoice(v.id)} disabled={!!deletingInvoice}
-                            data-testid={`delete-invoice-${v.id}`} className="!px-2 !text-destructive" title={t("delete")}>
-                            {deletingInvoice === v.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                          </Btn>
+                          <Btn variant="ghost" onClick={() => removeInvoice(v.id)} data-testid={`delete-invoice-${v.id}`} className="!px-2 !text-destructive" title={t("delete")}><Trash2 className="w-4 h-4" /></Btn>
                         </div>
                       </td>
                     </tr>
@@ -560,7 +458,7 @@ export default function Invoices() {
                     <VRow label={t("completed")} value={viewing.completed_at ? fmtDate((viewing.completed_at || "").slice(0, 10)) : ""} />
                     <VRow label={t("status")} value={statusLabel(viewing.status)} />
                     <VRow label={t("visitReason")} value={viewing.visit_reason} />
-                    <VRow label="ICD-10-CM" value={viewing.icd10 && <><IcdDescriptions value={viewing.icd10} saved={viewing.icd10_descriptions} catalog={icdCatalog} t={t} testPrefix="view" /></>} />
+                    <VRow label="ICD-10-CM" value={<Icd10Label code={viewing.icd10} />} />
                     <VRow label={t("attendingProvider")} value={viewing.provider} />
                   </div>
                 </div>
@@ -627,7 +525,7 @@ export default function Invoices() {
                       <div className="flex items-center gap-2 min-w-0">
                         <Badge tone="green">{t("session")}</Badge>
                         <span className="text-xs font-mono text-stone-500">{fmtDate(n.visit_date || (n.created_at || "").slice(0, 10))}</span>
-                        {n.icd10 && <span className="text-xs text-stone-500">· ICD-10 {n.icd10}</span>}
+                        {n.icd10 && <span className="text-xs text-stone-500">· ICD-10 <Icd10Label code={n.icd10} /></span>}
                       </div>
                       <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-moneygreen-600 shrink-0" />
                     </div>
@@ -640,9 +538,6 @@ export default function Invoices() {
           )}
         </div>
       </Modal>
-
-      <AddIcdCodeModal open={addIcdOpen} onClose={() => setAddIcdOpen(false)}
-        onAdded={(c) => { setIcdCatalog((list) => [...list, c]); setInv((s) => ({ ...s, icd10: c.code })); }} />
     </div>
   );
 }

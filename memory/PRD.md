@@ -62,3 +62,9 @@ usvopp@yahoo.com / Football2023? (display name "CEO"). SEED_DEMO_USERS=false.
 - 2026-06: Fully Developed Claim checklist REMOVED completely (PREVIEW ONLY): _build_packet_pdf now merges documents only (uploaded cover first) for all packets incl. approved; GET /claims/{cid}/checklist removed; checklist row + i18n keys removed. On-screen "Claim Summary" card (invoice no./amount) kept. Not deployed.
 - 2026-06: Signer blocker messages name signer vs attending provider; dangling note link blocker (PREVIEW). Prod RCA: all 42 notes attended by Saday Cabrera but signed by admin accounts (Clinic Admin / Printiss Temple) -> strict rule kept per user. Test tests/test_note_signer_blocker.py 8/8.
 - 2026-06: ICD inline "CODE — description" + saved icd10_descriptions on invoice/note create/edit (existing untouched); note PDF ICD row via with_icd_descriptions; components/IcdDescriptions.js shared. Header: email then phone adjacent (Letterhead.js, folder_filing.letterhead, claims._invoice_pdf). Preview settings email=ptemple@yahoo.com phone=809-393-7036 (prod: user enters). Test tests/test_icd_inline_and_header.py 14/14. Not deployed.
+pre-github-sync commit: 8bcbfab84f1df1478f25eb53f76acb40f9006dee
+
+## 2026-10-14 GitHub commit deploy (USER CHOICE, risks accepted)
+- Workspace backend/ and frontend/ replaced by ptempl29-stack/vopp1 @ ab8213f (older base). Removed modules: providers.py, note_versions.py, sandbox.py, sandbox_admin.py, reports.py, ssn.py, icd_codes.py etc. Previous Preview work is in git history (see pre-github-sync commit above) — restore via platform Rollback if needed.
+- Preview smoke: login, patients, notes, invoices, claims, settings, /api/icd10/search all 200; NLM reachable from preview.
+- Production deploy queued with read-only post-checks.

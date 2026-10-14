@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import DOMPurify from "dompurify";
 import { motion } from "framer-motion";
 import api, { apiErr } from "../lib/api";
@@ -6,8 +6,7 @@ import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import {
   Mail, Inbox, SendHorizonal, PenSquare, Trash2, Settings, RefreshCw,
-  Paperclip, Plug, ChevronLeft, ChevronRight, CheckCircle2, X, Upload,
-  Save, FileText, Image as ImageIcon, File as FileIcon,
+  Paperclip, Plug, ChevronLeft, ChevronRight, CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -33,32 +32,6 @@ export default function Mailbox() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [compose, setCompose] = useState({ to: "", cc: "", subject: "", body_text: "" });
   const [sending, setSending] = useState(false);
-  const [attachPatient, setAttachPatient] = useState("");
-  const [patientOpts, setPatientOpts] = useState([]);
-  const [folderItems, setFolderItems] = useState([]);
-  const [attachments, setAttachments] = useState([]);
-  const [dragOver, setDragOver] = useState(false);
-  const MAX_TOTAL = 20 * 1024 * 1024;
-  const fmtSize = (b) => {
-    if (b == null) return "";
-    if (b < 1024) return `${b} B`;
-    if (b < 1048576) return `${Math.round(b / 1024)} KB`;
-    return `${(b / 1048576).toFixed(1)} MB`;
-  };
-  const totalSize = attachments.reduce((s, a) => s + (a.size || 0), 0);
-  const overLimit = totalSize > MAX_TOTAL;
-  const [draftId, setDraftId] = useState(null);
-  const [drafts, setDrafts] = useState([]);
-  const [autoSaved, setAutoSaved] = useState(false);
-  const autoSaveTimer = useRef(null);
-  const isImg = (a) => (a.content_type || "").startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(a.filename || "");
-  const isPdf = (a) => (a.content_type || "") === "application/pdf" || /\.pdf$/i.test(a.filename || "");
-  const attIcon = (a) => {
-    if (isImg(a) && a.local && a.data_b64) return <img src={`data:${a.content_type};base64,${a.data_b64}`} alt="" className="w-6 h-6 rounded object-cover border border-border" />;
-    if (isImg(a)) return <ImageIcon className="w-4 h-4 text-sky-600" />;
-    if (isPdf(a)) return <FileText className="w-4 h-4 text-red-600" />;
-    return <FileIcon className="w-4 h-4 text-stone-500" />;
-  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(blankSettings);
   const [savingCfg, setSavingCfg] = useState(false);
@@ -85,97 +58,11 @@ export default function Mailbox() {
   useEffect(() => { loadStatus(); }, [loadStatus]);
   useEffect(() => { if (configured) loadList(); }, [configured, loadList]);
 
-  useEffect(() => {
-    if (composeOpen && patientOpts.length === 0) {
-      api.get("/folders/patients").then((r) => setPatientOpts(r.data || [])).catch(() => {});
-    }
-  }, [composeOpen, patientOpts.length]);
-
-  useEffect(() => {
-    if (!attachPatient) { setFolderItems([]); return; }
-    api.get(`/mailbox/attachable/${attachPatient}`).then((r) => setFolderItems(r.data || [])).catch(() => setFolderItems([]));
-  }, [attachPatient]);
-
-  const loadDrafts = useCallback(async () => {
-    try { const r = await api.get("/mailbox/drafts"); setDrafts(r.data || []); }
-    catch (e) { /* ignore */ }
-  }, []);
-  useEffect(() => { if (configured) loadDrafts(); }, [configured, loadDrafts]);
-
-  const openCompose = (preset, draft) => {
-    setCompose(preset || { to: "", cc: "", subject: "", body_text: "" });
-    setAttachments(draft?.attachments || []);
-    setDraftId(draft?.id || null);
-    setAttachPatient("");
-    setAutoSaved(false);
-    setComposeOpen(true);
-  };
-  const openDraft = (d) => openCompose(
-    { to: d.to || "", cc: d.cc || "", subject: d.subject || "", body_text: d.body_text || "" }, d);
-  const saveDraft = async () => {
-    try {
-      const r = await api.post("/mailbox/drafts", {
-        id: draftId, to: compose.to, cc: compose.cc, subject: compose.subject,
-        body_text: compose.body_text, attachments,
-      });
-      setDraftId(r.data.id);
-      setAutoSaved(true);
-      toast.success(t("draftSaved"));
-      loadDrafts();
-    } catch (err) { toast.error(apiErr(err)); }
-  };
-  const deleteDraft = async (id, e) => {
-    if (e) e.stopPropagation();
-    try { await api.delete(`/mailbox/drafts/${id}`); loadDrafts(); if (draftId === id) setDraftId(null); }
-    catch (err) { toast.error(apiErr(err)); }
-  };
-
-  // Auto-save the open compose as a draft a couple seconds after the last edit.
-  useEffect(() => {
-    if (!composeOpen) return undefined;
-    const hasContent = compose.to || compose.cc || compose.subject || compose.body_text || attachments.length;
-    if (!hasContent) return undefined;
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(async () => {
-      try {
-        const wasNew = !draftId;
-        const r = await api.post("/mailbox/drafts", {
-          id: draftId, to: compose.to, cc: compose.cc, subject: compose.subject,
-          body_text: compose.body_text, attachments,
-        });
-        if (wasNew) { setDraftId(r.data.id); loadDrafts(); }
-        setAutoSaved(true);
-      } catch { /* silent */ }
-    }, 2500);
-    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [compose, attachments, composeOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-  const addAttachment = (it) => {
-    const patientName = patientOpts.find((p) => p.id === attachPatient)?.name;
-    setAttachments((a) => (a.some((x) => x.id === it.id) ? a : [...a, { ...it, patientName }]));
-  };
-  const removeAttachment = (id) => setAttachments((a) => a.filter((x) => x.id !== id));
-  const addLocalFiles = (files) => {
-    Array.from(files || []).forEach((file) => {
-      if (file.size > 15 * 1024 * 1024) { toast.error(`${file.name}: ${t("fileTooLarge")}`); return; }
-      const reader = new FileReader();
-      reader.onload = () => {
-        const b64 = String(reader.result).split(",")[1] || "";
-        setAttachments((a) => [...a, {
-          id: `local-${Date.now()}-${file.name}`, filename: file.name,
-          content_type: file.type, size: file.size, data_b64: b64, local: true,
-        }]);
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-  const onFilePick = (e) => { addLocalFiles(e.target.files); e.target.value = ""; };
-
   const openMsg = async (uid) => {
     try {
       const r = await api.get(`/mailbox/messages/${uid}`, { params: { folder } });
       setSelected(r.data);
       setList((l) => ({ ...l, items: l.items.map((m) => (m.uid === uid ? { ...m, seen: true } : m)) }));
-      window.dispatchEvent(new Event("mailbox-refresh"));
     } catch (e) { toast.error(apiErr(e)); }
   };
 
@@ -185,7 +72,6 @@ export default function Mailbox() {
       toast.success(t("deleted"));
       setSelected(null);
       loadList();
-      window.dispatchEvent(new Event("mailbox-refresh"));
     } catch (e) { toast.error(apiErr(e)); }
   };
 
@@ -197,16 +83,10 @@ export default function Mailbox() {
         to: compose.to.split(",").map((s) => s.trim()).filter(Boolean),
         cc: compose.cc.split(",").map((s) => s.trim()).filter(Boolean),
         subject: compose.subject, body_text: compose.body_text,
-        attachment_item_ids: attachments.filter((a) => !a.local).map((a) => a.id),
-        inline_attachments: attachments.filter((a) => a.local).map((a) => ({
-          filename: a.filename, content_type: a.content_type, data_b64: a.data_b64,
-        })),
       });
       toast.success(t("mailSent"));
       setComposeOpen(false);
       setCompose({ to: "", cc: "", subject: "", body_text: "" });
-      setAttachments([]); setAttachPatient("");
-      if (draftId) { deleteDraft(draftId); setDraftId(null); }
     } catch (err) { toast.error(apiErr(err)); }
     finally { setSending(false); }
   };
@@ -244,7 +124,6 @@ export default function Mailbox() {
   const folders = [
     { key: "INBOX", label: t("inbox"), icon: Inbox },
     { key: settings.sent_folder || "Sent", label: t("sent"), icon: SendHorizonal },
-    { key: "DRAFTS", label: t("drafts"), icon: FileText, count: drafts.length },
   ];
   const totalPages = Math.max(1, Math.ceil((list.total || 0) / (list.limit || 25)));
 
@@ -254,7 +133,7 @@ export default function Mailbox() {
         action={<div className="flex gap-2 flex-wrap">
           <Btn variant="outline" onClick={() => { loadStatus(); loadList(); }} data-testid="mail-refresh"><RefreshCw className="w-4 h-4" />{t("refresh")}</Btn>
           <Btn variant="outline" onClick={() => setSettingsOpen(true)} data-testid="mail-settings-btn"><Settings className="w-4 h-4" />{t("connection")}</Btn>
-          <Btn onClick={() => openCompose()} disabled={!configured} data-testid="mail-compose-btn"><PenSquare className="w-4 h-4" />{t("compose")}</Btn>
+          <Btn onClick={() => setComposeOpen(true)} disabled={!configured} data-testid="mail-compose-btn"><PenSquare className="w-4 h-4" />{t("compose")}</Btn>
         </div>} />
 
       {configured === false && (
@@ -276,36 +155,14 @@ export default function Mailbox() {
                 <button key={f.key} onClick={() => { setFolder(f.key); setPage(1); setSelected(null); }}
                   data-testid={`mail-folder-${f.label.toLowerCase()}`}
                   className={`w-full flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors duration-200 ${active ? "bg-moneygreen-700 text-white" : "text-stone-600 hover:bg-tan-50"}`}>
-                  <Icon className="w-4 h-4" /><span className="flex-1 text-left">{f.label}</span>
-                  {f.count > 0 && <span className={`text-xs ${active ? "text-tan-100" : "text-stone-400"}`}>{f.count}</span>}
+                  <Icon className="w-4 h-4" />{f.label}
                 </button>
               );
             })}
           </div>
 
           <Card className="overflow-hidden">
-            {folder === "DRAFTS" ? (
-              drafts.length === 0 ? (
-                <Empty icon={FileText} title={t("noDrafts")} />
-              ) : (
-                <div className="divide-y divide-border" data-testid="mail-drafts-list">
-                  {drafts.map((d, i) => (
-                    <div key={d.id} data-testid={`mail-draft-${d.id}`}
-                      className="w-full px-5 py-3 hover:bg-tan-50 transition-colors duration-150 flex items-center gap-3 cursor-pointer"
-                      onClick={() => openDraft(d)}>
-                      <FileText className="w-4 h-4 text-stone-400 shrink-0" />
-                      <span className="w-44 truncate text-sm shrink-0 text-stone-700">{d.to || t("noRecipient")}</span>
-                      <span className="flex-1 truncate text-sm text-stone-600">
-                        {d.subject || `(${t("noSubject")})`}
-                        {d.attachments?.length > 0 && <span className="ml-1 text-stone-400"><Paperclip className="w-3 h-3 inline" /> {d.attachments.length}</span>}
-                      </span>
-                      <button onClick={(e) => deleteDraft(d.id, e)} data-testid={`mail-draft-delete-${d.id}`}
-                        className="text-stone-400 hover:text-red-600 shrink-0"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  ))}
-                </div>
-              )
-            ) : loading ? (
+            {loading ? (
               <div className="p-10 text-center text-stone-400 text-sm">{t("loading")}…</div>
             ) : list.items.length === 0 ? (
               <Empty icon={Mail} title={t("noEmails")} />
@@ -327,7 +184,6 @@ export default function Mailbox() {
                 ))}
               </div>
             )}
-            {folder !== "DRAFTS" && (
             <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-tan-50/40">
               <span className="text-xs text-stone-500">{list.total} {t("messagesTotal")}</span>
               <div className="flex items-center gap-2">
@@ -336,7 +192,6 @@ export default function Mailbox() {
                 <Btn variant="ghost" className="!px-2" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} data-testid="mail-next"><ChevronRight className="w-4 h-4" /></Btn>
               </div>
             </div>
-            )}
           </Card>
         </div>
       )}
@@ -369,7 +224,7 @@ export default function Mailbox() {
               </div>
             )}
             <div className="flex justify-between pt-2">
-              <Btn variant="outline" onClick={() => { openCompose({ to: selected.from_, cc: "", subject: `Re: ${selected.subject || ""}`, body_text: `\n\n----------\n${selected.body_text || ""}` }); setSelected(null); }} data-testid="mail-reply"><SendHorizonal className="w-4 h-4" />{t("reply")}</Btn>
+              <Btn variant="outline" onClick={() => { setCompose({ to: selected.from_, cc: "", subject: `Re: ${selected.subject || ""}`, body_text: `\n\n----------\n${selected.body_text || ""}` }); setSelected(null); setComposeOpen(true); }} data-testid="mail-reply"><SendHorizonal className="w-4 h-4" />{t("reply")}</Btn>
               <Btn variant="ghost" className="!text-destructive" onClick={() => del(selected.uid)} data-testid="mail-delete"><Trash2 className="w-4 h-4" />{t("delete")}</Btn>
             </div>
           </div>
@@ -378,64 +233,14 @@ export default function Mailbox() {
 
       {/* Compose */}
       <Modal open={composeOpen} onClose={() => setComposeOpen(false)} title={t("newMessage")} wide>
-        <form onSubmit={send}
-          onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
-          onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); addLocalFiles(e.dataTransfer.files); }}
-          className={`space-y-3 rounded-lg transition-all duration-150 ${dragOver ? "ring-2 ring-moneygreen-500 ring-offset-2" : ""}`}>
+        <form onSubmit={send} className="space-y-3">
           <Field label={t("to")}><input required value={compose.to} onChange={setC("to")} className={inputCls} placeholder="patient@email.com, other@email.com" data-testid="mail-to" /></Field>
           <Field label="Cc"><input value={compose.cc} onChange={setC("cc")} className={inputCls} data-testid="mail-cc" /></Field>
           <Field label={t("subject")}><input value={compose.subject} onChange={setC("subject")} className={inputCls} data-testid="mail-subject" /></Field>
           <Field label={t("body")}><textarea rows={10} value={compose.body_text} onChange={setC("body_text")} className={inputCls} data-testid="mail-body" /></Field>
-          <div className="border-t border-border pt-3">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-stone-500 flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" />{t("attachments")}</p>
-              {attachments.length > 0 && (
-                <span className={`text-xs font-semibold ${overLimit ? "text-red-600" : "text-stone-400"}`} data-testid="mail-attach-total">
-                  {fmtSize(totalSize)} / 20 MB
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <select value={attachPatient} onChange={(e) => setAttachPatient(e.target.value)} className={inputCls} data-testid="mail-attach-patient">
-                <option value="">{t("attachFromPatient")}</option>
-                {patientOpts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.item_count})</option>)}
-              </select>
-              <select value="" onChange={(e) => { const it = folderItems.find((f) => f.id === e.target.value); if (it) addAttachment(it); }}
-                className={inputCls} data-testid="mail-attach-doc" disabled={!attachPatient}>
-                <option value="">{!attachPatient ? t("selectPatient") : (folderItems.length ? t("selectDocument") : t("noDocuments"))}</option>
-                {folderItems.map((it) => <option key={it.id} value={it.id}>{it.label || it.filename}</option>)}
-              </select>
-            </div>
-            <label className="mt-2 inline-flex items-center gap-1.5 text-sm text-moneygreen-700 hover:text-moneygreen-800 cursor-pointer font-semibold" data-testid="mail-attach-file-label">
-              <Upload className="w-4 h-4" />{t("attachFromComputer")}
-              <input type="file" multiple className="hidden" onChange={onFilePick} data-testid="mail-attach-file" />
-            </label>
-            <span className="text-xs text-stone-400 ml-2">{t("dropToAttach")}</span>
-            {attachments.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2" data-testid="mail-attachments-list">
-                {attachments.map((a) => (
-                  <span key={a.id} className="inline-flex items-center gap-1.5 text-xs bg-tan-50 border border-border rounded-lg pl-2 pr-1.5 py-1 text-moneygreen-800" data-testid={`mail-attach-chip-${a.id}`}>
-                    {attIcon(a)}
-                    <span>{a.filename || a.label}
-                      <span className="text-stone-400">{a.size ? ` · ${fmtSize(a.size)}` : ""}{a.local ? ` · ${t("fromComputer")}` : (a.patientName ? ` · ${a.patientName}` : "")}</span>
-                    </span>
-                    <button type="button" onClick={() => removeAttachment(a.id)} className="text-stone-400 hover:text-red-600" data-testid={`mail-attach-remove-${a.id}`}><X className="w-3 h-3" /></button>
-                  </span>
-                ))}
-              </div>
-            )}
-            {overLimit && <p className="text-xs text-red-600 font-semibold mt-2" data-testid="mail-attach-warning">{t("attachmentsTooLarge")}</p>}
-          </div>
-          <div className="flex justify-between items-center gap-2 pt-1">
-            <div className="flex items-center gap-2">
-              <Btn variant="outline" type="button" onClick={saveDraft} data-testid="mail-save-draft"><Save className="w-4 h-4" />{t("saveDraft")}</Btn>
-              {autoSaved && <span className="text-xs text-stone-400 flex items-center gap-1" data-testid="mail-autosaved"><CheckCircle2 className="w-3.5 h-3.5 text-moneygreen-500" />{t("draftAutosaved")}</span>}
-            </div>
-            <div className="flex gap-2">
-              <Btn variant="outline" type="button" onClick={() => setComposeOpen(false)}>{t("cancel")}</Btn>
-              <Btn type="submit" disabled={sending || !compose.to || overLimit} data-testid="mail-send"><SendHorizonal className="w-4 h-4" />{t("send")}</Btn>
-            </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Btn variant="outline" type="button" onClick={() => setComposeOpen(false)}>{t("cancel")}</Btn>
+            <Btn type="submit" disabled={sending || !compose.to} data-testid="mail-send"><SendHorizonal className="w-4 h-4" />{t("send")}</Btn>
           </div>
         </form>
       </Modal>

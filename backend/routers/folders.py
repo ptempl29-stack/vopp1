@@ -33,14 +33,6 @@ class MoveItem(BaseModel):
     subfolder_id: Optional[str] = None
 
 
-SERVICING_STATUSES = {"complete", "needs_servicing"}
-
-
-class ServicingStatusInput(BaseModel):
-    status: str
-    note: Optional[str] = None
-
-
 class AttachForm(BaseModel):
     form_id: str
     subfolder_id: Optional[str] = None
@@ -56,17 +48,14 @@ async def _patient_name(pid):
 @router.get("/folders/patients")
 async def list_patient_folders(user: dict = Depends(require_roles(*FOLDERS_ROLES))):
     pts = await db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "dob": 1, "folder_ready": 1}).to_list(2000)
-    counts, subcounts, needs_servicing = {}, {}, {}
-    async for it in db.folder_items.find({}, {"_id": 0, "patient_id": 1, "servicing_status": 1}):
+    counts, subcounts = {}, {}
+    async for it in db.folder_items.find({}, {"_id": 0, "patient_id": 1}):
         counts[it["patient_id"]] = counts.get(it["patient_id"], 0) + 1
-        if it.get("servicing_status") == "needs_servicing":
-            needs_servicing[it["patient_id"]] = needs_servicing.get(it["patient_id"], 0) + 1
     async for sf in db.folder_subfolders.find({}, {"_id": 0, "patient_id": 1}):
         subcounts[sf["patient_id"]] = subcounts.get(sf["patient_id"], 0) + 1
     result = [{"id": p["id"], "name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob"),
                "ready": bool(p.get("folder_ready")),
-               "item_count": counts.get(p["id"], 0), "subfolder_count": subcounts.get(p["id"], 0),
-               "needs_servicing_count": needs_servicing.get(p["id"], 0)} for p in pts]
+               "item_count": counts.get(p["id"], 0), "subfolder_count": subcounts.get(p["id"], 0)} for p in pts]
     result.sort(key=lambda x: x["name"].lower())
     await log_audit("view", "folder", actor=user, detail=f"list ({len(result)})")
     return result
@@ -176,11 +165,6 @@ async def upload_item(patient_id: str, file: UploadFile = File(...),
            "created_at": now_iso(), "created_by": user["name"], "created_by_id": user["id"]}
     await db.folder_items.insert_one(doc)
     doc.pop("_id", None)
-    try:
-        from routers.claims import _sync_folder_item_claims
-        await _sync_folder_item_claims(doc)
-    except Exception as exc:
-        logger.error(f"folder-item claim auto-sync failed: {exc}")
     await log_audit("create", "folder", actor=user, resource_id=patient_id, detail=f"upload {file.filename}")
     return doc
 
@@ -200,11 +184,6 @@ async def attach_form(patient_id: str, data: AttachForm, user: dict = Depends(re
            "created_at": now_iso(), "created_by": user["name"], "created_by_id": user["id"]}
     await db.folder_items.insert_one(doc)
     doc.pop("_id", None)
-    try:
-        from routers.claims import _sync_folder_item_claims
-        await _sync_folder_item_claims(doc)
-    except Exception as exc:
-        logger.error(f"folder-item claim auto-sync failed: {exc}")
     await log_audit("create", "folder", actor=user, resource_id=patient_id, detail=f"attach form {att['filename']}")
     return doc
 
@@ -223,32 +202,6 @@ async def edit_item(item_id: str, data: ItemEdit, user: dict = Depends(require_r
     return await db.folder_items.find_one({"id": item_id}, {"_id": 0})
 
 
-@router.put("/folders/items/{item_id}/servicing-status")
-async def set_item_servicing_status(item_id: str, data: ServicingStatusInput,
-                                    user: dict = Depends(require_roles(*FOLDERS_ROLES))):
-    """Internal-only readiness flag for a saved document (in practice, a
-    filed FMP claim packet): Complete (reviewed, ready to submit) or Needs
-    Servicing (corrections/missing documents needed), with who/when recorded.
-    Never surfaced on any VA-facing document, and never submits anything."""
-    if data.status not in SERVICING_STATUSES:
-        raise HTTPException(status_code=400, detail="status must be 'complete' or 'needs_servicing'")
-    if data.status == "needs_servicing" and not (data.note or "").strip():
-        raise HTTPException(status_code=400, detail="Please explain what needs to be corrected")
-    it = await db.folder_items.find_one({"id": item_id}, {"_id": 0})
-    if not it:
-        raise HTTPException(status_code=404, detail="Item not found")
-    note_text = (data.note or "").strip()[:2000] or None
-    history_entry = {"status": data.status, "note": note_text,
-                     "changed_by": user["name"], "changed_at": now_iso()}
-    await db.folder_items.update_one({"id": item_id}, {"$set": {
-        "servicing_status": data.status, "servicing_note": note_text,
-        "servicing_changed_by": user["name"], "servicing_changed_at": history_entry["changed_at"]},
-        "$push": {"servicing_history": history_entry}})
-    await log_audit("update", "folder", actor=user, resource_id=item_id,
-                    detail=f"servicing status: {data.status}" + (f" — {note_text}" if note_text else ""))
-    return await db.folder_items.find_one({"id": item_id}, {"_id": 0})
-
-
 @router.post("/folders/items/{item_id}/move")
 async def move_item(item_id: str, data: MoveItem, user: dict = Depends(require_roles(*FOLDERS_ROLES))):
     it = await db.folder_items.find_one({"id": item_id}, {"_id": 0})
@@ -262,14 +215,8 @@ async def move_item(item_id: str, data: MoveItem, user: dict = Depends(require_r
             raise HTTPException(status_code=400, detail="Target folder not found for that patient")
     await db.folder_items.update_one({"id": item_id}, {"$set": {
         "patient_id": data.patient_id, "subfolder_id": data.subfolder_id or None, "updated_at": now_iso()}})
-    updated = await db.folder_items.find_one({"id": item_id}, {"_id": 0})
-    try:
-        from routers.claims import _sync_folder_item_claims
-        await _sync_folder_item_claims(updated)
-    except Exception as exc:
-        logger.error(f"folder-item claim auto-sync failed: {exc}")
     await log_audit("update", "folder", actor=user, resource_id=item_id, detail=f"move to {data.patient_id}")
-    return updated
+    return await db.folder_items.find_one({"id": item_id}, {"_id": 0})
 
 
 @router.post("/folders/items/bulk-delete")

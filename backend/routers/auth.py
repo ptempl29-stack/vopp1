@@ -98,9 +98,7 @@ async def change_password(payload: dict, user: dict = Depends(get_current_user))
 
 @router.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
-    from core.ssn import can_view_full_ssn
     user["allowed_tabs"] = effective_tabs(user)
-    user["can_view_full_ssn"] = await can_view_full_ssn(user)
     return user
 
 

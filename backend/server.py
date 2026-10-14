@@ -17,7 +17,7 @@ from data.seed import CPT_LIBRARY, DEMO_USERS
 
 from routers import (auth, settings, patients, appointments, notes,
                      billing, messages, forms, folders, dashboard, audit, telehealth, claims, invites, assistant,
-                     users, roles, mailbox, fmp, chat, sandbox_admin, reports)
+                     users, roles, mailbox, fmp, chat, icd10)
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -29,7 +29,7 @@ async def health():
 
 for module in (auth, settings, patients, appointments, notes,
                billing, messages, forms, folders, dashboard, audit, telehealth, claims, invites, assistant,
-               users, roles, mailbox, fmp, chat, sandbox_admin, reports):
+               users, roles, mailbox, fmp, chat, icd10):
     api_router.include_router(module.router)
 
 
@@ -77,8 +77,6 @@ async def startup():
         logger.info("Object storage initialized")
     except Exception as e:
         logger.error(f"Storage init failed: {e}")
-    from core import sandbox
-    logger.warning(f"Preview sandbox status: {sandbox.status()}")
     logger.info("Startup complete")
 
 

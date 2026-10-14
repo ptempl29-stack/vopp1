@@ -5,9 +5,9 @@ import api, { apiErr } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
+import { Letterhead } from "../components/Letterhead";
 import { roleLabel } from "../lib/perms";
-import { SsnAccessCard } from "../components/SsnAccessCard";
-import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, MailCheck, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut, Stethoscope, EyeOff } from "lucide-react";
+import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, MailCheck, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
 const ALL_TABS = ["dashboard", "patients", "appointments", "telehealth", "notes",
@@ -34,7 +34,8 @@ export default function Team() {
   const [pwUser, setPwUser] = useState(null);
   const [pwForm, setPwForm] = useState({ password: "", require_change: true });
   const [lhOpen, setLhOpen] = useState(false);
-  const [lh, setLh] = useState({ clinic_name: "", tagline: "", address: "", phone: "", email: "", logo: "" });
+  const [lh, setLh] = useState({ clinic_name: "", tagline: "", rnc: "", address: "", phone: "", email: "",
+    phone2: "", whatsapp: "", admin_email: "", phone3: "", mailing_address: "", logo: "" });
   const [invites, setInvites] = useState([]);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: "", role: "receptionist", allowed_tabs: [] });
@@ -63,15 +64,6 @@ export default function Team() {
     try {
       await api.put(`/users/${u.id}/active`, { active: next });
       toast.success(next ? t("accessRestored") : t("accessSuspended"));
-      load();
-    } catch (err) { toast.error(apiErr(err)); }
-  };
-
-  const toggleProviderActive = async (u) => {
-    const next = u.provider_active === false;
-    try {
-      await api.put(`/users/${u.id}/provider-active`, { provider_active: next });
-      toast.success(next ? t("providerActivated") : t("providerDeactivated"));
       load();
     } catch (err) { toast.error(apiErr(err)); }
   };
@@ -212,7 +204,7 @@ export default function Team() {
     <div>
       <PageHeader title={t("settings")} subtitle={t("settingsSubtitle")}
         action={<div className="flex gap-2 flex-wrap">
-          <Btn variant="outline" onClick={openLetterhead} data-testid="edit-letterhead-btn"><FileSignature className="w-4 h-4" />{t("letterhead")}</Btn>
+          {me?.role === "admin" && <Btn variant="outline" onClick={openLetterhead} data-testid="edit-letterhead-btn"><FileSignature className="w-4 h-4" />{t("companyHeaderSettings")}</Btn>}
           {me?.role === "admin" && <Btn variant="outline" onClick={() => { setTestEmail(me?.email || ""); setTestOpen(true); }} data-testid="test-email-btn"><MailCheck className="w-4 h-4" />{t("sendTestEmail")}</Btn>}
           <Btn variant="outline" onClick={openInvite} data-testid="invite-staff-btn"><Mail className="w-4 h-4" />{t("inviteStaff")}</Btn>
           <Btn onClick={() => navigate("/enroll")} data-testid="add-user-btn"><UserPlus className="w-4 h-4" />{t("enrollStaff")}</Btn>
@@ -241,7 +233,6 @@ export default function Team() {
                   <th className="px-5 py-3">{t("name")}</th>
                   <th className="px-5 py-3">{t("role")}</th>
                   <th className="px-5 py-3">{t("status")}</th>
-                  <th className="px-5 py-3">{t("providerSelectable")}</th>
                   <th className="px-5 py-3 hidden md:table-cell">{t("tabAccess")}</th>
                   <th className="px-5 py-3 text-right">{t("actions")}</th>
                 </tr>
@@ -260,13 +251,6 @@ export default function Team() {
                       <Badge tone={u.active === false ? "gray" : "green"} data-testid={`user-status-${u.id}`}>
                         {u.active === false ? t("suspended") : t("active")}
                       </Badge>
-                    </td>
-                    <td className="px-5 py-3">
-                      {["doctor", "nurse", "psychologist"].includes(u.role) ? (
-                        <Badge tone={u.provider_active === false ? "gray" : "green"} data-testid={`provider-status-${u.id}`}>
-                          {u.provider_active === false ? t("notSelectable") : t("selectable")}
-                        </Badge>
-                      ) : "—"}
                     </td>
                     <td className="px-5 py-3 hidden md:table-cell">
                       <span className="text-xs text-stone-500">{(u.allowed_tabs || []).length} tabs</span>
@@ -294,13 +278,6 @@ export default function Team() {
                             className={`!px-2 ${u.active === false ? "!text-moneygreen-600" : "!text-amber-600"}`}
                             title={u.active === false ? t("restore") : t("suspend")}>
                             {u.active === false ? <RotateCcw className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
-                          </Btn>
-                        )}
-                        {["doctor", "nurse", "psychologist"].includes(u.role) && (
-                          <Btn variant="ghost" onClick={() => toggleProviderActive(u)} data-testid={`toggle-provider-active-${u.id}`}
-                            className={`!px-2 ${u.provider_active === false ? "!text-moneygreen-600" : "!text-stone-500"}`}
-                            title={u.provider_active === false ? t("makeSelectable") : t("makeNotSelectable")}>
-                            {u.provider_active === false ? <Stethoscope className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                           </Btn>
                         )}
                         {u.id !== me.id && u.role !== "admin" && (
@@ -376,7 +353,6 @@ export default function Team() {
           ))}
         </div>
       </div>
-      {me?.role === "admin" && <SsnAccessCard />}
 
       <Modal open={!!roleTpl} onClose={() => setRoleTpl(null)} title={roleTpl ? `${t("editRoleTemplate")} — ${roleLabel(roleTpl.role)}` : ""}>
         {roleTpl && (
@@ -525,7 +501,7 @@ export default function Team() {
           </form>
         )}
       </Modal>
-      <Modal open={lhOpen} onClose={() => setLhOpen(false)} title={t("letterhead")}>
+      <Modal open={lhOpen} onClose={() => setLhOpen(false)} title={t("companyHeaderSettings")} wide>
         <form onSubmit={saveLetterhead} className="space-y-4">
           <div className="flex items-center gap-4">
             {lh.logo ? <img src={lh.logo} alt="logo" className="h-16 w-16 object-contain rounded-md border border-border" data-testid="lh-logo-preview" />
@@ -536,23 +512,34 @@ export default function Team() {
                 className="mt-1 block text-sm text-stone-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-moneygreen-600 file:text-white file:font-semibold file:cursor-pointer" />
             </div>
           </div>
-          <Field label={t("clinicName")}><input required value={lh.clinic_name} onChange={setLhField("clinic_name")} className={inputCls} data-testid="lh-name" /></Field>
-          <Field label="RNC"><input value={lh.rnc || ""} onChange={setLhField("rnc")} className={inputCls} data-testid="lh-rnc" /></Field>
-          <Field label={t("tagline")}><input value={lh.tagline || ""} onChange={setLhField("tagline")} className={inputCls} data-testid="lh-tagline" /></Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t("clinicName")}><input required value={lh.clinic_name || ""} onChange={setLhField("clinic_name")} className={inputCls} data-testid="lh-name" /></Field>
+            <Field label={t("rnc")}><input value={lh.rnc || ""} onChange={setLhField("rnc")} className={inputCls} data-testid="lh-rnc" /></Field>
+          </div>
           <Field label={t("address")}><input value={lh.address || ""} onChange={setLhField("address")} className={inputCls} data-testid="lh-address" /></Field>
           <div className="grid grid-cols-2 gap-4">
-            <Field label={t("phone")}><input value={lh.phone || ""} onChange={setLhField("phone")} className={inputCls} data-testid="lh-phone" /></Field>
-            <Field label={t("email")}><input value={lh.email || ""} onChange={setLhField("email")} className={inputCls} data-testid="lh-email" /></Field>
+            <Field label={t("drPhone")}><input value={lh.phone || ""} onChange={setLhField("phone")} className={inputCls} data-testid="lh-phone" /></Field>
+            <Field label={t("primaryEmail")}><input value={lh.email || ""} onChange={setLhField("email")} className={inputCls} data-testid="lh-email" /></Field>
           </div>
-          <Field label={t("whatsapp")}><input value={lh.whatsapp || ""} onChange={setLhField("whatsapp")} className={inputCls} data-testid="lh-whatsapp" placeholder="+1 809 555 0100" /></Field>
+          <Field label={t("drPhone2")}><input value={lh.phone2 || ""} onChange={setLhField("phone2")} className={inputCls} data-testid="lh-phone2" /></Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t("whatsapp")}><input value={lh.whatsapp || ""} onChange={setLhField("whatsapp")} className={inputCls} data-testid="lh-whatsapp" placeholder="+1 809 555 0100" /></Field>
+            <Field label={t("adminEmail")}><input value={lh.admin_email || ""} onChange={setLhField("admin_email")} className={inputCls} data-testid="lh-admin-email" /></Field>
+          </div>
+          <Field label={t("usPhone")}><input value={lh.phone3 || ""} onChange={setLhField("phone3")} className={inputCls} data-testid="lh-phone3" /></Field>
+          <Field label={t("mailingAddress")}><input value={lh.mailing_address || ""} onChange={setLhField("mailing_address")} className={inputCls} data-testid="lh-mailing" /></Field>
           <div className="grid grid-cols-2 gap-4">
             <Field label={t("usdToDop")}><input type="number" step="0.01" min="1" value={lh.usd_to_dop ?? 60} onChange={setLhField("usd_to_dop")} className={inputCls} data-testid="lh-usd-dop" /></Field>
             <Field label={t("invoiceStartNumber")}><input type="number" step="1" min="1" value={lh.invoice_seq_base ?? 36} onChange={setLhField("invoice_seq_base")} className={inputCls} data-testid="lh-invoice-base" /></Field>
           </div>
           <p className="text-xs text-stone-400 -mt-2">{t("invoiceStartHint")}</p>
+          <div className="rounded-md border border-dashed border-border p-3 bg-tan-50">
+            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-stone-400 mb-2">{t("headerPreview")}</p>
+            <Letterhead settings={lh} />
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="outline" type="button" onClick={() => setLhOpen(false)}>{t("cancel")}</Btn>
-            <Btn type="submit" data-testid="save-letterhead-btn">{t("save")}</Btn>
+            <Btn type="submit" data-testid="save-letterhead-btn">{t("saveChanges")}</Btn>
           </div>
         </form>
       </Modal>

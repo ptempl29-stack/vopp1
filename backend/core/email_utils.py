@@ -58,10 +58,6 @@ def _send_yahoo(to_email: str, subject: str, body: str, attachments) -> bool:
 def send_email(to_email: str, subject: str, body: str, attachments=None) -> bool:
     """Send an email via Resend (primary) or Yahoo SMTP (fallback).
     attachments: optional list of {filename, content(bytes), content_type}."""
-    from core import sandbox
-    if sandbox.outbound_blocked():
-        logger.warning("Email BLOCKED (Preview): no outgoing email is sent from Preview")
-        return False
     if not email_configured():
         logger.info("Email not configured; skipping send")
         return False

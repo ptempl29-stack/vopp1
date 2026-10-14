@@ -74,7 +74,6 @@ class NoteInput(BaseModel):
     cpt_code: Optional[str] = None
     risk_level: Optional[str] = None
     ai_summarized: bool = False
-    title_nonclinical_confirmed: bool = False
 
 
 class SummarizeInput(BaseModel):
@@ -120,7 +119,6 @@ class MessageInput(BaseModel):
 
 class FormInput(BaseModel):
     patient_id: Optional[str] = None
-    provider_id: Optional[str] = None
     title: str
     form_type: str
     fields: Optional[dict] = None
@@ -133,14 +131,17 @@ class FormInput(BaseModel):
 class SettingsInput(BaseModel):
     clinic_name: str
     tagline: Optional[str] = ""
+    rnc: Optional[str] = ""
     address: Optional[str] = ""
     phone: Optional[str] = ""
     email: Optional[str] = ""
+    phone2: Optional[str] = ""
     whatsapp: Optional[str] = Field(default="", max_length=40)
+    admin_email: Optional[str] = ""
+    phone3: Optional[str] = ""
     mailing_address: Optional[str] = ""
     primary_insurance: Optional[str] = ""
     logo: Optional[str] = ""
-    rnc: Optional[str] = ""
     usd_to_dop: Optional[float] = 60.0
     invoice_seq_base: Optional[int] = 36
 

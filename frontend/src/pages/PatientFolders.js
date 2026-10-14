@@ -9,12 +9,12 @@ import { fmtDate } from "../lib/date";
 import { useSelection, bulkDelete } from "../lib/bulk";
 import {
   Folder, FolderOpen, FolderPlus, ChevronLeft, Download, FileText, Upload,
-  Pencil, Trash2, Search, Plus, MoveRight, ClipboardList, Users, Eye, UploadCloud, CheckCircle2, FolderArchive,
+  Pencil, Trash2, Search, Plus, MoveRight, ClipboardList, Users, Eye, UploadCloud, CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 
-const sourceIcon = { form: ClipboardList, upload: FileText, claim_packet: FolderArchive };
-const sourceTone = { form: "green", upload: "tan", claim_packet: "green" };
+const sourceIcon = { form: ClipboardList, upload: FileText };
+const sourceTone = { form: "green", upload: "tan" };
 
 export default function PatientFolders() {
   const { t } = useLang();
@@ -29,7 +29,6 @@ export default function PatientFolders() {
   // modals
   const [subModal, setSubModal] = useState(null); // {id?, name}
   const [editModal, setEditModal] = useState(null); // item
-  const [servicingModal, setServicingModal] = useState(null); // {id, status, note}
   const [moveModal, setMoveModal] = useState(null); // item
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState(null); // {label, kind, url}
@@ -143,16 +142,6 @@ export default function PatientFolders() {
     try {
       await api.put(`/folders/items/${editModal.id}`, { label: editModal.label, description: editModal.description || "" });
       toast.success(t("itemSaved")); setEditModal(null); refresh();
-    } catch (err) { toast.error(apiErr(err)); }
-  };
-
-  const saveServicingStatus = async (e) => {
-    e.preventDefault();
-    try {
-      await api.put(`/folders/items/${servicingModal.id}/servicing-status`, {
-        status: servicingModal.status, note: servicingModal.note || null,
-      });
-      toast.success(t("statusSaved")); setServicingModal(null); refresh();
     } catch (err) { toast.error(apiErr(err)); }
   };
 
@@ -290,7 +279,6 @@ export default function PatientFolders() {
                     <th className="px-4 py-3 w-10"></th>
                     <th className="px-4 py-3">{t("itemLabel")}</th>
                     <th className="px-4 py-3 hidden md:table-cell">{t("itemSource")}</th>
-                    <th className="px-4 py-3 hidden md:table-cell">{t("servicingStatus")}</th>
                     <th className="px-4 py-3 hidden lg:table-cell">{t("newSubfolder")}</th>
                     <th className="px-4 py-3 hidden md:table-cell">{t("filename")}</th>
                     <th className="px-4 py-3 text-right">{t("actions")}</th>
@@ -312,16 +300,6 @@ export default function PatientFolders() {
                           {it.description && <p className="text-xs text-stone-500 mt-0.5 line-clamp-1">{it.description}</p>}
                         </td>
                         <td className="px-4 py-3 hidden md:table-cell"><Badge tone={sourceTone[it.source] || "gray"}>{t(`src_${it.source}`)}</Badge></td>
-                        <td className="px-4 py-3 hidden md:table-cell">
-                          {it.source === "claim_packet" ? (
-                            <button type="button" onClick={() => setServicingModal({ id: it.id, status: it.servicing_status || "complete", note: it.servicing_note || "" })}
-                              data-testid={`folder-servicing-status-${it.id}`} title={t("editServicingStatus")}>
-                              <Badge tone={it.servicing_status === "needs_servicing" ? "red" : it.servicing_status === "complete" ? "green" : "gray"}>
-                                {it.servicing_status === "needs_servicing" ? t("needsServicing") : it.servicing_status === "complete" ? t("packetComplete") : t("notSetYet")}
-                              </Badge>
-                            </button>
-                          ) : "—"}
-                        </td>
                         <td className="px-4 py-3 hidden lg:table-cell text-stone-500 text-xs">{it.subfolder_id ? subName(it.subfolder_id) : t("unfiled")}</td>
                         <td className="px-4 py-3 hidden md:table-cell text-stone-500 text-xs">{it.filename}</td>
                         <td className="px-4 py-3">
@@ -346,7 +324,6 @@ export default function PatientFolders() {
 
         <SubfolderModal state={subModal} onClose={() => setSubModal(null)} onSave={saveSubfolder} setState={setSubModal} t={t} />
         <EditItemModal state={editModal} onClose={() => setEditModal(null)} onSave={saveEdit} setState={setEditModal} t={t} />
-        <ServicingStatusModal state={servicingModal} onClose={() => setServicingModal(null)} onSave={saveServicingStatus} setState={setServicingModal} t={t} />
         <MoveModal state={moveModal} onClose={() => setMoveModal(null)} onSave={doMove} setState={setMoveModal} t={t} patients={patients} />
 
         <Modal open={!!preview} onClose={closePreview} title={preview?.label || t("preview")} wide>
@@ -391,10 +368,7 @@ export default function PatientFolders() {
                     <p className="font-heading font-bold text-moneygreen-800 truncate"><Private value={p.name} /></p>
                     <p className="text-xs text-stone-500 mt-0.5"><Private value={fmtDate(p.dob) || "—"} /></p>
                   </div>
-                  <div className="ml-auto shrink-0 flex flex-col items-end gap-1">
-                    {p.ready && <Badge tone="green" data-testid={`folder-ready-${p.id}`}><span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{t("folderReady")}</span></Badge>}
-                    {p.needs_servicing_count > 0 && <Badge tone="red" data-testid={`folder-needs-servicing-${p.id}`}>{p.needs_servicing_count} {t("needsServicing")}</Badge>}
-                  </div>
+                  {p.ready && <div className="ml-auto shrink-0"><Badge tone="green" data-testid={`folder-ready-${p.id}`}><span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{t("folderReady")}</span></Badge></div>}
                 </div>
                 <div className="flex items-center gap-4 mt-4 text-xs text-stone-500">
                   <span className="inline-flex items-center gap-1"><FileText className="w-3.5 h-3.5" />{p.item_count} {t("documents")}</span>
@@ -441,39 +415,6 @@ function EditItemModal({ state, onClose, onSave, setState, t }) {
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="outline" type="button" onClick={onClose}>{t("cancel")}</Btn>
             <Btn type="submit" data-testid="save-item-btn">{t("save")}</Btn>
-          </div>
-        </form>
-      )}
-    </Modal>
-  );
-}
-
-function ServicingStatusModal({ state, onClose, onSave, setState, t }) {
-  return (
-    <Modal open={!!state} onClose={onClose} title={t("servicingStatus")}>
-      {state && (
-        <form onSubmit={onSave} className="space-y-4" data-testid="servicing-status-form">
-          <p className="text-xs text-stone-500">{t("servicingStatusHint")}</p>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setState({ ...state, status: "complete" })} data-testid="servicing-status-complete"
-              className={`flex-1 px-3 py-2 rounded-md border text-sm font-semibold transition-colors ${state.status === "complete" ? "bg-moneygreen-600 text-white border-moneygreen-600" : "border-border text-stone-600 hover:bg-tan-50"}`}>
-              {t("packetComplete")}
-            </button>
-            <button type="button" onClick={() => setState({ ...state, status: "needs_servicing" })} data-testid="servicing-status-needs-servicing"
-              className={`flex-1 px-3 py-2 rounded-md border text-sm font-semibold transition-colors ${state.status === "needs_servicing" ? "bg-red-600 text-white border-red-600" : "border-border text-stone-600 hover:bg-tan-50"}`}>
-              {t("needsServicing")}
-            </button>
-          </div>
-          {state.status === "complete" && <p className="text-xs text-stone-500">{t("packetCompleteHint")}</p>}
-          {state.status === "needs_servicing" && (
-            <Field label={t("servicingNoteLabel")}>
-              <textarea required rows={3} value={state.note} onChange={(e) => setState({ ...state, note: e.target.value })}
-                placeholder={t("servicingNotePlaceholder")} className={inputCls} data-testid="servicing-note-input" />
-            </Field>
-          )}
-          <div className="flex justify-end gap-2 pt-2">
-            <Btn variant="outline" type="button" onClick={onClose}>{t("cancel")}</Btn>
-            <Btn type="submit" data-testid="save-servicing-status-btn">{t("save")}</Btn>
           </div>
         </form>
       )}

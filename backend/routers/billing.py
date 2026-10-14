@@ -6,15 +6,11 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 
-from core.db import db, now_iso, logger
-from core.config import INVOICE_STATUSES
+from core.db import db, now_iso
+from core.config import INVOICE_STATUSES, DEFAULT_SETTINGS
 from core.security import get_current_user, require_roles
 from core.audit import log_audit
-from core.ssn import with_patient_ssn, redact_ssn, can_view_full_ssn
-from core.invoice_numbers import compute_next_invoice_number
-from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd, with_icd_descriptions, icd_descriptions
 from models.schemas import CptInput, InvoiceInput, IdList
-from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -56,7 +52,7 @@ async def list_invoices(user: dict = Depends(require_roles("biller", "receptioni
     patients = {p["id"]: f"{p['first_name']} {p['last_name']}"
                 async for p in db.patients.find({}, {"_id": 0, "id": 1, "first_name": 1, "last_name": 1}).limit(5000)}
     for inv in invoices:
-        inv["patient_name"] = inv.get("patient_name") or patients.get(inv.get("patient_id")) or "Unknown"
+        inv["patient_name"] = patients.get(inv.get("patient_id")) or inv.get("patient_name") or "Unknown"
     await log_audit("view", "invoice", actor=user, detail=f"list ({len(invoices)})")
     return invoices
 
@@ -77,7 +73,14 @@ async def _get_seq_base() -> int:
 async def _compute_next_number() -> str:
     base = await _get_seq_base()
     nums = await db.invoices.distinct("invoice_number")
-    return compute_next_invoice_number(nums, base)
+    mx = 0
+    for n in nums:
+        if isinstance(n, str) and n.startswith("MB-"):
+            try:
+                mx = max(mx, int(n.split("-")[1]))
+            except (ValueError, IndexError):
+                pass
+    return f"MB-{max(mx + 1, base):04d}"
 
 
 @router.get("/invoices/next-number")
@@ -107,100 +110,7 @@ async def set_seq_base(payload: dict, user: dict = Depends(require_roles("biller
 async def invoice_code_history(patient_id: str, user: dict = Depends(require_roles("biller", "receptionist"))):
     icd_inv = await db.invoices.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})
     icd_notes = await db.notes.distinct("icd10", {"patient_id": patient_id, "icd10": {"$nin": [None, ""]}})
-    hidden = await dismissed_icd(patient_id)
-    return {"icd10": sorted((set(icd_inv) | set(icd_notes)) - hidden)}
-
-
-class DismissIcd(BaseModel):
-    patient_id: str
-    code: str
-
-
-class IcdInput(BaseModel):
-    code: str
-    description: str = ""
-
-
-STARTER_ICD = [
-    ("F43.10", "Post-traumatic stress disorder, unspecified"),
-    ("F43.11", "Post-traumatic stress disorder, acute"),
-    ("F43.12", "Post-traumatic stress disorder, chronic"),
-    ("F41.1", "Generalized anxiety disorder"),
-    ("F41.0", "Panic disorder without agoraphobia"),
-    ("F41.9", "Anxiety disorder, unspecified"),
-    ("F40.10", "Social phobia, unspecified"),
-    ("F32.0", "Major depressive disorder, single episode, mild"),
-    ("F32.1", "Major depressive disorder, single episode, moderate"),
-    ("F32.2", "Major depressive disorder, single episode, severe without psychotic features"),
-    ("F32.9", "Major depressive disorder, single episode, unspecified"),
-    ("F33.0", "Major depressive disorder, recurrent, mild"),
-    ("F33.1", "Major depressive disorder, recurrent, moderate"),
-    ("F33.2", "Major depressive disorder, recurrent, severe without psychotic features"),
-    ("F33.9", "Major depressive disorder, recurrent, unspecified"),
-    ("F43.20", "Adjustment disorder, unspecified"),
-    ("F43.21", "Adjustment disorder with depressed mood"),
-    ("F43.22", "Adjustment disorder with anxiety"),
-    ("F43.23", "Adjustment disorder with mixed anxiety and depressed mood"),
-    ("F31.9", "Bipolar disorder, unspecified"),
-    ("F42.9", "Obsessive-compulsive disorder, unspecified"),
-    ("F90.9", "Attention-deficit hyperactivity disorder, unspecified type"),
-    ("F51.01", "Primary insomnia"),
-    ("G47.00", "Insomnia, unspecified"),
-    ("F10.20", "Alcohol dependence, uncomplicated"),
-    ("F17.200", "Nicotine dependence, unspecified, uncomplicated"),
-    ("Z63.0", "Problems in relationship with spouse or partner"),
-]
-
-
-async def _seed_icd_catalog():
-    if await db.settings.find_one({"key": "icd_catalog_seeded"}):
-        return
-    existing = set(await db.icd_codes.distinct("code"))
-    icd_inv = await db.invoices.distinct("icd10", {"icd10": {"$nin": [None, ""]}})
-    icd_notes = await db.notes.distinct("icd10", {"icd10": {"$nin": [None, ""]}})
-    merged = {}
-    for code, desc in STARTER_ICD:
-        merged[code] = desc
-    for code in sorted(set(icd_inv) | set(icd_notes)):
-        merged.setdefault(code, "")
-    docs = [{"id": str(uuid.uuid4()), "code": c, "description": d, "created_at": now_iso()}
-            for c, d in merged.items() if c not in existing]
-    if docs:
-        await db.icd_codes.insert_many(docs)
-    await db.settings.update_one({"key": "icd_catalog_seeded"},
-        {"$set": {"key": "icd_catalog_seeded", "value": True}}, upsert=True)
-
-
-@router.get("/icd-codes")
-async def icd_codes(user: dict = Depends(get_current_user)):
-    """Shared ICD-10 catalog; seeded once with common clinic codes + any codes on past records."""
-    await _seed_icd_catalog()
-    return await db.icd_codes.find({}, {"_id": 0}).sort("code", 1).to_list(2000)
-
-
-@router.post("/icd-codes")
-async def create_icd(data: IcdInput, user: dict = Depends(require_roles("doctor", "nurse", "psychologist", "biller", "receptionist"))):
-    code = data.code.strip()
-    if not code:
-        raise HTTPException(status_code=400, detail="Code is required")
-    if await db.icd_codes.find_one({"code": code}):
-        raise HTTPException(status_code=400, detail="ICD-10 code already exists")
-    doc = {"id": str(uuid.uuid4()), "code": code, "description": data.description.strip(), "created_at": now_iso()}
-    await db.icd_codes.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
-
-
-@router.post("/invoices/patient-code-history/dismiss")
-async def invoice_dismiss_icd(data: DismissIcd, user: dict = Depends(require_roles("biller", "receptionist"))):
-    await add_dismissed_icd(data.patient_id, data.code, user)
-    return {"ok": True}
-
-
-@router.post("/invoices/patient-code-history/restore")
-async def invoice_restore_icd(data: DismissIcd, user: dict = Depends(require_roles("biller", "receptionist"))):
-    await remove_dismissed_icd(data.patient_id, data.code)
-    return {"ok": True}
+    return {"icd10": sorted(set(icd_inv) | set(icd_notes))}
 
 
 @router.post("/invoices")
@@ -215,27 +125,19 @@ async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles(
         p = await db.patients.find_one({"id": data.patient_id}, {"_id": 0})
         if p:
             name = f"{p['first_name']} {p['last_name']}"
-    full = await can_view_full_ssn(user)
     doc = {"id": str(uuid.uuid4()), "invoice_number": number,
            "patient_id": data.patient_id, "patient_name": name,
-           "dob": data.dob, "ssn": data.ssn if full else None, "policy_number": data.policy_number, "gender": data.gender,
+           "dob": data.dob, "ssn": data.ssn, "policy_number": data.policy_number, "gender": data.gender,
            "service_date": data.service_date, "visit_reason": data.visit_reason,
-           "icd10": data.icd10, "icd10_descriptions": await icd_descriptions(data.icd10), "provider": data.provider,
+           "icd10": data.icd10, "provider": data.provider,
            "items": items, "total": round(total, 2), "status": data.status, "notes": data.notes,
            "completed_at": now_iso() if data.status == "paid" else None,
            "created_at": now_iso(), "created_by": user["name"]}
     await db.invoices.insert_one(doc)
     doc.pop("_id", None)
-    try:
-        from routers.claims import _link_invoice_to_related_claims
-        await _link_invoice_to_related_claims(doc)
-    except Exception as exc:
-        # Claim reads also backfill the association, so invoice creation must
-        # not become retry-unsafe if this best-effort link step is interrupted.
-        logger.error(f"invoice-to-claim auto-link failed: {exc}")
     await log_audit("create", "invoice", actor=user, resource_id=doc["id"],
                     detail=f"{number} · {name or ''} · ${doc['total']}")
-    return await redact_ssn(user, doc)
+    return doc
 
 
 @router.put("/invoices/{iid}/status")
@@ -249,7 +151,7 @@ async def update_invoice_status(iid: str, status: str, user: dict = Depends(requ
     completed = (existing.get("completed_at") or now_iso()) if status == "paid" else None
     await db.invoices.update_one({"id": iid}, {"$set": {"completed_at": completed}})
     await log_audit("update", "invoice", actor=user, resource_id=iid, detail=f"status={status}")
-    return await redact_ssn(user, await db.invoices.find_one({"id": iid}, {"_id": 0}))
+    return await db.invoices.find_one({"id": iid}, {"_id": 0})
 
 
 @router.get("/invoices/{iid}")
@@ -260,17 +162,18 @@ async def get_invoice(iid: str, user: dict = Depends(require_roles("biller", "re
     if inv.get("patient_id"):
         p = await db.patients.find_one({"id": inv["patient_id"]}, {"_id": 0})
         if p:
-            inv["patient_name"] = inv.get("patient_name") or f"{p['first_name']} {p['last_name']}"
-            inv["dob"] = inv.get("dob") or p.get("dob")
-            inv["ssn"] = inv.get("ssn") or p.get("ssn")
-            inv["gender"] = inv.get("gender") or p.get("gender")
+            inv["patient_name"] = f"{p['first_name']} {p['last_name']}"
+            inv["dob"] = p.get("dob") or inv.get("dob")
+            inv["ssn"] = p.get("ssn") or inv.get("ssn")
+            inv["gender"] = p.get("gender") or inv.get("gender")
     await log_audit("view", "invoice", actor=user, resource_id=iid, detail=inv.get("invoice_number", ""))
-    return await redact_ssn(user, inv)
+    return inv
 
 
 @router.post("/invoices/{iid}/to-folder")
 async def invoice_to_folder(iid: str, user: dict = Depends(require_roles("biller", "receptionist"))):
     from core.folder_filing import invoice_pdf, file_pdf_into_folder, fmt_date
+    from core.icd10 import label_for as icd10_label_for
     inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -280,17 +183,14 @@ async def invoice_to_folder(iid: str, user: dict = Depends(require_roles("biller
     p = await db.patients.find_one({"id": pid}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
-    inv = {**inv,
-           "patient_name": inv.get("patient_name") or f"{p['first_name']} {p['last_name']}",
-           "dob": inv.get("dob") or p.get("dob")}
+    inv = {**inv, "patient_name": f"{p['first_name']} {p['last_name']}", "dob": p.get("dob"),
+           "icd10": await icd10_label_for(inv.get("icd10"))}
     s = await db.settings.find_one({"key": "clinic"}, {"_id": 0})
-    clinic = (s or {}).get("clinic_name", "Veterans of Puerto Plata")
-    rnc = (s or {}).get("rnc", "")
     sd = inv.get("service_date")
     ds = fmt_date(sd)
     num = inv.get("invoice_number") or "Invoice"
     try:
-        pdf = invoice_pdf(await with_icd_descriptions(await with_patient_ssn(inv)), s or {})
+        pdf = invoice_pdf(inv, s or DEFAULT_SETTINGS)
     except Exception:
         raise HTTPException(status_code=500, detail="Could not render invoice PDF")
     label = f"Patient Invoice {num} {ds}".strip()
@@ -316,23 +216,16 @@ async def update_invoice(iid: str, data: InvoiceInput, user: dict = Depends(requ
             name = f"{p['first_name']} {p['last_name']}"
     upd = {"invoice_number": data.invoice_number or existing.get("invoice_number"),
            "patient_id": data.patient_id, "patient_name": name,
-           "dob": data.dob, "ssn": data.ssn if await can_view_full_ssn(user) else existing.get("ssn"),
-           "policy_number": data.policy_number, "gender": data.gender,
+           "dob": data.dob, "ssn": data.ssn, "policy_number": data.policy_number, "gender": data.gender,
            "service_date": data.service_date, "visit_reason": data.visit_reason,
-           "icd10": data.icd10, "icd10_descriptions": await icd_descriptions(data.icd10), "provider": data.provider,
+           "icd10": data.icd10, "provider": data.provider,
            "items": items, "total": round(total, 2), "status": data.status, "notes": data.notes,
            "completed_at": (existing.get("completed_at") or now_iso()) if data.status == "paid" else None,
            "updated_at": now_iso(), "updated_by": user["name"]}
     await db.invoices.update_one({"id": iid}, {"$set": upd})
-    updated = await db.invoices.find_one({"id": iid}, {"_id": 0})
-    try:
-        from routers.claims import _link_invoice_to_related_claims
-        await _link_invoice_to_related_claims(updated)
-    except Exception as exc:
-        logger.error(f"invoice-to-claim auto-link failed: {exc}")
     await log_audit("update", "invoice", actor=user, resource_id=iid,
                     detail=f"{upd['invoice_number']} · {name or ''} · ${upd['total']}")
-    return await redact_ssn(user, updated)
+    return await db.invoices.find_one({"id": iid}, {"_id": 0})
 
 
 @router.post("/invoices/bulk-delete")

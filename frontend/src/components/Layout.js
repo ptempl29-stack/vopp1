@@ -1,37 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
-import { playDing } from "../lib/sound";
+import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { usePrivacy } from "../context/PrivacyContext";
-import api from "../lib/api";
 import {
   LayoutDashboard, Users, CalendarDays, FileText, ReceiptText,
   ClipboardList, MessageSquare, Video, LogOut, Menu, Stethoscope, Languages, Hash,
-  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff, FolderTree, Mail, ClipboardCheck,
+  BarChart3, UserCog, ShieldCheck, FolderArchive, Settings, Sparkles, Eye, EyeOff, FolderTree, Mail, DollarSign,
 } from "lucide-react";
-
-const UNREAD_POLL_MS = 20000;
-
-function useUnreadMessages(enabled) {
-  const [unread, setUnread] = useState(0);
-  const seen = useRef(null);
-  useEffect(() => {
-    if (!enabled) return;
-    let stopped = false;
-    const poll = () => api.get("/messages/unread-count").then((r) => {
-      if (stopped) return;
-      const n = r.data.unread || 0;
-      if (seen.current !== null && n > seen.current) playDing();
-      seen.current = n;
-      setUnread(n);
-    }).catch(() => {});
-    poll();
-    const id = setInterval(poll, UNREAD_POLL_MS);
-    return () => { stopped = true; clearInterval(id); };
-  }, [enabled]);
-  return unread;
-}
 
 const nav = [
   { to: "/", tab: "dashboard", key: "dashboard", icon: LayoutDashboard, end: true },
@@ -42,7 +18,6 @@ const nav = [
   { to: "/invoices", tab: "invoices", key: "invoices", icon: ReceiptText },
   { to: "/cpt-codes", tab: "cpt", key: "cptCodes", icon: Hash },
   { to: "/reports", tab: "reports", key: "reports", icon: BarChart3 },
-  { to: "/completed-reports", tab: "reports", key: "completedWorkReports", icon: ClipboardCheck },
   { to: "/forms", tab: "forms", key: "forms", icon: ClipboardList },
   { to: "/folders", tab: "folders", key: "patientFolders", icon: FolderTree },
   { to: "/claims", tab: "claims", key: "claims", icon: FolderArchive },
@@ -64,20 +39,6 @@ export default function Layout({ children }) {
   const { privacy, toggle: togglePrivacy } = usePrivacy();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const unreadMessages = useUnreadMessages(!!user && (user.allowed_tabs || []).includes("messages"));
-  const [unread, setUnread] = useState(0);
-  const hasMailbox = (user?.allowed_tabs || []).includes("mailbox");
-
-  useEffect(() => {
-    if (!hasMailbox) return undefined;
-    let active = true;
-    const fetchUnread = () => api.get("/mailbox/unread")
-      .then((r) => { if (active) setUnread(r.data?.unread || 0); }).catch(() => {});
-    fetchUnread();
-    const id = setInterval(fetchUnread, 60000);
-    window.addEventListener("mailbox-refresh", fetchUnread);
-    return () => { active = false; clearInterval(id); window.removeEventListener("mailbox-refresh", fetchUnread); };
-  }, [hasMailbox]);
 
   const handleLogout = () => { logout(); navigate("/login"); };
 
@@ -105,19 +66,7 @@ export default function Layout({ children }) {
                   isActive ? "bg-moneygreen-600 text-white" : "text-tan-200 hover:bg-moneygreen-700 hover:text-white"
                 }`}>
               <item.icon className="w-[18px] h-[18px]" />
-              <span className="flex-1">{t(item.key)}</span>
-              {item.tab === "messages" && unreadMessages > 0 && (
-                <span data-testid="nav-messages-unread-badge"
-                  className="min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
-                  {unreadMessages > 99 ? "99+" : unreadMessages}
-                </span>
-              )}
-              {item.tab === "mailbox" && unread > 0 && (
-                <span data-testid="mailbox-unread-badge"
-                  className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-moneygreen-400 text-moneygreen-900 text-xs font-bold flex items-center justify-center">
-                  {unread > 99 ? "99+" : unread}
-                </span>
-              )}
+              {t(item.key)}
             </NavLink>
           ))}
         </nav>
@@ -150,6 +99,14 @@ export default function Layout({ children }) {
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500">{t("tagline")}</p>
           </div>
           <div className="flex items-center gap-2">
+            {(user?.role === "admin" || (user?.allowed_tabs || []).includes("claims")) && (
+              <button onClick={() => navigate("/claim-builder")} data-testid="claim-automation-btn"
+                title={t("claimBuilder")}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-moneygreen-600 text-white border border-moneygreen-600 text-sm font-semibold hover:bg-moneygreen-700 transition-colors duration-200 shadow-sm">
+                <DollarSign className="w-4 h-4" />
+                <span className="hidden sm:inline">{t("claimBuilder")}</span>
+              </button>
+            )}
             <button onClick={togglePrivacy} data-testid="privacy-toggle"
               title={t("privacyMode")}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-sm font-semibold transition-colors duration-200 ${

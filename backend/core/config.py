@@ -33,13 +33,16 @@ DEFAULT_TABS = {
 DEFAULT_SETTINGS = {
     "clinic_name": "Veterans of Puerto Plata",
     "tagline": "Health Clinic",
+    "rnc": "",
     "address": "Puerto Plata, Dominican Republic",
     "phone": "+1 (809) 555-0100",
     "email": "info@vpp-clinic.com",
+    "phone2": "",
     "whatsapp": "",
+    "admin_email": "",
+    "phone3": "",
     "mailing_address": "",
     "primary_insurance": "",
     "logo": "",
-    "rnc": "1-33-79564-7",
     "usd_to_dop": 60.0,
 }
