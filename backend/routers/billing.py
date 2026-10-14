@@ -10,7 +10,7 @@ from core.db import db, now_iso, logger
 from core.config import INVOICE_STATUSES
 from core.security import get_current_user, require_roles
 from core.audit import log_audit
-from core.ssn import with_patient_ssn
+from core.ssn import with_patient_ssn, redact_ssn, can_view_full_ssn
 from core.invoice_numbers import compute_next_invoice_number
 from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd
 from models.schemas import CptInput, InvoiceInput, IdList
@@ -215,9 +215,10 @@ async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles(
         p = await db.patients.find_one({"id": data.patient_id}, {"_id": 0})
         if p:
             name = f"{p['first_name']} {p['last_name']}"
+    full = await can_view_full_ssn(user)
     doc = {"id": str(uuid.uuid4()), "invoice_number": number,
            "patient_id": data.patient_id, "patient_name": name,
-           "dob": data.dob, "ssn": data.ssn, "policy_number": data.policy_number, "gender": data.gender,
+           "dob": data.dob, "ssn": data.ssn if full else None, "policy_number": data.policy_number, "gender": data.gender,
            "service_date": data.service_date, "visit_reason": data.visit_reason,
            "icd10": data.icd10, "provider": data.provider,
            "items": items, "total": round(total, 2), "status": data.status, "notes": data.notes,
@@ -234,7 +235,7 @@ async def create_invoice(data: InvoiceInput, user: dict = Depends(require_roles(
         logger.error(f"invoice-to-claim auto-link failed: {exc}")
     await log_audit("create", "invoice", actor=user, resource_id=doc["id"],
                     detail=f"{number} · {name or ''} · ${doc['total']}")
-    return doc
+    return await redact_ssn(user, doc)
 
 
 @router.put("/invoices/{iid}/status")
@@ -248,7 +249,7 @@ async def update_invoice_status(iid: str, status: str, user: dict = Depends(requ
     completed = (existing.get("completed_at") or now_iso()) if status == "paid" else None
     await db.invoices.update_one({"id": iid}, {"$set": {"completed_at": completed}})
     await log_audit("update", "invoice", actor=user, resource_id=iid, detail=f"status={status}")
-    return await db.invoices.find_one({"id": iid}, {"_id": 0})
+    return await redact_ssn(user, await db.invoices.find_one({"id": iid}, {"_id": 0}))
 
 
 @router.get("/invoices/{iid}")
@@ -264,7 +265,7 @@ async def get_invoice(iid: str, user: dict = Depends(require_roles("biller", "re
             inv["ssn"] = inv.get("ssn") or p.get("ssn")
             inv["gender"] = inv.get("gender") or p.get("gender")
     await log_audit("view", "invoice", actor=user, resource_id=iid, detail=inv.get("invoice_number", ""))
-    return inv
+    return await redact_ssn(user, inv)
 
 
 @router.post("/invoices/{iid}/to-folder")
@@ -315,7 +316,8 @@ async def update_invoice(iid: str, data: InvoiceInput, user: dict = Depends(requ
             name = f"{p['first_name']} {p['last_name']}"
     upd = {"invoice_number": data.invoice_number or existing.get("invoice_number"),
            "patient_id": data.patient_id, "patient_name": name,
-           "dob": data.dob, "ssn": data.ssn, "policy_number": data.policy_number, "gender": data.gender,
+           "dob": data.dob, "ssn": data.ssn if await can_view_full_ssn(user) else existing.get("ssn"),
+           "policy_number": data.policy_number, "gender": data.gender,
            "service_date": data.service_date, "visit_reason": data.visit_reason,
            "icd10": data.icd10, "provider": data.provider,
            "items": items, "total": round(total, 2), "status": data.status, "notes": data.notes,
@@ -330,7 +332,7 @@ async def update_invoice(iid: str, data: InvoiceInput, user: dict = Depends(requ
         logger.error(f"invoice-to-claim auto-link failed: {exc}")
     await log_audit("update", "invoice", actor=user, resource_id=iid,
                     detail=f"{upd['invoice_number']} · {name or ''} · ${upd['total']}")
-    return updated
+    return await redact_ssn(user, updated)
 
 
 @router.post("/invoices/bulk-delete")

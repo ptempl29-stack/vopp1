@@ -1,7 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from typing import List
 
 from core.db import db
-from core.config import DEFAULT_SETTINGS
+from core.config import DEFAULT_SETTINGS, ROLES
+from core.audit import log_audit
+from core.ssn import ssn_full_roles
 from core.security import get_current_user, require_roles
 from core.email_utils import send_email, email_configured
 from models.schemas import SettingsInput
@@ -24,6 +28,25 @@ async def public_settings():
 @router.get("/settings")
 async def read_settings(user: dict = Depends(get_current_user)):
     return await get_settings_doc()
+
+
+class SsnAccessInput(BaseModel):
+    full_roles: List[str]
+
+
+@router.get("/settings/ssn-access")
+async def read_ssn_access(user: dict = Depends(require_roles("admin"))):
+    return {"full_roles": await ssn_full_roles(), "roles": ROLES}
+
+
+@router.put("/settings/ssn-access")
+async def update_ssn_access(data: SsnAccessInput, user: dict = Depends(require_roles("admin"))):
+    roles = sorted({r for r in data.full_roles if r in ROLES} | {"admin"})
+    before = await ssn_full_roles()
+    await db.settings.update_one({"key": "ssn_access"}, {"$set": {"key": "ssn_access", "full_roles": roles}}, upsert=True)
+    await log_audit("update", "settings", actor=user, resource_id="ssn_access",
+                    detail=f"full SSN roles: {', '.join(before)} → {', '.join(roles)}")
+    return {"full_roles": roles, "roles": ROLES}
 
 
 @router.put("/settings")

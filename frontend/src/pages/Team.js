@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { roleLabel } from "../lib/perms";
+import { SsnAccessCard } from "../components/SsnAccessCard";
 import { UserPlus, Trash2, ShieldCheck, Pencil, FileSignature, Mail, MailCheck, Copy, Link2, Send, Ban, RotateCcw, Users, KeyRound, LogOut, Stethoscope, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
@@ -375,6 +376,7 @@ export default function Team() {
           ))}
         </div>
       </div>
+      {me?.role === "admin" && <SsnAccessCard />}
 
       <Modal open={!!roleTpl} onClose={() => setRoleTpl(null)} title={roleTpl ? `${t("editRoleTemplate")} — ${roleLabel(roleTpl.role)}` : ""}>
         {roleTpl && (

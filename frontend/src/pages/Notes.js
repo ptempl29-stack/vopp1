@@ -330,7 +330,7 @@ export default function Notes() {
           </HRow>
           <HRow label={t("dateOfSession")}><input type="date" value={form.visit_date || ""} onChange={set("visit_date")} className={headerInputCls} data-testid="nf-visit-date" /></HRow>
           <HRow label={t("dob")}><input type="date" value={form.dob || ""} onChange={set("dob")} className={headerInputCls} data-testid="nf-dob" /></HRow>
-          <HRow label={t("socialSecurity")}><input value={form.ssn || ""} onChange={set("ssn")} className={headerInputCls} data-testid="nf-ssn" placeholder="XXX-XX-XXXX" /></HRow>
+          <HRow label={t("socialSecurity")}><input value={form.ssn || ""} onChange={set("ssn")} readOnly={!user?.can_view_full_ssn} title={user?.can_view_full_ssn ? "" : t("ssnNoAccess")} className={headerInputCls} data-testid="nf-ssn" placeholder="XXX-XX-XXXX" /></HRow>
           <div>
             <HRow label={t("icd10Code")}>
               <div className="flex gap-1.5">

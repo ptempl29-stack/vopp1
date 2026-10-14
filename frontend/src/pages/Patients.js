@@ -142,7 +142,7 @@ export default function Patients() {
             </Field>
             <Field label={t("phone")}><input value={form.phone || ""} onChange={set("phone")} className={inputCls} /></Field>
             <Field label={t("email")}><input value={form.email || ""} onChange={set("email")} className={inputCls} /></Field>
-            <Field label={t("socialSecurity")}><input value={form.ssn || ""} onChange={set("ssn")} className={inputCls} data-testid="pf-ssn" placeholder="XXX-XX-XXXX" /></Field>
+            <Field label={t("socialSecurity")}><input value={form.ssn || ""} onChange={set("ssn")} readOnly={!user?.can_view_full_ssn} title={user?.can_view_full_ssn ? "" : t("ssnNoAccess")} className={inputCls} data-testid="pf-ssn" placeholder="XXX-XX-XXXX" /></Field>
           </div>
           <Field label={t("address")}><input value={form.address || ""} onChange={set("address")} className={inputCls} /></Field>
           <Field label={t("status")}>

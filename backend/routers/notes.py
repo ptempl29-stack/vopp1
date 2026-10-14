@@ -14,6 +14,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 from core.db import db, now_iso, logger
 from core.security import require_roles
 from core.audit import log_audit
+from core.ssn import redact_ssn, guard_ssn_write
 from core.icd_codes import dismissed_icd, add_dismissed_icd, remove_dismissed_icd
 from core.folder_filing import disp_date
 from models.schemas import NoteInput, SummarizeInput, IdList
@@ -50,12 +51,12 @@ async def list_notes(patient_id: Optional[str] = None, user: dict = Depends(requ
     notes = await db.notes.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     await log_audit("view", "note", actor=user,
                     detail=f"list ({len(notes)})" + (f" patient={patient_id}" if patient_id else ""))
-    return notes
+    return await redact_ssn(user, notes)
 
 
 @router.post("/notes")
 async def create_note(data: NoteInput, user: dict = Depends(require_roles("doctor", "nurse", "psychologist"))):
-    doc = data.model_dump()
+    doc = await guard_ssn_write(user, data.model_dump())
     if doc.get("signature") and len(doc["signature"]) > 600000:
         raise HTTPException(status_code=400, detail="Signature too large")
     if doc.get("note_type") == "soap" and not doc.get("content"):
@@ -83,7 +84,7 @@ async def create_note(data: NoteInput, user: dict = Depends(require_roles("docto
         logger.error(f"note-to-claim auto-sync failed: {exc}")
     await log_audit("create", "note", actor=user, resource_id=doc["id"],
                     detail=f"{doc.get('note_type','free')}: {doc.get('title','')}")
-    return doc
+    return await redact_ssn(user, doc)
 
 
 @router.put("/notes/{nid}")
@@ -91,7 +92,7 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
     existing = await db.notes.find_one({"id": nid})
     if not existing:
         raise HTTPException(status_code=404, detail="Note not found")
-    doc = data.model_dump()
+    doc = await guard_ssn_write(user, data.model_dump(), existing.get("ssn"))
     title_ok = doc.pop("title_nonclinical_confirmed", False)
     if doc.get("signature") and len(doc["signature"]) > 600000:
         raise HTTPException(status_code=400, detail="Signature too large")
@@ -142,7 +143,7 @@ async def update_note(nid: str, data: NoteInput, user: dict = Depends(require_ro
         logger.error(f"note-to-claim auto-sync failed: {exc}")
     await log_audit("update", "note", actor=user, resource_id=nid,
                     detail=f"{doc.get('note_type','free')}: {doc.get('title','')}")
-    return updated
+    return await redact_ssn(user, updated)
 
 
 @router.delete("/notes/{nid}")
@@ -311,7 +312,7 @@ async def notes_for_billing(patient_id: str,
             "dob": n.get("dob"), "gender": n.get("gender"), "ssn": n.get("ssn"),
             "preview": content[:180] + ("…" if len(content) > 180 else ""),
         })
-    return out
+    return await redact_ssn(user, out)
 
 
 @router.post("/notes/summarize")
@@ -370,7 +371,7 @@ async def note_versions(nid: str, user: dict = Depends(require_roles("doctor", "
     versions = await db.note_versions.find({"note_id": nid}, {"_id": 0}).sort("version", 1).to_list(1000)
     integrity = await verify_chain(nid, (note or {}).get("version_count") if note else None)
     await log_audit("view", "note", actor=user, resource_id=nid, detail=f"version history ({len(versions)})")
-    return {"versions": versions, "integrity": integrity}
+    return await redact_ssn(user, {"versions": versions, "integrity": integrity})
 
 
 @router.get("/notes-integrity/verify")

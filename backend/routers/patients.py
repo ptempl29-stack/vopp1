@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from core.db import db, now_iso
 from core.security import get_current_user, require_roles
 from core.audit import log_audit
+from core.ssn import redact_ssn, guard_ssn_write
 from models.schemas import PatientInput
 
 router = APIRouter()
@@ -45,18 +46,18 @@ async def list_patients(search: Optional[str] = None, user: dict = Depends(get_c
     patients = await db.patients.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     await log_audit("view", "patient", actor=user,
                     detail=f"list ({len(patients)})" + (f" search='{search[:40]}'" if search else ""))
-    return patients
+    return await redact_ssn(user, patients)
 
 
 @router.post("/patients")
 async def create_patient(data: PatientInput, user: dict = Depends(require_roles("doctor", "nurse", "receptionist"))):
-    doc = data.model_dump()
+    doc = await guard_ssn_write(user, data.model_dump())
     doc.update({"id": str(uuid.uuid4()), "created_at": now_iso(), "created_by": user["name"]})
     await db.patients.insert_one(doc)
     doc.pop("_id", None)
     await log_audit("create", "patient", actor=user, resource_id=doc["id"],
                     detail=f"{doc['first_name']} {doc['last_name']}")
-    return doc
+    return await redact_ssn(user, doc)
 
 
 @router.get("/patients/{pid}")
@@ -66,17 +67,18 @@ async def get_patient(pid: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Patient not found")
     await log_audit("view", "patient", actor=user, resource_id=pid,
                     detail=f"{p.get('first_name','')} {p.get('last_name','')}")
-    return p
+    return await redact_ssn(user, p)
 
 
 @router.put("/patients/{pid}")
 async def update_patient(pid: str, data: PatientInput, user: dict = Depends(require_roles("doctor", "nurse", "receptionist"))):
-    res = await db.patients.update_one({"id": pid}, {"$set": data.model_dump()})
-    if res.matched_count == 0:
+    existing = await db.patients.find_one({"id": pid}, {"_id": 0, "ssn": 1})
+    if not existing:
         raise HTTPException(status_code=404, detail="Patient not found")
+    await db.patients.update_one({"id": pid}, {"$set": await guard_ssn_write(user, data.model_dump(), existing.get("ssn"))})
     await log_audit("update", "patient", actor=user, resource_id=pid,
                     detail=f"{data.first_name} {data.last_name}")
-    return await db.patients.find_one({"id": pid}, {"_id": 0})
+    return await redact_ssn(user, await db.patients.find_one({"id": pid}, {"_id": 0}))
 
 
 @router.delete("/patients/{pid}")

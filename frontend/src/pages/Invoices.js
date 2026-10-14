@@ -5,6 +5,7 @@ import { useSelection, bulkDelete } from "../lib/bulk";
 import { usePrivacy, Private } from "../context/PrivacyContext";
 import { printSection } from "../lib/print";
 import { useLang } from "../context/LanguageContext";
+import { useAuth } from "../context/AuthContext";
 import { Letterhead } from "../components/Letterhead";
 import { PageHeader, Btn, Card, Badge, inputCls, Modal } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
@@ -37,6 +38,7 @@ const statusKey = { in_transit: "inTransit", paid: "paid", denied: "denied", unp
 const cellCls = "w-full px-2 py-1.5 rounded-md bg-white border border-border focus:outline-none focus:ring-2 focus:ring-moneygreen-500 text-sm";
 
 export default function Invoices() {
+  const { user } = useAuth();
   const { t } = useLang();
   const [params, setParams] = useSearchParams();
   const statusFilter = params.get("status");
@@ -308,7 +310,7 @@ export default function Invoices() {
                   <input type="date" value={inv.dob || ""} onChange={setF("dob")} className={`${cellCls} no-print`} data-testid="inv-dob" />
                   <span className="print-only text-sm text-moneygreen-800">{fmtDate(inv.dob) || "—"}</span>
                 </CField>
-                <CField label="SSN"><input value={inv.ssn || ""} onChange={setF("ssn")} className={cellCls} data-testid="inv-ssn" placeholder="XXX-XX-XXXX" /></CField>
+                <CField label="SSN"><input value={inv.ssn || ""} onChange={setF("ssn")} readOnly={!user?.can_view_full_ssn} title={user?.can_view_full_ssn ? "" : t("ssnNoAccess")} className={cellCls} data-testid="inv-ssn" placeholder="XXX-XX-XXXX" /></CField>
                 <CField label={t("policyNumber")}><input value={inv.policy_number || ""} onChange={setF("policy_number")} className={cellCls} data-testid="inv-policy" /></CField>
                 <CField label={t("gender")}>
                   <select value={inv.gender || ""} onChange={setF("gender")} className={cellCls}>
