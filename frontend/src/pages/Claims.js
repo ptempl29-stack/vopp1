@@ -115,6 +115,8 @@ export default function Claims() {
     try {
       const r = await api.post("/claims/from-date", fromDate);
       toast.success(t("packetSaved"));
+      (r.data.auto_invoice_problems || []).forEach((m) => toast.warning(m, { duration: 10000 }));
+      if ((r.data.items || []).some((i) => i.auto_invoice)) toast.success(t("autoInvoiceCreated"), { duration: 8000 });
       setFromDateOpen(false);
       setFromDate({ patient_id: "", date: "" });
       load();

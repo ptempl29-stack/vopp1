@@ -394,6 +394,13 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     if not invs and not notes:
         raise HTTPException(status_code=404, detail="No invoice or progress note found for that patient on that date")
 
+    auto_problems, created_id = [], None
+    if not invs and notes:
+        from core.auto_invoice import auto_invoice_for_day
+        auto_inv, auto_problems = await auto_invoice_for_day(p, notes, d, user)
+        if auto_inv:
+            invs, created_id = [auto_inv], auto_inv["id"]
+
     settings_doc = await get_settings_doc()
     m = d.split("-")
     disp = f"{m[1]}/{m[2]}/{m[0]}" if len(m) == 3 else d
@@ -416,7 +423,8 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
             continue
         items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
                       "invoice_id": inv["id"], "storage_path": result["path"], "filename": fname,
-                      "content_type": "application/pdf", "size": result.get("size"), "category": "invoice"})
+                      "content_type": "application/pdf", "size": result.get("size"), "category": "invoice",
+                      "auto_invoice": inv["id"] == created_id})
 
     for n in notes:
         note = {**n, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn"),
@@ -442,12 +450,13 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
     items = await _auto_attach_credentials(items, data.patient_id, provider_name)
 
     doc = {"id": str(uuid.uuid4()), "name": packet_name, "patient_id": data.patient_id,
-           "patient_name": pname, "claim_number": d, "status": "draft", "notes": None,
+           "patient_name": pname, "claim_number": d, "status": "draft", "notes": " ".join(auto_problems) or None,
            "items": items, "created_at": now_iso(), "created_by": user["name"]}
     await db.claim_packets.insert_one(doc)
     doc.pop("_id", None)
     await log_audit("create", "claim", actor=user, resource_id=doc["id"],
                     detail=f"from-date {pname} {d} ({len(items)} items)")
+    doc["auto_invoice_problems"] = auto_problems
     return doc
 
 

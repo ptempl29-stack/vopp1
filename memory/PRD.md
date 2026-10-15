@@ -68,3 +68,4 @@ pre-github-sync commit: 8bcbfab84f1df1478f25eb53f76acb40f9006dee
 - Workspace backend/ and frontend/ replaced by ptempl29-stack/vopp1 @ ab8213f (older base). Removed modules: providers.py, note_versions.py, sandbox.py, sandbox_admin.py, reports.py, ssn.py, icd_codes.py etc. Previous Preview work is in git history (see pre-github-sync commit above) — restore via platform Rollback if needed.
 - Preview smoke: login, patients, notes, invoices, claims, settings, /api/icd10/search all 200; NLM reachable from preview.
 - Production deploy queued with read-only post-checks.
+- 2026-10-15: Auto invoice from signed note on Build Packet (PREVIEW, on ab8213f base): core/auto_invoice.py + hook in claims.claim_from_date; status unpaid, auto_generated, auto_from_note_ids; one invoice per day; no invoice + message if unsigned/no CPT/CPT not in list. Test tests/test_auto_invoice.py 13/13. Portable patch in memory/patches/auto_invoice/. Not deployed.

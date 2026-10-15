@@ -1,0 +1,78 @@
+diff --git a/backend/routers/claims.py b/backend/routers/claims.py
+index b55f2a8..ec66cc4 100644
+--- a/backend/routers/claims.py
++++ b/backend/routers/claims.py
+@@ -394,6 +394,13 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
+     if not invs and not notes:
+         raise HTTPException(status_code=404, detail="No invoice or progress note found for that patient on that date")
+ 
++    auto_problems, created_id = [], None
++    if not invs and notes:
++        from core.auto_invoice import auto_invoice_for_day
++        auto_inv, auto_problems = await auto_invoice_for_day(p, notes, d, user)
++        if auto_inv:
++            invs, created_id = [auto_inv], auto_inv["id"]
++
+     settings_doc = await get_settings_doc()
+     m = d.split("-")
+     disp = f"{m[1]}/{m[2]}/{m[0]}" if len(m) == 3 else d
+@@ -416,7 +423,8 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
+             continue
+         items.append({"id": str(uuid.uuid4()), "source": "invoice", "form_id": None,
+                       "invoice_id": inv["id"], "storage_path": result["path"], "filename": fname,
+-                      "content_type": "application/pdf", "size": result.get("size"), "category": "invoice"})
++                      "content_type": "application/pdf", "size": result.get("size"), "category": "invoice",
++                      "auto_invoice": inv["id"] == created_id})
+ 
+     for n in notes:
+         note = {**n, "patient_name": pname, "dob": p.get("dob"), "ssn": p.get("ssn"),
+@@ -442,12 +450,13 @@ async def claim_from_date(data: ClaimFromDateInput, user: dict = Depends(require
+     items = await _auto_attach_credentials(items, data.patient_id, provider_name)
+ 
+     doc = {"id": str(uuid.uuid4()), "name": packet_name, "patient_id": data.patient_id,
+-           "patient_name": pname, "claim_number": d, "status": "draft", "notes": None,
++           "patient_name": pname, "claim_number": d, "status": "draft", "notes": " ".join(auto_problems) or None,
+            "items": items, "created_at": now_iso(), "created_by": user["name"]}
+     await db.claim_packets.insert_one(doc)
+     doc.pop("_id", None)
+     await log_audit("create", "claim", actor=user, resource_id=doc["id"],
+                     detail=f"from-date {pname} {d} ({len(items)} items)")
++    doc["auto_invoice_problems"] = auto_problems
+     return doc
+ 
+ 
+diff --git a/frontend/src/i18n.js b/frontend/src/i18n.js
+index 458e592..cdbbe10 100644
+--- a/frontend/src/i18n.js
++++ b/frontend/src/i18n.js
+@@ -132,7 +132,7 @@ export const translations = {
+     buildFromDateHint: "Pick a patient and a date to auto-pull that day's invoice and progress note into a new FMP Claim packet.",
+     build: "Build Packet", serviceDate: "Date",
+     selectForm: "Select a form…", selectInvoice: "Select an invoice…", selectNote: "Select a progress note…", addToPacket: "Add to Packet",
+-    removeFromPacket: "Remove", backToPackets: "Back to Packets", packetSaved: "Packet saved ✓",
++    removeFromPacket: "Remove", autoInvoiceCreated: "Invoice created automatically from the signed progress note and attached", backToPackets: "Back to Packets", packetSaved: "Packet saved ✓",
+     mergeHint: "Only PDF & image documents are combined into the merged PDF.", filename: "File", createdBy: "Created by",
+     confirmDeletePacket: "Delete this claim packet and its uploaded documents? This cannot be undone.",
+     patientFolders: "Patient Folders", foldersSubtitle: "Documents & forms organized by patient",
+@@ -357,7 +357,7 @@ export const translations = {
+     buildFromDateHint: "Seleccione un paciente y una fecha para agregar automáticamente la factura y la nota de progreso de ese día a un nuevo paquete FMP.",
+     build: "Crear Paquete", serviceDate: "Fecha",
+     selectForm: "Seleccione un formulario…", selectInvoice: "Seleccione una factura…", selectNote: "Seleccione una nota de progreso…", addToPacket: "Agregar al Paquete",
+-    removeFromPacket: "Quitar", backToPackets: "Volver a Paquetes", packetSaved: "Paquete guardado ✓",
++    removeFromPacket: "Quitar", autoInvoiceCreated: "Factura creada automáticamente desde la nota de progreso firmada y adjuntada", backToPackets: "Volver a Paquetes", packetSaved: "Paquete guardado ✓",
+     mergeHint: "Solo se combinan documentos PDF e imágenes en el PDF combinado.", filename: "Archivo", createdBy: "Creado por",
+     confirmDeletePacket: "¿Eliminar este paquete de reclamación y sus documentos subidos? Esta acción no se puede deshacer.",
+     patientFolders: "Carpetas de Pacientes", foldersSubtitle: "Documentos y formularios organizados por paciente",
+diff --git a/frontend/src/pages/Claims.js b/frontend/src/pages/Claims.js
+index ce339a6..f40d305 100644
+--- a/frontend/src/pages/Claims.js
++++ b/frontend/src/pages/Claims.js
+@@ -115,6 +115,8 @@ export default function Claims() {
+     try {
+       const r = await api.post("/claims/from-date", fromDate);
+       toast.success(t("packetSaved"));
++      (r.data.auto_invoice_problems || []).forEach((m) => toast.warning(m, { duration: 10000 }));
++      if ((r.data.items || []).some((i) => i.auto_invoice)) toast.success(t("autoInvoiceCreated"), { duration: 8000 });
+       setFromDateOpen(false);
+       setFromDate({ patient_id: "", date: "" });
+       load();
