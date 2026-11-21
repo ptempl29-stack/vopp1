@@ -5,6 +5,8 @@ import { useLang } from "../context/LanguageContext";
 import { PageHeader, Modal, Field, inputCls, Btn, Badge, Empty, Card } from "../components/ui-kit";
 import { ManagedSelect } from "../components/ManagedSelect";
 import { fmtDate } from "../lib/date";
+import { useSelection } from "../lib/bulk";
+import { filterPacketsByPatient } from "../lib/packetSearch";
 import {
   FolderArchive, Plus, Pencil, Trash2, ChevronLeft, Download, FileText,
   ReceiptText, Upload, FilePlus, CalendarClock, Eye, FolderInput, Send, ArrowUp, ArrowDown,
@@ -45,6 +47,8 @@ export default function Claims() {
   const [sendOpen, setSendOpen] = useState(false);
   const [sendTo, setSendTo] = useState("");
   const [sendBusy, setSendBusy] = useState(false);
+  const [packetSearch, setPacketSearch] = useState("");
+  const sel = useSelection();
 
   const load = useCallback(async () => {
     try { setPackets((await api.get("/claims")).data); } catch (e) { toast.error(apiErr(e)); }
@@ -104,8 +108,25 @@ export default function Claims() {
 
   const remove = async (id) => {
     if (!window.confirm(t("confirmDeletePacket"))) return;
-    try { await api.delete(`/claims/${id}`); toast.success(t("delete") + " ✓"); load(); }
+    try { await api.delete(`/claims/${id}`); toast.success(t("delete") + " ✓"); if (sel.has(id)) sel.toggle(id); load(); }
     catch (e) { toast.error(apiErr(e)); }
+  };
+
+  // Search + selection (same behavior as the Invoices page). Selection is
+  // cleared whenever the search text changes, so a bulk action can only ever
+  // reach packets that are visible on screen.
+  const shownPackets = filterPacketsByPatient(packets, packetSearch);
+  const shownIds = shownPackets.map((p) => p.id);
+  const selectedIds = shownIds.filter((id) => sel.has(id));
+  const allShownSelected = shownIds.length > 0 && selectedIds.length === shownIds.length;
+  const onSearch = (e) => { setPacketSearch(e.target.value); sel.clear(); };
+  const removeSelected = async () => {
+    if (!selectedIds.length || !window.confirm(t("confirmDeleteSelectedPackets"))) return;
+    try {
+      const r = await api.post("/claims/bulk-delete", { ids: selectedIds });
+      toast.success(`${r.data.deleted} ${t("deleted")} ✓`);
+      sel.clear(); load();
+    } catch (e) { toast.error(apiErr(e)); }
   };
 
   const buildFromDate = async (e) => {
@@ -406,12 +427,38 @@ export default function Claims() {
             <Btn onClick={openNew} data-testid="new-claim-btn"><FilePlus className="w-4 h-4" />{t("newClaim")}</Btn>
           </div>} />
 
+      <div className="flex items-center gap-3 mb-3 flex-wrap">
+        <input type="text" value={packetSearch} onChange={onSearch}
+          placeholder={t("searchPacketsPlaceholder")} data-testid="claim-search"
+          className={`${inputCls} !w-auto max-w-xs`} />
+        {shownPackets.length > 0 && (
+          <div className="ml-auto flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-sm text-stone-600 cursor-pointer">
+              <input type="checkbox" data-testid="select-all-claims"
+                checked={allShownSelected} onChange={() => sel.toggleAll(shownIds)}
+                className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+              {t("selectAll")}
+            </label>
+            {selectedIds.length > 0 && (<>
+              <span className="text-sm text-stone-500">{selectedIds.length}</span>
+              <Btn variant="danger" onClick={removeSelected} data-testid="bulk-delete-claims"><Trash2 className="w-4 h-4" />{t("deleteSelected")}</Btn>
+              <Btn variant="outline" onClick={sel.clear} data-testid="deselect-claims">{t("deselectAll")}</Btn>
+            </>)}
+          </div>
+        )}
+      </div>
+
       <Card className="overflow-hidden">
-        {packets.length === 0 ? <Empty text={t("noData")} /> : (
+        {shownPackets.length === 0 ? <Empty text={t("noData")} /> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs font-bold uppercase tracking-wider text-stone-500 border-b border-border">
+                  <th className="px-4 py-3 w-8">
+                    <input type="checkbox" data-testid="select-all-claims-head"
+                      checked={allShownSelected} onChange={() => sel.toggleAll(shownIds)}
+                      className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+                  </th>
                   <th className="px-5 py-3">{t("claimName")}</th>
                   <th className="px-5 py-3 hidden md:table-cell">{t("patient")}</th>
                   <th className="px-5 py-3 hidden md:table-cell">{t("claimNo")}</th>
@@ -421,11 +468,15 @@ export default function Claims() {
                 </tr>
               </thead>
               <tbody>
-                {packets.map((p, i) => (
+                {shownPackets.map((p, i) => (
                   <motion.tr key={p.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
                     data-testid={`claim-row-${p.id}`}
-                    className={`border-b border-border/60 hover:bg-tan-50 transition-colors duration-200 cursor-pointer ${p.status === "complete" ? "bg-moneygreen-50" : (i % 2 ? "bg-tan-50/40" : "")}`}
+                    className={`border-b border-border/60 hover:bg-tan-50 transition-colors duration-200 cursor-pointer ${sel.has(p.id) ? "bg-moneygreen-100" : p.status === "complete" ? "bg-moneygreen-50" : (i % 2 ? "bg-tan-50/40" : "")}`}
                     onClick={() => refreshSelected(p.id)}>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={sel.has(p.id)} onChange={() => sel.toggle(p.id)}
+                        data-testid={`select-claim-${p.id}`} className="w-4 h-4 accent-moneygreen-600 cursor-pointer" />
+                    </td>
                     <td className="px-5 py-3">
                       <span className="inline-flex items-center gap-2 font-semibold text-moneygreen-800"><FolderArchive className={`w-4 h-4 ${p.status === "complete" ? "text-moneygreen-600" : "text-moneygreen-500"}`} />{p.name}</span>
                     </td>
