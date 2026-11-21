@@ -10,6 +10,7 @@ from core.db import db, now_iso, logger
 from core.config import APP_NAME, EXT_CONTENT_TYPES
 from core.security import require_roles
 from core.audit import log_audit
+from models.schemas import IdList
 from core.storage import put_object, get_object, delete_object
 from routers.settings import get_settings_doc
 from core.folder_filing import invoice_pdf as _invoice_pdf, note_pdf
@@ -486,6 +487,22 @@ async def delete_claim(cid: str, user: dict = Depends(require_roles("admin"))):
     await db.claim_packets.delete_one({"id": cid})
     await log_audit("delete", "claim", actor=user, resource_id=cid)
     return {"ok": True}
+
+
+@router.post("/claims/bulk-delete")
+async def bulk_delete_claims(data: IdList, user: dict = Depends(require_roles("admin"))):
+    """Delete several claim packets at once. Same permission and same cleanup
+    as deleting one packet (DELETE /claims/{cid}); nothing else is touched."""
+    docs = await db.claim_packets.find({"id": {"$in": data.ids}}, {"_id": 0}).to_list(1000)
+    for c in docs:
+        for it in c.get("items", []):
+            if it.get("source") in ("upload", "invoice", "note") and it.get("storage_path"):
+                delete_object(it["storage_path"])
+    ids = [c["id"] for c in docs]
+    if ids:
+        await db.claim_packets.delete_many({"id": {"$in": ids}})
+    await log_audit("delete", "claim", actor=user, detail=f"bulk ({len(ids)})")
+    return {"deleted": len(ids), "skipped": len(data.ids) - len(ids)}
 
 
 @router.post("/claims/{cid}/attach-form")
