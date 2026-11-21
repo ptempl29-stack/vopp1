@@ -1,4 +1,4 @@
-import { filterPacketsByPatient } from "./packetSearch";
+import { filterPacketsByPatient } from "./packetSearch.js";
 
 const P = [
   { id: 1, patient_name: "Brandon Whitfield", name: "Brandon Whitfield 10/01/2026 FMP Claim" },
